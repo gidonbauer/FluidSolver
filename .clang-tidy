@@ -1,0 +1,29 @@
+Checks:
+  cppcoreguidelines-*,
+  modernize-*,
+  performance-*,
+  openmp-*,
+  bugprone-*,
+  clang-analyzer-*,
+  readability-*,
+  cert-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-init-variables,
+  -openmp-use-default-none,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-else-after-return,
+  -readability-function-cognitive-complexity,
+  -readability-math-missing-parentheses,
+  -readability-avoid-unconditional-preprocessor-if,
+  -performance-enum-size,
+  -bugprone-easily-swappable-parameters,
+  -cert-dcl16-c,
+  -modernize-use-ranges,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic
+
+CheckOptions:
+  {IgnoreMacros: true}
+
+HeaderFilterRegex: ".*"

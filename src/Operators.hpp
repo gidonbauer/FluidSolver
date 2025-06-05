@@ -1,6 +1,7 @@
 #ifndef FLUID_SOLVER_OPERATORS_HPP_
 #define FLUID_SOLVER_OPERATORS_HPP_
 
+#include <Igor/Logging.hpp>
 #include <Igor/MdArray.hpp>
 
 #include "Config.hpp"

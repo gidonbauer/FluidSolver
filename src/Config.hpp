@@ -9,8 +9,8 @@
 using Float = double;
 
 constexpr size_t NDIMS = 2;
-constexpr size_t NX    = 100;  // 500;
-constexpr size_t NY    = 100;  // 400;
+constexpr size_t NX    = 10;  // 500;
+constexpr size_t NY    = 10;  // 400;
 
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 1.0;
@@ -22,6 +22,8 @@ constexpr Float DT_MAX  = 1e-3;
 constexpr Float CFL_MAX = 0.5;
 
 constexpr Float U_IN = 2.0;
+constexpr Float VISC = 1e-3;
+constexpr Float RHO  = 0.9;
 
 constexpr size_t NUM_SUBITER = 2;
 

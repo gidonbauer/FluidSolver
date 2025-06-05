@@ -263,11 +263,12 @@ constexpr int COMM = -1;
   HYPRE_StructPCGSetLogging(ps.solver, 1);
 #endif  // FS_HYPRE_VERBOSE
 #else
-  HYPRE_StructGMRESCreate(COMM, &ps.solver);
-  HYPRE_StructGMRESSetTol(ps.solver, 1e-8);
+  HYPRE_StructFlexGMRESCreate(COMM, &ps.solver);
+  HYPRE_StructFlexGMRESSetTol(ps.solver, 1e-8);
+  HYPRE_StructFlexGMRESSetMaxIter(ps.solver, 500);
 #ifdef FS_HYPRE_VERBOSE
-  HYPRE_StructGMRESSetPrintLevel(ps.solver, 2);
-  HYPRE_StructGMRESSetLogging(ps.solver, 1);
+  HYPRE_StructFlexGMRESSetPrintLevel(ps.solver, 2);
+  HYPRE_StructFlexGMRESSetLogging(ps.solver, 1);
 #endif  // FS_HYPRE_VERBOSE
 #endif
 
@@ -286,7 +287,8 @@ constexpr int COMM = -1;
 #ifdef FS_USE_PCG_SOLVER
   HYPRE_StructPCGSetPrecond(ps.solver, HYPRE_StructPFMGSolve, HYPRE_StructPFMGSetup, ps.precond);
 #else
-  HYPRE_StructGMRESSetPrecond(ps.solver, HYPRE_StructPFMGSolve, HYPRE_StructPFMGSetup, ps.precond);
+  HYPRE_StructFlexGMRESSetPrecond(
+      ps.solver, HYPRE_StructPFMGSolve, HYPRE_StructPFMGSetup, ps.precond);
 #endif
 
 #else
@@ -301,7 +303,8 @@ constexpr int COMM = -1;
 #ifdef FS_USE_PCG_SOLVER
   HYPRE_StructPCGSetPrecond(ps.solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, ps.precond);
 #else
-  HYPRE_StructGMRESSetPrecond(ps.solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, ps.precond);
+  HYPRE_StructFlexGMRESSetPrecond(
+      ps.solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, ps.precond);
 #endif
 
 #endif
@@ -323,7 +326,7 @@ void finalize_pressure_correction(PS& ps) {
 #ifdef FS_USE_PCG_SOLVER
   HYPRE_StructPCGDestroy(ps.solver);
 #else
-  HYPRE_StructGMRESDestroy(ps.solver);
+  HYPRE_StructFlexGMRESDestroy(ps.solver);
 #endif
 
   HYPRE_StructVectorDestroy(ps.sol);
@@ -335,18 +338,19 @@ void finalize_pressure_correction(PS& ps) {
 }
 
 // -------------------------------------------------------------------------------------------------
-void calc_pressure_correction(const FS& fs,
-                              const Igor::MdArray<Float, CENTERED_EXTENT>& div,
-                              const PS& ps,
-                              Float dt,
-                              Igor::MdArray<Float, CENTERED_EXTENT>& resP) {
+[[nodiscard]] auto calc_pressure_correction(const FS& fs,
+                                            const Igor::MdArray<Float, CENTERED_EXTENT>& div,
+                                            const PS& ps,
+                                            Float dt,
+                                            Igor::MdArray<Float, CENTERED_EXTENT>& resP) -> bool {
   static std::array<char, 1024UZ> buffer{};
   static_cast<void>(fs);
   HYPRE_Int ierr = 0;
+  bool res       = true;
 
   static Igor::MdArray<Float, CENTERED_EXTENT, std::layout_left> rhs(resP.extent(0),
                                                                      resP.extent(1));
-  Float mean_rhs = 0.0;
+  [[maybe_unused]] Float mean_rhs = 0.0;
   for (size_t i = 0; i < resP.extent(0); ++i) {
     for (size_t j = 0; j < resP.extent(1); ++j) {
       rhs[i, j] = fs.rho[i, j] * div[i, j] / dt;
@@ -373,17 +377,15 @@ void calc_pressure_correction(const FS& fs,
   ierr = HYPRE_StructPCGSolve(ps.solver, ps.matrix, ps.rhs, ps.sol);
   HYPRE_StructPCGGetFinalRelativeResidualNorm(ps.solver, &final_residual);
 #else
-  HYPRE_StructGMRESSetup(ps.solver, ps.matrix, ps.rhs, ps.sol);
-  ierr = HYPRE_StructGMRESSolve(ps.solver, ps.matrix, ps.rhs, ps.sol);
-  HYPRE_StructGMRESGetFinalRelativeResidualNorm(ps.solver, &final_residual);
+  HYPRE_StructFlexGMRESSetup(ps.solver, ps.matrix, ps.rhs, ps.sol);
+  ierr = HYPRE_StructFlexGMRESSolve(ps.solver, ps.matrix, ps.rhs, ps.sol);
+  HYPRE_StructFlexGMRESGetFinalRelativeResidualNorm(ps.solver, &final_residual);
 #endif
 
-  if (final_residual > 1e-6) { Igor::Warn("Residual pressure correction = {}", final_residual); }
-
-  if (ierr != 0) {
-    HYPRE_DescribeError(ierr, buffer.data());
-    Igor::Warn("Could not solve the system successfully: {}", buffer.data());
-    HYPRE_ClearError(ierr);
+  IGOR_DEBUG_PRINT(final_residual);
+  if (final_residual > 1e-6) {
+    Igor::Warn("Residual pressure correction = {}", final_residual);
+    res = false;
   }
 
   for (size_t i = 0; i < resP.extent(0); ++i) {
@@ -392,6 +394,15 @@ void calc_pressure_correction(const FS& fs,
       ierr = HYPRE_StructVectorGetValues(ps.sol, idx.data(), &resP[i, j]);
     }
   }
+
+  if (ierr != 0) {
+    HYPRE_DescribeError(ierr, buffer.data());
+    Igor::Warn("Could not solve the system successfully: {}", buffer.data());
+    HYPRE_ClearError(ierr);
+    res = false;
+  }
+
+  return res;
 }
 
 #endif  // FLUID_SOLVER_PRESSURE_CORRECTION_HPP_

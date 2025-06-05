@@ -9,7 +9,7 @@ Build the executable with `make` and run it:
 $ make
 $ ./FluidSolver
 ```
-The output is written into `output` in VTK-format and can be instpected with Paraview.
+The output is written into `output` in VTK-format and can be inspected with Paraview.
 
 ## Dependencies
 

@@ -2,7 +2,7 @@ SRC = src/FluidSolver.cpp src/Config.hpp src/FS.hpp src/IO.hpp src/Operators.hpp
 
 CXX_FLAGS = -Wall -Wextra -pedantic -Wshadow -Wconversion -std=c++23
 CXX_RELEASE_FLAGS = -march=native -ffast-math -O3
-CXX_DEBUG_FLAGS = -O0 -g
+CXX_DEBUG_FLAGS = -O0 -g -D_GLIBCXX_DEBUG
 CXX_SANITIZER_FLAGS = -fsanitize=address,undefined
 
 INC = -Isrc/
@@ -39,7 +39,4 @@ FluidSolver: ${SRC}
 clean:
 	${RM} -r FluidSolver FluidSolver.dSYM
 
-clean-output:
-	${RM} -r output
-
-.PHONY: release debug clean clean-output
+.PHONY: release debug clean

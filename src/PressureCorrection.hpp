@@ -255,44 +255,15 @@ constexpr int COMM = -1;
   HYPRE_StructVectorInitialize(ps.sol);
 
   // = Create solver ===============================================================================
-#ifdef FS_USE_PCG_SOLVER
-  HYPRE_StructPCGCreate(COMM, &ps.solver);
-  HYPRE_StructPCGSetTol(ps.solver, 1e-8);
+  HYPRE_StructGMRESCreate(COMM, &ps.solver);
+  HYPRE_StructGMRESSetTol(ps.solver, 1e-8);
+  HYPRE_StructGMRESSetMaxIter(ps.solver, 500);
 #ifdef FS_HYPRE_VERBOSE
-  HYPRE_StructPCGSetPrintLevel(ps.solver, 2);
-  HYPRE_StructPCGSetLogging(ps.solver, 1);
+  HYPRE_StructGMRESSetPrintLevel(ps.solver, 2);
+  HYPRE_StructGMRESSetLogging(ps.solver, 1);
 #endif  // FS_HYPRE_VERBOSE
-#else
-  HYPRE_StructFlexGMRESCreate(COMM, &ps.solver);
-  HYPRE_StructFlexGMRESSetTol(ps.solver, 1e-8);
-  HYPRE_StructFlexGMRESSetMaxIter(ps.solver, 500);
-#ifdef FS_HYPRE_VERBOSE
-  HYPRE_StructFlexGMRESSetPrintLevel(ps.solver, 2);
-  HYPRE_StructFlexGMRESSetLogging(ps.solver, 1);
-#endif  // FS_HYPRE_VERBOSE
-#endif
 
   // = Create preconditioner =======================================================================
-#ifdef FS_USE_PFMG_PRECOND
-
-  HYPRE_StructPFMGCreate(COMM, &ps.precond);  // NOLINT
-  HYPRE_StructPFMGSetMaxIter(ps.precond, 1);
-  HYPRE_StructPFMGSetTol(ps.precond, 0.0);
-  HYPRE_StructPFMGSetZeroGuess(ps.precond);
-  HYPRE_StructPFMGSetRAPType(ps.precond, 0);
-  HYPRE_StructPFMGSetRelaxType(ps.precond, 1);
-  HYPRE_StructPFMGSetNumPreRelax(ps.precond, 1);
-  HYPRE_StructPFMGSetNumPostRelax(ps.precond, 1);
-  HYPRE_StructPFMGSetSkipRelax(ps.precond, 0);
-#ifdef FS_USE_PCG_SOLVER
-  HYPRE_StructPCGSetPrecond(ps.solver, HYPRE_StructPFMGSolve, HYPRE_StructPFMGSetup, ps.precond);
-#else
-  HYPRE_StructFlexGMRESSetPrecond(
-      ps.solver, HYPRE_StructPFMGSolve, HYPRE_StructPFMGSetup, ps.precond);
-#endif
-
-#else
-
   HYPRE_StructSMGCreate(COMM, &ps.precond);  // NOLINT
   HYPRE_StructSMGSetMaxIter(ps.precond, 1);
   HYPRE_StructSMGSetTol(ps.precond, 0.0);
@@ -300,14 +271,7 @@ constexpr int COMM = -1;
   HYPRE_StructSMGSetNumPreRelax(ps.precond, 1);
   HYPRE_StructSMGSetNumPostRelax(ps.precond, 1);
   HYPRE_StructSMGSetMemoryUse(ps.precond, 0);
-#ifdef FS_USE_PCG_SOLVER
-  HYPRE_StructPCGSetPrecond(ps.solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, ps.precond);
-#else
-  HYPRE_StructFlexGMRESSetPrecond(
-      ps.solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, ps.precond);
-#endif
-
-#endif
+  HYPRE_StructGMRESSetPrecond(ps.solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, ps.precond);
 
   const HYPRE_Int error_flag = HYPRE_GetError();
   if (error_flag != 0) { Igor::Panic("An error occured in HYPRE."); }
@@ -317,18 +281,8 @@ constexpr int COMM = -1;
 
 // -------------------------------------------------------------------------------------------------
 void finalize_pressure_correction(PS& ps) {
-#ifdef FS_USE_PFMG_PRECOND
-  HYPRE_StructPFMGDestroy(ps.precond);
-#else
   HYPRE_StructSMGDestroy(ps.precond);
-#endif
-
-#ifdef FS_USE_PCG_SOLVER
-  HYPRE_StructPCGDestroy(ps.solver);
-#else
-  HYPRE_StructFlexGMRESDestroy(ps.solver);
-#endif
-
+  HYPRE_StructGMRESDestroy(ps.solver);
   HYPRE_StructVectorDestroy(ps.sol);
   HYPRE_StructVectorDestroy(ps.rhs);
   HYPRE_StructMatrixDestroy(ps.matrix);
@@ -338,22 +292,24 @@ void finalize_pressure_correction(PS& ps) {
 }
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto calc_pressure_correction(const FS& fs,
+[[nodiscard]] auto calc_pressure_correction([[maybe_unused]] const FS& fs,
                                             const Igor::MdArray<Float, CENTERED_EXTENT>& div,
                                             const PS& ps,
                                             Float dt,
                                             Igor::MdArray<Float, CENTERED_EXTENT>& resP) -> bool {
   static std::array<char, 1024UZ> buffer{};
-  static_cast<void>(fs);
   HYPRE_Int ierr = 0;
   bool res       = true;
+
+  // TODO: Assumes equidistant spacing
+  const auto vol = fs.dx[0] * fs.dy[0];
 
   static Igor::MdArray<Float, CENTERED_EXTENT, std::layout_left> rhs(resP.extent(0),
                                                                      resP.extent(1));
   [[maybe_unused]] Float mean_rhs = 0.0;
   for (size_t i = 0; i < resP.extent(0); ++i) {
     for (size_t j = 0; j < resP.extent(1); ++j) {
-      rhs[i, j] = fs.rho[i, j] * div[i, j] / dt;
+      rhs[i, j] = vol * RHO * div[i, j] / dt;
       mean_rhs += rhs[i, j];
     }
   }
@@ -372,15 +328,9 @@ void finalize_pressure_correction(PS& ps) {
   HYPRE_StructVectorAssemble(ps.rhs);
 
   Float final_residual = -1.0;
-#ifdef FS_USE_PCG_SOLVER
-  HYPRE_StructPCGSetup(ps.solver, ps.matrix, ps.rhs, ps.sol);
-  ierr = HYPRE_StructPCGSolve(ps.solver, ps.matrix, ps.rhs, ps.sol);
-  HYPRE_StructPCGGetFinalRelativeResidualNorm(ps.solver, &final_residual);
-#else
-  HYPRE_StructFlexGMRESSetup(ps.solver, ps.matrix, ps.rhs, ps.sol);
-  ierr = HYPRE_StructFlexGMRESSolve(ps.solver, ps.matrix, ps.rhs, ps.sol);
-  HYPRE_StructFlexGMRESGetFinalRelativeResidualNorm(ps.solver, &final_residual);
-#endif
+  HYPRE_StructGMRESSetup(ps.solver, ps.matrix, ps.rhs, ps.sol);
+  ierr = HYPRE_StructGMRESSolve(ps.solver, ps.matrix, ps.rhs, ps.sol);
+  HYPRE_StructGMRESGetFinalRelativeResidualNorm(ps.solver, &final_residual);
 
   IGOR_DEBUG_PRINT(final_residual);
   if (final_residual > 1e-6) {

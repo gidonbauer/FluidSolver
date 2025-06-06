@@ -13,16 +13,12 @@
 namespace detail {
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto save_state_npy(const Igor::MdArray<Float, CENTERED_EXTENT>& rho,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
+[[nodiscard]] auto save_state_npy(const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& p,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& div,
                                   Float t) {
   bool result = true;
-
-  const auto rho_filename = Igor::detail::format("{}/rho_{:.6f}.npy", OUTPUT_DIR, t);
-  result                  = Igor::mdspan_to_npy(rho, rho_filename) && result;
 
   const auto Ui_filename = Igor::detail::format("{}/Ui_{:.6f}.npy", OUTPUT_DIR, t);
   result                 = Igor::mdspan_to_npy(Ui, Ui_filename) && result;
@@ -83,7 +79,6 @@ void write_vector_vtk(std::ofstream& out,
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] auto save_state_vtk(const Igor::MdArray<Float, NX_P1_EXTENT>& x,
                                   const Igor::MdArray<Float, NX_P1_EXTENT>& y,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& rho,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& p,
@@ -119,11 +114,9 @@ void write_vector_vtk(std::ofstream& out,
   out << "\n\n";
 
   // = Write cell data =============================================================================
-  IGOR_ASSERT(rho.size() == Ui.size() && rho.size() == Vi.size() && rho.size() == p.size() &&
-                  rho.size() == div.size(),
+  IGOR_ASSERT(Ui.size() == Vi.size() && Ui.size() == p.size() && Ui.size() == div.size(),
               "Expected all fields to have the same size.");
-  out << "CELL_DATA " << rho.size() << '\n';
-  write_scalar_vtk(out, rho, "density");
+  out << "CELL_DATA " << Ui.size() << '\n';
   write_scalar_vtk(out, p, "pressure");
   write_scalar_vtk(out, div, "divergence");
   write_vector_vtk(out, Ui, Vi, "velocity");
@@ -136,16 +129,15 @@ void write_vector_vtk(std::ofstream& out,
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] auto save_state([[maybe_unused]] const Igor::MdArray<Float, NX_P1_EXTENT>& x,
                               [[maybe_unused]] const Igor::MdArray<Float, NX_P1_EXTENT>& y,
-                              const Igor::MdArray<Float, CENTERED_EXTENT>& rho,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& p,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& div,
                               Float t) -> bool {
 #ifdef FS_SAVE_NUMPY
-  return detail::save_state_npy(rho, Ui, Vi, p, div, t);
+  return detail::save_state_npy(Ui, Vi, p, div, t);
 #else
-  return detail::save_state_vtk(x, y, rho, Ui, Vi, p, div, t);
+  return detail::save_state_vtk(x, y, Ui, Vi, p, div, t);
 #endif
 }
 

@@ -18,8 +18,8 @@ struct FS {
   Igor::MdArray<Float, NY_EXTENT> ym;
   Igor::MdArray<Float, NY_EXTENT> dy;
 
-  Igor::MdArray<Float, CENTERED_EXTENT> rho;
-  Igor::MdArray<Float, CENTERED_EXTENT> rho_old;
+  // Igor::MdArray<Float, CENTERED_EXTENT> rho;
+  // Igor::MdArray<Float, CENTERED_EXTENT> rho_old;
 
   Igor::MdArray<Float, U_STAGGERED_EXTENT> U;
   Igor::MdArray<Float, U_STAGGERED_EXTENT> U_old;
@@ -29,7 +29,7 @@ struct FS {
 
   Igor::MdArray<Float, CENTERED_EXTENT> p;
 
-  Igor::MdArray<Float, CENTERED_EXTENT> visc;
+  // Igor::MdArray<Float, CENTERED_EXTENT> visc;
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -68,20 +68,20 @@ void calc_dmomdt(const FS& fs,
     for (size_t j = 0; j < FX.extent(1); ++j) {
       // FX = -rho*U*U + mu*(dUdx + dUdx - 2/3*(dUdx + dVdy)) - p
       //    = -rho*U^2 + mu*(2*dUdx -2/3*(dUdx + dVdy)) - p
-      FX[i, j] = -fs.rho[i, j] * Igor::sqr((fs.U[i, j] + fs.U[i + 1, j]) / 2) +
-                 fs.visc[i, j] * (2.0 * (fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] -
-                                  2.0 / 3.0 *
-                                      ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
-                                       (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
+      FX[i, j] = -RHO * Igor::sqr((fs.U[i, j] + fs.U[i + 1, j]) / 2) +
+                 VISC * (2.0 * (fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] -
+                         2.0 / 3.0 *
+                             ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
+                              (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
                  fs.p[i, j];
 
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
         // FY = -rho*U*V + mu*(dUdy + dVdx)
-        FY[i, j] = -fs.rho[i, j] *                                          //
+        FY[i, j] = -RHO *                                                   //
                        (fs.U[i, j] + fs.U[i, j + 1]) / 2 *                  //
                        (fs.V[i - 1, j + 1] + fs.V[i, j + 1]) / 2 +          //
-                   fs.visc[i, j] *                                          //
+                   VISC *                                                   //
                        ((fs.U[i, j + 1] - fs.U[i, j]) / fs.dy[j] +          //
                         (fs.V[i, j + 1] - fs.V[i - 1, j + 1]) / fs.dx[i]);  //
       } else {
@@ -105,10 +105,10 @@ void calc_dmomdt(const FS& fs,
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
         // FX = -rho*U*V + mu*(dVdx + dUdy)
-        FX[i, j] = -fs.rho[i, j] *                                          //
+        FX[i, j] = -RHO *                                                   //
                        (fs.U[i, j] + fs.U[i, j + 1]) / 2 *                  //
                        (fs.V[i - 1, j + 1] + fs.V[i, j + 1]) / 2 +          //
-                   fs.visc[i, j] *                                          //
+                   VISC *                                                   //
                        ((fs.U[i, j + 1] - fs.U[i, j]) / fs.dy[j] +          //
                         (fs.V[i, j + 1] - fs.V[i - 1, j + 1]) / fs.dx[i]);  //
       } else {
@@ -118,11 +118,11 @@ void calc_dmomdt(const FS& fs,
 
       // FY = -rho*V*V + mu*(dVdy + dVdy - 2/3*(dUdx + dVdy)) - p
       //    = -rho*V^2 + mu*(2*dVdy - 2/3*(dUdx + dVdy)) - p
-      FY[i, j] = -fs.rho[i, j] * Igor::sqr((fs.V[i, j] + fs.V[i, j + 1]) / 2) +
-                 fs.visc[i, j] * (2.0 * (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j] -
-                                  2.0 / 3.0 *
-                                      ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
-                                       (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
+      FY[i, j] = -RHO * Igor::sqr((fs.V[i, j] + fs.V[i, j + 1]) / 2) +
+                 VISC * (2.0 * (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j] -
+                         2.0 / 3.0 *
+                             ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
+                              (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
                  fs.p[i, j];
     }
   }
@@ -130,16 +130,6 @@ void calc_dmomdt(const FS& fs,
     for (size_t j = 1; j < dmomVdt.extent(1) - 1; ++j) {
       dmomVdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx[i - 1] +  //
                       (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
-      if (i == 9 && j == 1) {
-        IGOR_DEBUG_PRINT((FX[i, j - 1]));
-        IGOR_DEBUG_PRINT((FX[i + 1, j - 1]));
-        IGOR_DEBUG_PRINT((FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx[i - 1]);
-        IGOR_DEBUG_PRINT((FY[i, j - 1]));
-        IGOR_DEBUG_PRINT((FY[i, j]));
-        IGOR_DEBUG_PRINT((FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1]);
-        IGOR_DEBUG_PRINT((dmomVdt[i, j]));
-        Igor::Todo("Fix all bugs...");
-      }
     }
   }
 }

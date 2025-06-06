@@ -9,9 +9,9 @@
 #include <Igor/MdArray.hpp>
 #include <Igor/Timer.hpp>
 
-// #define FS_HYPRE_VERBOSE
-// #define FS_USE_PFMG_PRECOND
+#define FS_HYPRE_VERBOSE
 #define FS_WALL_FULL_LENGTH
+// #define FS_PRESSURE_CORR_NO_SHIFT_RHS
 #define DEBUG_SAVE
 
 #include "Config.hpp"
@@ -52,17 +52,13 @@ auto main() -> int {
       .ym = make_ny(),
       .dy = make_ny(),
 
-      .rho     = make_centered(),
-      .rho_old = make_centered(),
-
       .U     = make_u_staggered(),
       .U_old = make_u_staggered(),
 
       .V     = make_v_staggered(),
       .V_old = make_v_staggered(),
 
-      .p    = make_centered(),
-      .visc = make_centered(),
+      .p = make_centered(),
   };
 
   auto Ui  = make_centered();
@@ -107,14 +103,12 @@ auto main() -> int {
   // = Initialize grid =============================================================================
 
   // = Initialize flow field =======================================================================
-  std::fill_n(fs.rho.get_data(), fs.rho.size(), RHO);
   std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
-  std::fill_n(fs.visc.get_data(), fs.visc.size(), VISC);
 
   for (size_t i = 0; i < fs.U.extent(0); ++i) {
     for (size_t j = 0; j < fs.U.extent(1); ++j) {
-      // fs.U[i, j] = 0.0;
-      fs.U[i, j] = U_IN;
+      fs.U[i, j] = 0.0;
+      // fs.U[i, j] = U_IN;
     }
   }
   for (size_t i = 0; i < fs.V.extent(0); ++i) {
@@ -127,7 +121,7 @@ auto main() -> int {
   interpolate_U(fs.U, Ui);
   interpolate_V(fs.V, Vi);
   calc_divergence(fs, div);
-  if (!save_state(fs.x, fs.y, fs.rho, Ui, Vi, fs.p, div, t)) { return 1; }
+  if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, t)) { return 1; }
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
@@ -139,9 +133,8 @@ auto main() -> int {
     dt = std::min(dt, T_END - t);
 
     // Save previous state
-    fs.rho_old = fs.rho;
-    fs.U_old   = fs.U;
-    fs.V_old   = fs.V;
+    fs.U_old = fs.U;
+    fs.V_old = fs.V;
 
     for (size_t sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.U, fs.U_old);
@@ -158,32 +151,14 @@ auto main() -> int {
         return 1;
       }
 #endif  // DEBUG_SAVE
-      {
-        if (std::any_of(resU.get_data(), resU.get_data() + resU.size(), [](auto value) {
-              return std::isnan(value);
-            })) {
-          Igor::Warn("NaN value in resU.");
-        }
-        if (std::any_of(resV.get_data(), resV.get_data() + resV.size(), [](auto value) {
-              return std::isnan(value);
-            })) {
-          Igor::Warn("NaN value in resV.");
-        }
-      }
 
-      Float max_U_change = 0.0;
-      Float max_V_change = 0.0;
       for (size_t i = 0; i < fs.U.extent(0); ++i) {
         for (size_t j = 0; j < fs.U.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.U[i, j]   = fs.U_old[i, j] + dt * resU[i, j] / fs.rho[i, j];
-          fs.V[i, j]   = fs.V_old[i, j] + dt * resV[i, j] / fs.rho[i, j];
-          max_U_change = std::max(max_U_change, std::abs(dt * resU[i, j] / fs.rho[i, j]));
-          max_V_change = std::max(max_V_change, std::abs(dt * resV[i, j] / fs.rho[i, j]));
+          fs.U[i, j] = fs.U_old[i, j] + dt * resU[i, j] / RHO;
+          fs.V[i, j] = fs.V_old[i, j] + dt * resV[i, j] / RHO;
         }
       }
-      Igor::Debug("Max. U change dmomdt = {}", max_U_change);
-      Igor::Debug("Max. V change dmomdt = {}", max_V_change);
 #ifdef DEBUG_SAVE
       if (!Igor::mdspan_to_npy(
               fs.U,
@@ -213,7 +188,7 @@ auto main() -> int {
       calc_divergence(fs, div);
       if (!calc_pressure_correction(fs, div, ps, dt, delta_p)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
-        return 1;
+        // return 1;
       }
 
       shift_pressure_to_zero(fs, delta_p);
@@ -223,22 +198,12 @@ auto main() -> int {
         }
       }
 
-      max_U_change = 0.0;
-      max_V_change = 0.0;
       for (size_t i = 1; i < fs.U.extent(0) - 1; ++i) {
         for (size_t j = 1; j < fs.U.extent(1) - 1; ++j) {
-          fs.U[i, j] += (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / fs.rho[i, j];
-          fs.V[i, j] += (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / fs.rho[i, j];
-          max_U_change = std::max(
-              max_U_change,
-              std::abs((delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / fs.rho[i, j]));
-          max_V_change = std::max(
-              max_V_change,
-              std::abs((delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / fs.rho[i, j]));
+          fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
+          fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
         }
       }
-      Igor::Debug("Max. U change pressure = {}", max_U_change);
-      Igor::Debug("Max. V change pressure = {}", max_V_change);
 #ifdef DEBUG_SAVE
       if (!Igor::mdspan_to_npy(
               fs.U,
@@ -251,6 +216,7 @@ auto main() -> int {
         return 1;
       }
 #endif  // DEBUG_SAVE
+      std::cout << "------------------------------------------------------------\n";
     }
 
     t += dt;
@@ -258,8 +224,8 @@ auto main() -> int {
     interpolate_U(fs.U, Ui);
     interpolate_V(fs.V, Vi);
     calc_divergence(fs, div);
-    if (!save_state(fs.x, fs.y, fs.rho, Ui, Vi, fs.p, div, t)) { return 1; }
-    // break;
+    if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, t)) { return 1; }
+    break;
   }
 
   if (!Igor::mdspan_to_npy(std::mdspan(ts.data(), ts.size()),

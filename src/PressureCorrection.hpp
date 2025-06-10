@@ -10,349 +10,385 @@
 #include "Config.hpp"
 #include "FS.hpp"
 
-struct PS {
-  HYPRE_StructGrid grid;
-  HYPRE_StructStencil stencil;
-  HYPRE_StructMatrix matrix;
-  HYPRE_StructVector rhs;
-  HYPRE_StructVector sol;
-  HYPRE_StructSolver solver;
-  HYPRE_StructSolver precond;
-};
+class PS {
+  constexpr static int COMM = -1;
 
-constexpr int COMM = -1;
+  HYPRE_StructGrid grid{};
+  HYPRE_StructStencil stencil{};
+  HYPRE_StructMatrix matrix{};
+  HYPRE_StructVector rhs{};
+  HYPRE_StructVector sol{};
+  HYPRE_StructSolver solver{};
+  HYPRE_StructSolver precond{};
 
-[[nodiscard]] auto init_pressure_correction() -> PS {
-  HYPRE_Initialize();
+ public:
+  constexpr PS() noexcept {
+    HYPRE_Initialize();
 
-  PS ps{};
-
-  // = Create structured grid ======================================================================
-  {
-    HYPRE_StructGridCreate(COMM, NDIMS, &ps.grid);
-    std::array<HYPRE_Int, 2> ilower = {0, 0};
-    std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
-    HYPRE_StructGridSetExtents(ps.grid, ilower.data(), iupper.data());
-    HYPRE_StructGridAssemble(ps.grid);
-  }
-
-  // = Create stencil ==============================================================================
-  constexpr HYPRE_Int stencil_size                                       = 5;
-  std::array<std::array<HYPRE_Int, NDIMS>, stencil_size> stencil_offsets = {
-      std::array<HYPRE_Int, NDIMS>{0, 0},
-      std::array<HYPRE_Int, NDIMS>{-1, 0},
-      std::array<HYPRE_Int, NDIMS>{1, 0},
-      std::array<HYPRE_Int, NDIMS>{0, -1},
-      std::array<HYPRE_Int, NDIMS>{0, 1},
-  };
-  HYPRE_StructStencilCreate(NDIMS, stencil_size, &ps.stencil);
-  for (HYPRE_Int i = 0; i < stencil_size; ++i) {
-    HYPRE_StructStencilSetElement(
-        ps.stencil, i, stencil_offsets[static_cast<size_t>(i)].data());  // NOLINT
-  }
-
-  // = Setup struct matrix =========================================================================
-  // TODO: Assumes equidistant spacing in x- and y-direction respectively
-  const auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
-  const auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
-
-  HYPRE_StructMatrixCreate(COMM, ps.grid, ps.stencil, &ps.matrix);
-  HYPRE_StructMatrixInitialize(ps.matrix);
-
-  // Interior points
-  {
-    std::vector<double> matrix_values(static_cast<size_t>((NX - 2) * (NY - 2) * stencil_size));
-    std::array<HYPRE_Int, stencil_size> stencil_indices = {0, 1, 2, 3, 4};
-    for (size_t i = 0; i < matrix_values.size(); i += stencil_size) {
-      matrix_values[i + 0] = -2.0 / Igor::sqr(dx) - 2.0 / Igor::sqr(dy);  // NOLINT
-      matrix_values[i + 1] = 1.0 / Igor::sqr(dx);                         // NOLINT
-      matrix_values[i + 2] = 1.0 / Igor::sqr(dx);                         // NOLINT
-      matrix_values[i + 3] = 1.0 / Igor::sqr(dy);                         // NOLINT
-      matrix_values[i + 4] = 1.0 / Igor::sqr(dy);                         // NOLINT
+    // = Create structured grid ====================================================================
+    {
+      HYPRE_StructGridCreate(COMM, NDIMS, &grid);
+      std::array<HYPRE_Int, 2> ilower = {0, 0};
+      std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
+      HYPRE_StructGridSetExtents(grid, ilower.data(), iupper.data());
+      HYPRE_StructGridAssemble(grid);
     }
 
-    std::array<HYPRE_Int, 2> ilower = {1, 1};
-    std::array<HYPRE_Int, 2> iupper = {NX - 2, NY - 2};
-    HYPRE_StructMatrixSetBoxValues(ps.matrix,
-                                   ilower.data(),
-                                   iupper.data(),
-                                   stencil_size,
-                                   stencil_indices.data(),
-                                   matrix_values.data());
-  }
-
-  // Boundary points
-  // Left:
-  {
-    std::array<HYPRE_Int, NDIMS> ilower = {0, 1};
-    std::array<HYPRE_Int, NDIMS> iupper = {0, NY - 2};
-    std::vector<HYPRE_Int> stencil_indices(stencil_size * (NY - 2));
-    std::vector<double> values(stencil_indices.size());
-    for (size_t i = 0; i < stencil_indices.size(); i += stencil_size) {
-      stencil_indices[i + 0] = 0;
-      stencil_indices[i + 1] = 1;
-      stencil_indices[i + 2] = 2;
-      stencil_indices[i + 3] = 3;
-      stencil_indices[i + 4] = 4;
-
-      values[i + 0] = -1.0 / Igor::sqr(dx) - 2.0 / Igor::sqr(dy);  // NOLINT
-      values[i + 1] = 0.0;                                         // NOLINT
-      values[i + 2] = 1.0 / Igor::sqr(dx);                         // NOLINT
-      values[i + 3] = 1.0 / Igor::sqr(dy);                         // NOLINT
-      values[i + 4] = 1.0 / Igor::sqr(dy);                         // NOLINT
-    }
-    HYPRE_StructMatrixSetBoxValues(ps.matrix,
-                                   ilower.data(),
-                                   iupper.data(),
-                                   stencil_size,
-                                   stencil_indices.data(),
-                                   values.data());
-  }
-  // Right:
-  {
-    std::array<HYPRE_Int, NDIMS> ilower = {NX - 1, 1};
-    std::array<HYPRE_Int, NDIMS> iupper = {NX - 1, NY - 2};
-    std::vector<HYPRE_Int> stencil_indices(stencil_size * (NY - 2));
-    std::vector<double> values(stencil_indices.size());
-    for (size_t i = 0; i < stencil_indices.size(); i += stencil_size) {
-      stencil_indices[i + 0] = 0;
-      stencil_indices[i + 1] = 1;
-      stencil_indices[i + 2] = 2;
-      stencil_indices[i + 3] = 3;
-      stencil_indices[i + 4] = 4;
-
-      values[i + 0] = -1.0 / Igor::sqr(dx) - 2.0 / Igor::sqr(dy);  // NOLINT
-      values[i + 1] = 1.0 / Igor::sqr(dx);                         // NOLINT
-      values[i + 2] = 0.0;                                         // NOLINT
-      values[i + 3] = 1.0 / Igor::sqr(dy);                         // NOLINT
-      values[i + 4] = 1.0 / Igor::sqr(dy);                         // NOLINT
-    }
-    HYPRE_StructMatrixSetBoxValues(ps.matrix,
-                                   ilower.data(),
-                                   iupper.data(),
-                                   stencil_size,
-                                   stencil_indices.data(),
-                                   values.data());
-  }
-  // Bottom:
-  {
-    std::array<HYPRE_Int, NDIMS> ilower = {1, 0};
-    std::array<HYPRE_Int, NDIMS> iupper = {NX - 2, 0};
-    std::vector<HYPRE_Int> stencil_indices(stencil_size * (NX - 2));
-    std::vector<double> values(stencil_indices.size());
-    for (size_t i = 0; i < stencil_indices.size(); i += stencil_size) {
-      stencil_indices[i + 0] = 0;
-      stencil_indices[i + 1] = 1;
-      stencil_indices[i + 2] = 2;
-      stencil_indices[i + 3] = 3;
-      stencil_indices[i + 4] = 4;
-
-      values[i + 0] = -2.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy);  // NOLINT
-      values[i + 1] = 1.0 / Igor::sqr(dx);                         // NOLINT
-      values[i + 2] = 1.0 / Igor::sqr(dx);                         // NOLINT
-      values[i + 3] = 0.0;                                         // NOLINT
-      values[i + 4] = 1.0 / Igor::sqr(dy);                         // NOLINT
-    }
-    HYPRE_StructMatrixSetBoxValues(ps.matrix,
-                                   ilower.data(),
-                                   iupper.data(),
-                                   stencil_size,
-                                   stencil_indices.data(),
-                                   values.data());
-  }
-  // Top:
-  {
-    std::array<HYPRE_Int, NDIMS> ilower = {1, NY - 1};
-    std::array<HYPRE_Int, NDIMS> iupper = {NX - 2, NY - 1};
-    std::vector<HYPRE_Int> stencil_indices(stencil_size * (NX - 2));
-    std::vector<double> values(stencil_indices.size());
-    for (size_t i = 0; i < stencil_indices.size(); i += stencil_size) {
-      stencil_indices[i + 0] = 0;
-      stencil_indices[i + 1] = 1;
-      stencil_indices[i + 2] = 2;
-      stencil_indices[i + 3] = 3;
-      stencil_indices[i + 4] = 4;
-
-      values[i + 0] = -2.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy);  // NOLINT
-      values[i + 1] = 1.0 / Igor::sqr(dx);                         // NOLINT
-      values[i + 2] = 1.0 / Igor::sqr(dx);                         // NOLINT
-      values[i + 3] = 1.0 / Igor::sqr(dy);                         // NOLINT
-      values[i + 4] = 0.0;                                         // NOLINT
-    }
-    HYPRE_StructMatrixSetBoxValues(ps.matrix,
-                                   ilower.data(),
-                                   iupper.data(),
-                                   stencil_size,
-                                   stencil_indices.data(),
-                                   values.data());
-  }
-
-  // Bottom-left
-  {
-    std::array<HYPRE_Int, NDIMS> idx       = {0, 0};
-    std::vector<HYPRE_Int> stencil_indices = {0, 1, 2, 3, 4};
-    std::vector<double> values             = {
-        -1.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy),
-        0.0,
-        1.0 / Igor::sqr(dx),
-        0.0,
-        1.0 / Igor::sqr(dy),
+    // = Create stencil ============================================================================
+    constexpr HYPRE_Int stencil_size                                       = 5;
+    std::array<std::array<HYPRE_Int, NDIMS>, stencil_size> stencil_offsets = {
+        std::array<HYPRE_Int, NDIMS>{0, 0},
+        std::array<HYPRE_Int, NDIMS>{-1, 0},
+        std::array<HYPRE_Int, NDIMS>{1, 0},
+        std::array<HYPRE_Int, NDIMS>{0, -1},
+        std::array<HYPRE_Int, NDIMS>{0, 1},
     };
-    HYPRE_StructMatrixSetValues(
-        ps.matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
-  }
-  // Bottom-right
-  {
-    std::array<HYPRE_Int, NDIMS> idx       = {NX - 1, 0};
-    std::vector<HYPRE_Int> stencil_indices = {0, 1, 2, 3, 4};
-    std::vector<double> values             = {
-        -1.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy),
-        1.0 / Igor::sqr(dx),
-        0.0,
-        0.0,
-        1.0 / Igor::sqr(dy),
-    };
-    HYPRE_StructMatrixSetValues(
-        ps.matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
-  }
-  // Top-left
-  {
-    std::array<HYPRE_Int, NDIMS> idx       = {0, NY - 1};
-    std::vector<HYPRE_Int> stencil_indices = {0, 1, 2, 3, 4};
-    std::vector<double> values             = {
-        -1.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy),
-        0.0,
-        1.0 / Igor::sqr(dx),
-        1.0 / Igor::sqr(dy),
-        0.0,
-    };
-    HYPRE_StructMatrixSetValues(
-        ps.matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
-  }
-  // Top-right
-  {
-    std::array<HYPRE_Int, NDIMS> idx       = {NX - 1, NY - 1};
-    std::vector<HYPRE_Int> stencil_indices = {0, 1, 2, 3, 4};
-    std::vector<double> values             = {
-        -1.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy),
-        1.0 / Igor::sqr(dx),
-        0.0,
-        1.0 / Igor::sqr(dy),
-        0.0,
-    };
-    HYPRE_StructMatrixSetValues(
-        ps.matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
-  }
+    HYPRE_StructStencilCreate(NDIMS, stencil_size, &stencil);
+    for (HYPRE_Int i = 0; i < stencil_size; ++i) {
+      HYPRE_StructStencilSetElement(
+          stencil, i, stencil_offsets[static_cast<size_t>(i)].data());  // NOLINT
+    }
 
-  HYPRE_StructMatrixAssemble(ps.matrix);
+    // = Setup struct matrix =======================================================================
+    // TODO: Assumes equidistant spacing in x- and y-direction respectively
+    const auto dx  = (X_MAX - X_MIN) / static_cast<Float>(NX);
+    const auto dy  = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+    const auto vol = dx * dy;
 
-  // = Create right-hand side ======================================================================
-  HYPRE_StructVectorCreate(COMM, ps.grid, &ps.rhs);
-  HYPRE_StructVectorInitialize(ps.rhs);
+    HYPRE_StructMatrixCreate(COMM, grid, stencil, &matrix);
+    HYPRE_StructMatrixInitialize(matrix);
 
-  // = Create solution vector ======================================================================
-  HYPRE_StructVectorCreate(COMM, ps.grid, &ps.sol);
-  HYPRE_StructVectorInitialize(ps.sol);
+    // Interior points
+    {
+      std::vector<double> matrix_values(static_cast<size_t>((NX - 2) * (NY - 2) * stencil_size));
+      std::array<HYPRE_Int, stencil_size> stencil_indices = {0, 1, 2, 3, 4};
+      for (size_t i = 0; i < matrix_values.size(); i += stencil_size) {
+        matrix_values[i + 0] = -2.0 / Igor::sqr(dx) - 2.0 / Igor::sqr(dy);  // NOLINT
+        matrix_values[i + 1] = 1.0 / Igor::sqr(dx);                         // NOLINT
+        matrix_values[i + 2] = 1.0 / Igor::sqr(dx);                         // NOLINT
+        matrix_values[i + 3] = 1.0 / Igor::sqr(dy);                         // NOLINT
+        matrix_values[i + 4] = 1.0 / Igor::sqr(dy);                         // NOLINT
+      }
+      for (auto& value : matrix_values) {
+        value *= -vol;
+      }
 
-  // = Create solver ===============================================================================
-  HYPRE_StructGMRESCreate(COMM, &ps.solver);
-  HYPRE_StructGMRESSetTol(ps.solver, 1e-8);
-  HYPRE_StructGMRESSetMaxIter(ps.solver, 500);
+      std::array<HYPRE_Int, 2> ilower = {1, 1};
+      std::array<HYPRE_Int, 2> iupper = {NX - 2, NY - 2};
+      HYPRE_StructMatrixSetBoxValues(matrix,
+                                     ilower.data(),
+                                     iupper.data(),
+                                     stencil_size,
+                                     stencil_indices.data(),
+                                     matrix_values.data());
+    }
+
+    // Boundary points
+    // Left:
+    {
+      std::array<HYPRE_Int, NDIMS> ilower = {0, 1};
+      std::array<HYPRE_Int, NDIMS> iupper = {0, NY - 2};
+      std::vector<HYPRE_Int> stencil_indices(stencil_size * (NY - 2));
+      std::vector<double> values(stencil_indices.size());
+      for (size_t i = 0; i < stencil_indices.size(); i += stencil_size) {
+        stencil_indices[i + 0] = 0;
+        stencil_indices[i + 1] = 1;
+        stencil_indices[i + 2] = 2;
+        stencil_indices[i + 3] = 3;
+        stencil_indices[i + 4] = 4;
+
+        values[i + 0] = -1.0 / Igor::sqr(dx) - 2.0 / Igor::sqr(dy);  // NOLINT
+        values[i + 1] = 0.0;                                         // NOLINT
+        values[i + 2] = 1.0 / Igor::sqr(dx);                         // NOLINT
+        values[i + 3] = 1.0 / Igor::sqr(dy);                         // NOLINT
+        values[i + 4] = 1.0 / Igor::sqr(dy);                         // NOLINT
+      }
+      for (auto& value : values) {
+        value *= -vol;
+      }
+      HYPRE_StructMatrixSetBoxValues(matrix,
+                                     ilower.data(),
+                                     iupper.data(),
+                                     stencil_size,
+                                     stencil_indices.data(),
+                                     values.data());
+    }
+    // Right:
+    {
+      std::array<HYPRE_Int, NDIMS> ilower = {NX - 1, 1};
+      std::array<HYPRE_Int, NDIMS> iupper = {NX - 1, NY - 2};
+      std::vector<HYPRE_Int> stencil_indices(stencil_size * (NY - 2));
+      std::vector<double> values(stencil_indices.size());
+      for (size_t i = 0; i < stencil_indices.size(); i += stencil_size) {
+        stencil_indices[i + 0] = 0;
+        stencil_indices[i + 1] = 1;
+        stencil_indices[i + 2] = 2;
+        stencil_indices[i + 3] = 3;
+        stencil_indices[i + 4] = 4;
+
+        values[i + 0] = -1.0 / Igor::sqr(dx) - 2.0 / Igor::sqr(dy);  // NOLINT
+        values[i + 1] = 1.0 / Igor::sqr(dx);                         // NOLINT
+        values[i + 2] = 0.0;                                         // NOLINT
+        values[i + 3] = 1.0 / Igor::sqr(dy);                         // NOLINT
+        values[i + 4] = 1.0 / Igor::sqr(dy);                         // NOLINT
+      }
+      for (auto& value : values) {
+        value *= -vol;
+      }
+      HYPRE_StructMatrixSetBoxValues(matrix,
+                                     ilower.data(),
+                                     iupper.data(),
+                                     stencil_size,
+                                     stencil_indices.data(),
+                                     values.data());
+    }
+    // Bottom:
+    {
+      std::array<HYPRE_Int, NDIMS> ilower = {1, 0};
+      std::array<HYPRE_Int, NDIMS> iupper = {NX - 2, 0};
+      std::vector<HYPRE_Int> stencil_indices(stencil_size * (NX - 2));
+      std::vector<double> values(stencil_indices.size());
+      for (size_t i = 0; i < stencil_indices.size(); i += stencil_size) {
+        stencil_indices[i + 0] = 0;
+        stencil_indices[i + 1] = 1;
+        stencil_indices[i + 2] = 2;
+        stencil_indices[i + 3] = 3;
+        stencil_indices[i + 4] = 4;
+
+        values[i + 0] = -2.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy);  // NOLINT
+        values[i + 1] = 1.0 / Igor::sqr(dx);                         // NOLINT
+        values[i + 2] = 1.0 / Igor::sqr(dx);                         // NOLINT
+        values[i + 3] = 0.0;                                         // NOLINT
+        values[i + 4] = 1.0 / Igor::sqr(dy);                         // NOLINT
+      }
+      for (auto& value : values) {
+        value *= -vol;
+      }
+      HYPRE_StructMatrixSetBoxValues(matrix,
+                                     ilower.data(),
+                                     iupper.data(),
+                                     stencil_size,
+                                     stencil_indices.data(),
+                                     values.data());
+    }
+    // Top:
+    {
+      std::array<HYPRE_Int, NDIMS> ilower = {1, NY - 1};
+      std::array<HYPRE_Int, NDIMS> iupper = {NX - 2, NY - 1};
+      std::vector<HYPRE_Int> stencil_indices(stencil_size * (NX - 2));
+      std::vector<double> values(stencil_indices.size());
+      for (size_t i = 0; i < stencil_indices.size(); i += stencil_size) {
+        stencil_indices[i + 0] = 0;
+        stencil_indices[i + 1] = 1;
+        stencil_indices[i + 2] = 2;
+        stencil_indices[i + 3] = 3;
+        stencil_indices[i + 4] = 4;
+
+        values[i + 0] = -2.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy);  // NOLINT
+        values[i + 1] = 1.0 / Igor::sqr(dx);                         // NOLINT
+        values[i + 2] = 1.0 / Igor::sqr(dx);                         // NOLINT
+        values[i + 3] = 1.0 / Igor::sqr(dy);                         // NOLINT
+        values[i + 4] = 0.0;                                         // NOLINT
+      }
+      for (auto& value : values) {
+        value *= -vol;
+      }
+      HYPRE_StructMatrixSetBoxValues(matrix,
+                                     ilower.data(),
+                                     iupper.data(),
+                                     stencil_size,
+                                     stencil_indices.data(),
+                                     values.data());
+    }
+
+    // Bottom-left
+    {
+      std::array<HYPRE_Int, NDIMS> idx       = {0, 0};
+      std::vector<HYPRE_Int> stencil_indices = {0, 1, 2, 3, 4};
+      std::vector<double> values             = {
+          -1.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy),
+          0.0,
+          1.0 / Igor::sqr(dx),
+          0.0,
+          1.0 / Igor::sqr(dy),
+      };
+      for (auto& value : values) {
+        value *= -vol;
+      }
+      HYPRE_StructMatrixSetValues(
+          matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
+    }
+    // Bottom-right
+    {
+      std::array<HYPRE_Int, NDIMS> idx       = {NX - 1, 0};
+      std::vector<HYPRE_Int> stencil_indices = {0, 1, 2, 3, 4};
+      std::vector<double> values             = {
+          -1.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy),
+          1.0 / Igor::sqr(dx),
+          0.0,
+          0.0,
+          1.0 / Igor::sqr(dy),
+      };
+      for (auto& value : values) {
+        value *= -vol;
+      }
+      HYPRE_StructMatrixSetValues(
+          matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
+    }
+    // Top-left
+    {
+      std::array<HYPRE_Int, NDIMS> idx       = {0, NY - 1};
+      std::vector<HYPRE_Int> stencil_indices = {0, 1, 2, 3, 4};
+      std::vector<double> values             = {
+          -1.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy),
+          0.0,
+          1.0 / Igor::sqr(dx),
+          1.0 / Igor::sqr(dy),
+          0.0,
+      };
+      for (auto& value : values) {
+        value *= -vol;
+      }
+      HYPRE_StructMatrixSetValues(
+          matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
+    }
+    // Top-right
+    {
+      std::array<HYPRE_Int, NDIMS> idx       = {NX - 1, NY - 1};
+      std::vector<HYPRE_Int> stencil_indices = {0, 1, 2, 3, 4};
+      std::vector<double> values             = {
+          -1.0 / Igor::sqr(dx) - 1.0 / Igor::sqr(dy),
+          1.0 / Igor::sqr(dx),
+          0.0,
+          1.0 / Igor::sqr(dy),
+          0.0,
+      };
+      for (auto& value : values) {
+        value *= -vol;
+      }
+      HYPRE_StructMatrixSetValues(
+          matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
+    }
+
+    HYPRE_StructMatrixAssemble(matrix);
+
+    // = Create right-hand side ====================================================================
+    HYPRE_StructVectorCreate(COMM, grid, &rhs);
+    HYPRE_StructVectorInitialize(rhs);
+
+    // = Create solution vector ====================================================================
+    HYPRE_StructVectorCreate(COMM, grid, &sol);
+    HYPRE_StructVectorInitialize(sol);
+
+    // = Create solver =============================================================================
+    HYPRE_StructGMRESCreate(COMM, &solver);
+    HYPRE_StructGMRESSetTol(solver, 1e-8);
+    HYPRE_StructGMRESSetMaxIter(solver, 500);
 #ifdef FS_HYPRE_VERBOSE
-  HYPRE_StructGMRESSetPrintLevel(ps.solver, 2);
-  HYPRE_StructGMRESSetLogging(ps.solver, 1);
+    HYPRE_StructGMRESSetPrintLevel(solver, 2);
+    HYPRE_StructGMRESSetLogging(solver, 1);
 #endif  // FS_HYPRE_VERBOSE
 
-  // = Create preconditioner =======================================================================
-  HYPRE_StructSMGCreate(COMM, &ps.precond);  // NOLINT
-  HYPRE_StructSMGSetMaxIter(ps.precond, 1);
-  HYPRE_StructSMGSetTol(ps.precond, 0.0);
-  HYPRE_StructSMGSetZeroGuess(ps.precond);
-  HYPRE_StructSMGSetNumPreRelax(ps.precond, 1);
-  HYPRE_StructSMGSetNumPostRelax(ps.precond, 1);
-  HYPRE_StructSMGSetMemoryUse(ps.precond, 0);
-  HYPRE_StructGMRESSetPrecond(ps.solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, ps.precond);
+    // = Create preconditioner =====================================================================
+    HYPRE_StructSMGCreate(COMM, &precond);
+    HYPRE_StructSMGSetMaxIter(precond, 1);
+    HYPRE_StructSMGSetTol(precond, 0.0);
+    HYPRE_StructSMGSetZeroGuess(precond);
+    HYPRE_StructSMGSetNumPreRelax(precond, 1);
+    HYPRE_StructSMGSetNumPostRelax(precond, 1);
+    HYPRE_StructSMGSetMemoryUse(precond, 0);
+    HYPRE_StructGMRESSetPrecond(solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, precond);
 
-  const HYPRE_Int error_flag = HYPRE_GetError();
-  if (error_flag != 0) { Igor::Panic("An error occured in HYPRE."); }
+    const HYPRE_Int error_flag = HYPRE_GetError();
+    if (error_flag != 0) { Igor::Panic("An error occured in HYPRE."); }
+  }
 
-  return ps;
-}
+  // -----------------------------------------------------------------------------------------------
+  constexpr PS(const PS& other) noexcept                    = delete;
+  constexpr PS(PS&& other) noexcept                         = delete;
+  constexpr auto operator=(const PS& other) noexcept -> PS& = delete;
+  constexpr auto operator=(PS&& other) noexcept -> PS&      = delete;
 
-// -------------------------------------------------------------------------------------------------
-void finalize_pressure_correction(PS& ps) {
-  HYPRE_StructSMGDestroy(ps.precond);
-  HYPRE_StructGMRESDestroy(ps.solver);
-  HYPRE_StructVectorDestroy(ps.sol);
-  HYPRE_StructVectorDestroy(ps.rhs);
-  HYPRE_StructMatrixDestroy(ps.matrix);
-  HYPRE_StructStencilDestroy(ps.stencil);
-  HYPRE_StructGridDestroy(ps.grid);
-  HYPRE_Finalize();
-}
+  // -----------------------------------------------------------------------------------------------
+  constexpr ~PS() noexcept {
+    HYPRE_StructSMGDestroy(precond);
+    HYPRE_StructGMRESDestroy(solver);
+    HYPRE_StructVectorDestroy(sol);
+    HYPRE_StructVectorDestroy(rhs);
+    HYPRE_StructMatrixDestroy(matrix);
+    HYPRE_StructStencilDestroy(stencil);
+    HYPRE_StructGridDestroy(grid);
+    HYPRE_Finalize();
+  }
 
-// -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto calc_pressure_correction([[maybe_unused]] const FS& fs,
-                                            const Igor::MdArray<Float, CENTERED_EXTENT>& div,
-                                            const PS& ps,
-                                            Float dt,
-                                            Igor::MdArray<Float, CENTERED_EXTENT>& resP) -> bool {
-  static std::array<char, 1024UZ> buffer{};
-  HYPRE_Int ierr = 0;
-  bool res       = true;
+  // -------------------------------------------------------------------------------------------------
+  [[nodiscard]] auto solve(const FS& fs,
+                           const Igor::MdArray<Float, CENTERED_EXTENT>& div,
+                           Float dt,
+                           Igor::MdArray<Float, CENTERED_EXTENT>& resP) -> bool {
+    static std::array<char, 1024UZ> buffer{};
+    HYPRE_Int ierr = 0;
+    bool res       = true;
 
-  // TODO: Assumes equidistant spacing
-  const auto vol = fs.dx[0] * fs.dy[0];
+    // TODO: Assumes equidistant spacing
+    const auto vol = fs.dx[0] * fs.dy[0];
 
-  static Igor::MdArray<Float, CENTERED_EXTENT, std::layout_left> rhs(resP.extent(0),
-                                                                     resP.extent(1));
-  [[maybe_unused]] Float mean_rhs = 0.0;
-  for (size_t i = 0; i < resP.extent(0); ++i) {
-    for (size_t j = 0; j < resP.extent(1); ++j) {
-      rhs[i, j] = vol * RHO * div[i, j] / dt;
-      mean_rhs += rhs[i, j];
+    static Igor::MdArray<Float, CENTERED_EXTENT, std::layout_left> rhs_values(resP.extent(0),
+                                                                              resP.extent(1));
+    Float mean_rhs = 0.0;
+    for (size_t i = 0; i < resP.extent(0); ++i) {
+      for (size_t j = 0; j < resP.extent(1); ++j) {
+        rhs_values[i, j] = -vol * RHO * div[i, j] / dt;
+        mean_rhs += rhs_values[i, j];
+      }
     }
-  }
-  mean_rhs /= rhs.size();
-#ifndef FS_PRESSURE_CORR_NO_SHIFT_RHS
-  for (size_t i = 0; i < resP.extent(0); ++i) {
-    for (size_t j = 0; j < resP.extent(1); ++j) {
-      rhs[i, j] -= mean_rhs;
+    mean_rhs /= rhs_values.size();
+    for (size_t i = 0; i < resP.extent(0); ++i) {
+      for (size_t j = 0; j < resP.extent(1); ++j) {
+        rhs_values[i, j] -= mean_rhs;
+      }
     }
-  }
-#endif  // FS_PRESSURE_CORR_NO_SHIFT_RHS
 
-  std::array<HYPRE_Int, 2> ilower = {0, 0};
-  std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
-  HYPRE_StructVectorSetBoxValues(ps.rhs, ilower.data(), iupper.data(), rhs.get_data());
-  HYPRE_StructVectorAssemble(ps.rhs);
+    std::array<HYPRE_Int, 2> ilower = {0, 0};
+    std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
+    HYPRE_StructVectorSetBoxValues(rhs, ilower.data(), iupper.data(), rhs_values.get_data());
+    HYPRE_StructVectorAssemble(rhs);
 
-  Float final_residual = -1.0;
-  HYPRE_StructGMRESSetup(ps.solver, ps.matrix, ps.rhs, ps.sol);
-  ierr = HYPRE_StructGMRESSolve(ps.solver, ps.matrix, ps.rhs, ps.sol);
-  HYPRE_StructGMRESGetFinalRelativeResidualNorm(ps.solver, &final_residual);
+    // Set initial guess to zero
+    static std::vector<Float> zeros(rhs_values.size(), 0.0);
+    HYPRE_StructVectorSetBoxValues(sol, ilower.data(), iupper.data(), zeros.data());
+    HYPRE_StructVectorAssemble(sol);
 
-  IGOR_DEBUG_PRINT(final_residual);
-  if (final_residual > 1e-6) {
-    Igor::Warn("Residual pressure correction = {}", final_residual);
-    res = false;
-  }
+    Float final_residual = -1.0;
+    HYPRE_Int num_iter   = -1;
+    HYPRE_StructGMRESSetup(solver, matrix, rhs, sol);
+    ierr = HYPRE_StructGMRESSolve(solver, matrix, rhs, sol);
+    HYPRE_StructGMRESGetFinalRelativeResidualNorm(solver, &final_residual);
+    HYPRE_StructGMRESGetNumIterations(solver, &num_iter);
 
-  for (size_t i = 0; i < resP.extent(0); ++i) {
-    for (size_t j = 0; j < resP.extent(1); ++j) {
-      std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
-      ierr = HYPRE_StructVectorGetValues(ps.sol, idx.data(), &resP[i, j]);
+    // IGOR_DEBUG_PRINT(final_residual);
+    if (final_residual > 1e-6) {
+      Igor::Warn("Residual pressure correction = {}", final_residual);
+      Igor::Warn("Num. iterations pressure correction = {}", num_iter);
+      res = false;
     }
-  }
 
-  if (ierr != 0) {
-    HYPRE_DescribeError(ierr, buffer.data());
-    Igor::Warn("Could not solve the system successfully: {}", buffer.data());
-    HYPRE_ClearError(ierr);
-    res = false;
-  }
+    for (size_t i = 0; i < resP.extent(0); ++i) {
+      for (size_t j = 0; j < resP.extent(1); ++j) {
+        std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
+        HYPRE_StructVectorGetValues(sol, idx.data(), &resP[i, j]);
+      }
+    }
 
-  return res;
-}
+    if (ierr != 0) {
+      HYPRE_DescribeError(ierr, buffer.data());
+      Igor::Warn("Could not solve the system successfully: {}", buffer.data());
+      HYPRE_ClearError(ierr);
+      res = false;
+    }
+
+    return res;
+  }
+};
 
 #endif  // FLUID_SOLVER_PRESSURE_CORRECTION_HPP_

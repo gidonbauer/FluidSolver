@@ -78,7 +78,7 @@ void write_vector_vtk(std::ofstream& out,
 
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] auto save_state_vtk(const Igor::MdArray<Float, NX_P1_EXTENT>& x,
-                                  const Igor::MdArray<Float, NX_P1_EXTENT>& y,
+                                  const Igor::MdArray<Float, NY_P1_EXTENT>& y,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& p,
@@ -128,7 +128,7 @@ void write_vector_vtk(std::ofstream& out,
 
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] auto save_state([[maybe_unused]] const Igor::MdArray<Float, NX_P1_EXTENT>& x,
-                              [[maybe_unused]] const Igor::MdArray<Float, NX_P1_EXTENT>& y,
+                              [[maybe_unused]] const Igor::MdArray<Float, NY_P1_EXTENT>& y,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& p,

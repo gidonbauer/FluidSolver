@@ -136,30 +136,37 @@ void calc_dmomdt(const FS& fs,
 
 // -------------------------------------------------------------------------------------------------
 void apply_bconds(FS& fs) {
+  // = Boundary conditions for U-component of velocity =============================================
   for (size_t j = 0; j < fs.U.extent(1); ++j) {
     // Inflow from left
     fs.U[0, j] = U_IN;
-    fs.V[0, j] = fs.V[1, j] / 3.0;  // 0.0
 
     // Outflow on right: clipped Neumann
     fs.U[fs.U.extent(0) - 1, j] = std::max(fs.U[fs.U.extent(0) - 2, j], 0.0);
+  }
+
+  for (size_t i = 0; i < fs.U.extent(0); ++i) {
+    // No-slip on bottom
+    fs.U[i, 0] = (fs.U[i, 1] + 2.0 * U_BOT) / 3.0;
+
+    // No-slip on top
+    fs.U[i, fs.U.extent(1) - 1] = (fs.U[i, fs.U.extent(1) - 2] + 2.0 * U_TOP) / 3.0;
+  }
+
+  // = Boundary conditions for V-component of velocity =============================================
+  for (size_t j = 0; j < fs.V.extent(1); ++j) {
+    // Inflow from left
+    fs.V[0, j] = fs.V[1, j] / 3.0;  // 0.0
+
+    // Outflow on right: clipped Neumann
     fs.V[fs.V.extent(0) - 1, j] = fs.V[fs.V.extent(0) - 2, j];
   }
 
-#ifdef FS_WALL_FULL_LENGTH
-  constexpr size_t wall_offset = 0UZ;
-#else
-  constexpr size_t wall_offset = 1UZ;
-#endif
-  for (size_t i = wall_offset; i < fs.U.extent(0) - wall_offset; ++i) {
+  for (size_t i = 0; i < fs.V.extent(0); ++i) {
     // No-slip on bottom
-    // fs.U[i, 0] = 0.0;
-    fs.U[i, 0] = fs.U[i, 1] / 3.0;
     fs.V[i, 0] = 0.0;
 
     // No-slip on top
-    // fs.U[i, fs.U.extent(1) - 1] = 0.0;
-    fs.U[i, fs.U.extent(1) - 1] = fs.U[i, fs.U.extent(1) - 2] / 3.0;
     fs.V[i, fs.V.extent(1) - 1] = 0.0;
   }
 }

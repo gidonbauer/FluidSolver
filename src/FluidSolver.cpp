@@ -1,18 +1,12 @@
-#include <cmath>
 #include <filesystem>
 #include <mdspan>
-
-#include <omp.h>
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
 #include <Igor/MdArray.hpp>
 #include <Igor/Timer.hpp>
 
-#define FS_HYPRE_VERBOSE
-#define FS_WALL_FULL_LENGTH
-// #define FS_PRESSURE_CORR_NO_SHIFT_RHS
-#define DEBUG_SAVE
+// #define FS_HYPRE_VERBOSE
 
 #include "Config.hpp"
 #include "FS.hpp"
@@ -22,8 +16,6 @@
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
-  omp_set_num_threads(1);
-
   // = Create output directory =====================================================================
   {
     std::error_code ec;
@@ -73,10 +65,9 @@ auto main() -> int {
   Float dt = DT_MAX;
   // = Allocate memory =============================================================================
 
-  // = Initialize HYPRE ============================================================================
-  auto ps = init_pressure_correction();
-  Igor::Defer fini_hypre([&ps] { finalize_pressure_correction(ps); });
-  // = Initialize HYPRE ============================================================================
+  // = Initialize HYPRE for pressure correction ====================================================
+  PS ps{};
+  // = Initialize HYPRE for pressure correction ====================================================
 
   // = Initialize grid =============================================================================
   for (size_t i = 0; i < fs.x.extent(0); ++i) {
@@ -93,13 +84,6 @@ auto main() -> int {
     fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
     fs.dy[j] = fs.y[j + 1] - fs.y[j];
   }
-
-#ifdef DEBUG_SAVE
-  if (!Igor::mdspan_to_npy(fs.x, Igor::detail::format("{}/x.npy", OUTPUT_DIR))) { return 1; }
-  if (!Igor::mdspan_to_npy(fs.y, Igor::detail::format("{}/y.npy", OUTPUT_DIR))) { return 1; }
-  if (!Igor::mdspan_to_npy(fs.xm, Igor::detail::format("{}/xm.npy", OUTPUT_DIR))) { return 1; }
-  if (!Igor::mdspan_to_npy(fs.ym, Igor::detail::format("{}/ym.npy", OUTPUT_DIR))) { return 1; }
-#endif
   // = Initialize grid =============================================================================
 
   // = Initialize flow field =======================================================================
@@ -107,8 +91,7 @@ auto main() -> int {
 
   for (size_t i = 0; i < fs.U.extent(0); ++i) {
     for (size_t j = 0; j < fs.U.extent(1); ++j) {
-      fs.U[i, j] = 0.0;
-      // fs.U[i, j] = U_IN;
+      fs.U[i, j] = U_IN;
     }
   }
   for (size_t i = 0; i < fs.V.extent(0); ++i) {
@@ -127,8 +110,8 @@ auto main() -> int {
   Igor::ScopeTimer timer("Solver");
   std::vector<Float> ts;
   ts.push_back(t);
-  while (t < T_END) {
-    std::cout << "t = " << t << '\r' << std::flush;
+  bool quit = false;
+  while (t < T_END && !quit) {
     dt = adjust_dt(fs, dt);
     dt = std::min(dt, T_END - t);
 
@@ -141,54 +124,26 @@ auto main() -> int {
       calc_mid_time(fs.V, fs.V_old);
 
       calc_dmomdt(fs, resU, resV);
-#ifdef DEBUG_SAVE
-      if (!Igor::mdspan_to_npy(
-              resU, Igor::detail::format("{}/drhoUdt_{:.6f}_{}.npy", OUTPUT_DIR, t, sub_iter))) {
-        return 1;
-      }
-      if (!Igor::mdspan_to_npy(
-              resV, Igor::detail::format("{}/drhoVdt_{:.6f}_{}.npy", OUTPUT_DIR, t, sub_iter))) {
-        return 1;
-      }
-#endif  // DEBUG_SAVE
-
       for (size_t i = 0; i < fs.U.extent(0); ++i) {
         for (size_t j = 0; j < fs.U.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
           fs.U[i, j] = fs.U_old[i, j] + dt * resU[i, j] / RHO;
+        }
+      }
+      for (size_t i = 0; i < fs.V.extent(0); ++i) {
+        for (size_t j = 0; j < fs.V.extent(1); ++j) {
+          // TODO: Need to interpolate rho for U- and V-staggered mesh
           fs.V[i, j] = fs.V_old[i, j] + dt * resV[i, j] / RHO;
         }
       }
-#ifdef DEBUG_SAVE
-      if (!Igor::mdspan_to_npy(
-              fs.U,
-              Igor::detail::format("{}/U_pre_bcond_{:.6f}_{}.npy", OUTPUT_DIR, t, sub_iter))) {
-        return 1;
-      }
-      if (!Igor::mdspan_to_npy(
-              fs.V,
-              Igor::detail::format("{}/V_pre_bcond_{:.6f}_{}.npy", OUTPUT_DIR, t, sub_iter))) {
-        return 1;
-      }
-#endif  // DEBUG_SAVE
 
       // Boundary conditions
       apply_bconds(fs);
-#ifdef DEBUG_SAVE
-      if (!Igor::mdspan_to_npy(
-              fs.U, Igor::detail::format("{}/U_pre_corr_{:.6f}_{}.npy", OUTPUT_DIR, t, sub_iter))) {
-        return 1;
-      }
-      if (!Igor::mdspan_to_npy(
-              fs.V, Igor::detail::format("{}/V_pre_corr_{:.6f}_{}.npy", OUTPUT_DIR, t, sub_iter))) {
-        return 1;
-      }
-#endif  // DEBUG_SAVE
 
       calc_divergence(fs, div);
-      if (!calc_pressure_correction(fs, div, ps, dt, delta_p)) {
+      if (!ps.solve(fs, div, dt, delta_p)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
-        // return 1;
+        quit = true;
       }
 
       shift_pressure_to_zero(fs, delta_p);
@@ -201,22 +156,13 @@ auto main() -> int {
       for (size_t i = 1; i < fs.U.extent(0) - 1; ++i) {
         for (size_t j = 1; j < fs.U.extent(1) - 1; ++j) {
           fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
+        }
+      }
+      for (size_t i = 1; i < fs.V.extent(0) - 1; ++i) {
+        for (size_t j = 1; j < fs.V.extent(1) - 1; ++j) {
           fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
         }
       }
-#ifdef DEBUG_SAVE
-      if (!Igor::mdspan_to_npy(
-              fs.U,
-              Igor::detail::format("{}/U_post_corr_{:.6f}_{}.npy", OUTPUT_DIR, t, sub_iter))) {
-        return 1;
-      }
-      if (!Igor::mdspan_to_npy(
-              fs.V,
-              Igor::detail::format("{}/V_post_corr_{:.6f}_{}.npy", OUTPUT_DIR, t, sub_iter))) {
-        return 1;
-      }
-#endif  // DEBUG_SAVE
-      std::cout << "------------------------------------------------------------\n";
     }
 
     t += dt;
@@ -225,7 +171,6 @@ auto main() -> int {
     interpolate_V(fs.V, Vi);
     calc_divergence(fs, div);
     if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, t)) { return 1; }
-    break;
   }
 
   if (!Igor::mdspan_to_npy(std::mdspan(ts.data(), ts.size()),

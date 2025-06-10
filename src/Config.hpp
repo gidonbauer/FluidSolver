@@ -9,21 +9,23 @@
 using Float = double;
 
 constexpr size_t NDIMS = 2;
-constexpr size_t NX    = 3;  // 500;
-constexpr size_t NY    = 3;  // 400;
+constexpr size_t NX    = 256;  // 500;
+constexpr size_t NY    = 64;   // 400;
 
 constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 1.0;
+constexpr Float X_MAX = 4.0;
 constexpr Float Y_MIN = 0.0;
 constexpr Float Y_MAX = 1.0;
 
-constexpr Float T_END   = 0.5;
-constexpr Float DT_MAX  = 1e-3;
-constexpr Float CFL_MAX = 0.5;
+constexpr Float T_END   = 10.0;
+constexpr Float DT_MAX  = 1e-1;
+constexpr Float CFL_MAX = 0.9;
 
-constexpr Float U_IN = 2.0;
-constexpr Float VISC = 1e-3;
-constexpr Float RHO  = 0.9;
+constexpr Float U_IN  = 1.0;
+constexpr Float U_TOP = 0.0;
+constexpr Float U_BOT = 0.0;
+constexpr Float VISC  = 1e-3;
+constexpr Float RHO   = 0.9;
 
 constexpr size_t NUM_SUBITER = 2;
 

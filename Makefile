@@ -13,16 +13,12 @@ else
   ${error "Need to define the path to Igor library in `IGOR_DIR`."}
 endif
 
-ifdef HYPRE_OMP_DIR
-  HYPRE_INC = -I${HYPRE_OMP_DIR}/include
-  HYPRE_LIB = -L${HYPRE_OMP_DIR}/lib -lHYPRE
+ifdef HYPRE_SERIAL_DIR
+  HYPRE_INC = -I${HYPRE_SERIAL_DIR}/include
+  HYPRE_LIB = -L${HYPRE_SERIAL_DIR}/lib -lHYPRE
 else
-  ${error "Need to define the path to HYPRE configured to use OpenMP instead of MPI in `HYPRE_OMP_DIR`."}
+  ${error "Need to define the path to HYPRE configured to not use MPI in `HYPRE_SERIAL_DIR`."}
 endif
-
-OMP_INC = -fopenmp
-# OMP_INC = -I/opt/homebrew/opt/libomp/include -fopenmp
-# OMP_LIB = -L/opt/homebrew/opt/libomp/lib -lomp
 
 release: CXX_FLAGS += ${CXX_RELEASE_FLAGS}
 release: FluidSolver
@@ -34,7 +30,7 @@ sanitize: CXX_FLAGS += ${CXX_DEBUG_FLAGS} ${CXX_SANITIZER_FLAGS}
 sanitize: FluidSolver
 
 FluidSolver: ${SRC}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${OMP_INC} -o $@ $< ${HYPRE_LIB} ${OMP_LIB}
+	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} -o $@ $< ${HYPRE_LIB}
 
 clean:
 	${RM} -r FluidSolver FluidSolver.dSYM

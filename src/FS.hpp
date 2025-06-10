@@ -10,43 +10,40 @@
 
 // -------------------------------------------------------------------------------------------------
 struct FS {
-  Igor::MdArray<Float, NX_P1_EXTENT> x;
-  Igor::MdArray<Float, NX_EXTENT> xm;
-  Igor::MdArray<Float, NX_EXTENT> dx;
+  Igor::MdArray<Float, NX_P1_EXTENT> x = make_nx_p1();
+  Igor::MdArray<Float, NX_EXTENT> xm   = make_nx();
+  Igor::MdArray<Float, NX_EXTENT> dx   = make_nx();
 
-  Igor::MdArray<Float, NY_P1_EXTENT> y;
-  Igor::MdArray<Float, NY_EXTENT> ym;
-  Igor::MdArray<Float, NY_EXTENT> dy;
+  Igor::MdArray<Float, NY_P1_EXTENT> y = make_ny_p1();
+  Igor::MdArray<Float, NY_EXTENT> ym   = make_ny();
+  Igor::MdArray<Float, NY_EXTENT> dy   = make_ny();
 
-  // Igor::MdArray<Float, CENTERED_EXTENT> rho;
-  // Igor::MdArray<Float, CENTERED_EXTENT> rho_old;
+  Igor::MdArray<Float, U_STAGGERED_EXTENT> U     = make_u_staggered();
+  Igor::MdArray<Float, U_STAGGERED_EXTENT> U_old = make_u_staggered();
 
-  Igor::MdArray<Float, U_STAGGERED_EXTENT> U;
-  Igor::MdArray<Float, U_STAGGERED_EXTENT> U_old;
+  Igor::MdArray<Float, V_STAGGERED_EXTENT> V     = make_v_staggered();
+  Igor::MdArray<Float, V_STAGGERED_EXTENT> V_old = make_v_staggered();
 
-  Igor::MdArray<Float, V_STAGGERED_EXTENT> V;
-  Igor::MdArray<Float, V_STAGGERED_EXTENT> V_old;
-
-  Igor::MdArray<Float, CENTERED_EXTENT> p;
-
-  // Igor::MdArray<Float, CENTERED_EXTENT> visc;
+  Igor::MdArray<Float, CENTERED_EXTENT> p = make_centered();
 };
 
 // -------------------------------------------------------------------------------------------------
-auto adjust_dt(const FS& fs, Float dt_old) -> Float {
+auto adjust_dt(const FS& fs) -> Float {
   Float CFLc_x = 0.0;
   Float CFLc_y = 0.0;
+  Float CFLv_x = 0.0;
+  Float CFLv_y = 0.0;
 
   for (size_t i = 0; i < NX; ++i) {
     for (size_t j = 0; j < NY; ++j) {
       CFLc_x = std::max(CFLc_x, (fs.U[i, j] + fs.U[i + 1, j]) / 2 / fs.dx[i]);
       CFLc_y = std::max(CFLc_y, (fs.V[i, j] + fs.V[i, j + 1]) / 2 / fs.dy[j]);
+      CFLv_x = std::max(CFLv_x, 4.0 * VISC / (Igor::sqr(fs.dx[i]) * RHO));
+      CFLv_y = std::max(CFLv_y, 4.0 * VISC / (Igor::sqr(fs.dy[j]) * RHO));
     }
   }
-  CFLc_x *= dt_old;
-  CFLc_y *= dt_old;
 
-  return std::min(dt_old * CFL_MAX / std::max(CFLc_x, CFLc_y), DT_MAX);
+  return std::min(CFL_MAX / std::max({CFLc_x, CFLc_y, CFLv_x, CFLv_y}), DT_MAX);
 }
 
 // -------------------------------------------------------------------------------------------------

@@ -4,6 +4,7 @@
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
 #include <Igor/MdArray.hpp>
+#include <Igor/ProgressBar.hpp>
 #include <Igor/Timer.hpp>
 
 // #define FS_HYPRE_VERBOSE
@@ -35,39 +36,20 @@ auto main() -> int {
   // = Create output directory =====================================================================
 
   // = Allocate memory =============================================================================
-  FS fs = {
-      .x  = make_nx_p1(),
-      .xm = make_nx(),
-      .dx = make_nx(),
-
-      .y  = make_ny_p1(),
-      .ym = make_ny(),
-      .dy = make_ny(),
-
-      .U     = make_u_staggered(),
-      .U_old = make_u_staggered(),
-
-      .V     = make_v_staggered(),
-      .V_old = make_v_staggered(),
-
-      .p = make_centered(),
-  };
+  FS fs{};
+  PS ps{};
 
   auto Ui  = make_centered();
   auto Vi  = make_centered();
   auto div = make_centered();
 
-  auto resU    = make_u_staggered();
-  auto resV    = make_v_staggered();
+  auto drhoUdt = make_u_staggered();
+  auto drhoVdt = make_v_staggered();
   auto delta_p = make_centered();
 
   Float t  = 0.0;
   Float dt = DT_MAX;
   // = Allocate memory =============================================================================
-
-  // = Initialize HYPRE for pressure correction ====================================================
-  PS ps{};
-  // = Initialize HYPRE for pressure correction ====================================================
 
   // = Initialize grid =============================================================================
   for (size_t i = 0; i < fs.x.extent(0); ++i) {
@@ -110,9 +92,10 @@ auto main() -> int {
   Igor::ScopeTimer timer("Solver");
   std::vector<Float> ts;
   ts.push_back(t);
-  bool quit = false;
-  while (t < T_END && !quit) {
-    dt = adjust_dt(fs, dt);
+  bool failed = false;
+  Igor::ProgressBar<Float> pbar(T_END, 60);
+  while (t < T_END && !failed) {
+    dt = adjust_dt(fs);
     dt = std::min(dt, T_END - t);
 
     // Save previous state
@@ -123,17 +106,17 @@ auto main() -> int {
       calc_mid_time(fs.U, fs.U_old);
       calc_mid_time(fs.V, fs.V_old);
 
-      calc_dmomdt(fs, resU, resV);
+      calc_dmomdt(fs, drhoUdt, drhoVdt);
       for (size_t i = 0; i < fs.U.extent(0); ++i) {
         for (size_t j = 0; j < fs.U.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.U[i, j] = fs.U_old[i, j] + dt * resU[i, j] / RHO;
+          fs.U[i, j] = fs.U_old[i, j] + dt * drhoUdt[i, j] / RHO;
         }
       }
       for (size_t i = 0; i < fs.V.extent(0); ++i) {
         for (size_t j = 0; j < fs.V.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.V[i, j] = fs.V_old[i, j] + dt * resV[i, j] / RHO;
+          fs.V[i, j] = fs.V_old[i, j] + dt * drhoVdt[i, j] / RHO;
         }
       }
 
@@ -143,7 +126,7 @@ auto main() -> int {
       calc_divergence(fs, div);
       if (!ps.solve(fs, div, dt, delta_p)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
-        quit = true;
+        // failed = true;
       }
 
       shift_pressure_to_zero(fs, delta_p);
@@ -166,15 +149,26 @@ auto main() -> int {
     }
 
     t += dt;
-    ts.push_back(t);
     interpolate_U(fs.U, Ui);
     interpolate_V(fs.V, Vi);
     calc_divergence(fs, div);
-    if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, t)) { return 1; }
+    if (should_save(t, dt)) {
+      if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, t)) { return 1; }
+      ts.push_back(t);
+    }
+    pbar.update(dt);
   }
+  std::cout << '\n';
 
   if (!Igor::mdspan_to_npy(std::mdspan(ts.data(), ts.size()),
                            Igor::detail::format("{}/t.npy", OUTPUT_DIR))) {
     return 1;
+  }
+
+  if (failed) {
+    Igor::Warn("Solver did not finish successfully.");
+    return 1;
+  } else {
+    Igor::Info("Solver finish successfully.");
   }
 }

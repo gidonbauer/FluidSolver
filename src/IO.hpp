@@ -141,4 +141,11 @@ void write_vector_vtk(std::ofstream& out,
 #endif
 }
 
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] constexpr auto should_save(Float t, Float dt) -> bool {
+  constexpr Float DT_SAFE = 1e-6;
+  return std::fmod(t + DT_SAFE * dt, DT_WRITE) < dt * (1.0 - DT_SAFE) ||
+         std::abs(t - T_END) < DT_SAFE;
+}
+
 #endif  // FLUID_SOLVER_IO_HPP_

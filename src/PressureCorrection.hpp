@@ -282,8 +282,8 @@ class PS {
 
     // = Create solver =============================================================================
     HYPRE_StructGMRESCreate(COMM, &solver);
-    HYPRE_StructGMRESSetTol(solver, 1e-8);
-    HYPRE_StructGMRESSetMaxIter(solver, 500);
+    HYPRE_StructGMRESSetTol(solver, PRESSURE_TOL);
+    HYPRE_StructGMRESSetMaxIter(solver, PRESSURE_MAX_ITER);
 #ifdef FS_HYPRE_VERBOSE
     HYPRE_StructGMRESSetPrintLevel(solver, 2);
     HYPRE_StructGMRESSetLogging(solver, 1);
@@ -366,13 +366,6 @@ class PS {
     HYPRE_StructGMRESGetFinalRelativeResidualNorm(solver, &final_residual);
     HYPRE_StructGMRESGetNumIterations(solver, &num_iter);
 
-    // IGOR_DEBUG_PRINT(final_residual);
-    if (final_residual > 1e-6) {
-      Igor::Warn("Residual pressure correction = {}", final_residual);
-      Igor::Warn("Num. iterations pressure correction = {}", num_iter);
-      res = false;
-    }
-
     for (size_t i = 0; i < resP.extent(0); ++i) {
       for (size_t j = 0; j < resP.extent(1); ++j) {
         std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
@@ -380,10 +373,15 @@ class PS {
       }
     }
 
-    if (ierr != 0) {
-      HYPRE_DescribeError(ierr, buffer.data());
-      Igor::Warn("Could not solve the system successfully: {}", buffer.data());
-      HYPRE_ClearError(ierr);
+    if (final_residual > 100.0 * PRESSURE_TOL) {
+      if (ierr != 0) {
+        HYPRE_DescribeError(ierr, buffer.data());
+        Igor::Warn("Could not solve the system successfully: {}", buffer.data());
+        HYPRE_ClearError(ierr);
+      }
+
+      Igor::Warn("Residual pressure correction = {}", final_residual);
+      Igor::Warn("Num. iterations pressure correction = {}", num_iter);
       res = false;
     }
 

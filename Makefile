@@ -20,6 +20,19 @@ else
   ${error "Need to define the path to HYPRE configured to not use MPI in `HYPRE_SERIAL_DIR`."}
 endif
 
+ifdef IRL_DIR
+  IRL_INC = -I${IRL_DIR}/include
+  IRL_LIB = -L${IRL_DIR}/lib -lirl
+else
+  ${error "Need to define the path to interface reconstruction library (IRL) in `IRL_DIR`."}
+endif
+
+ifdef EIGEN_DIR
+  EIGEN_INC = -I${EIGEN_DIR}
+else
+  ${error "Need to define the path to Eigen linear algebra library in `EIGEN_DIR`."}
+endif
+
 release: CXX_FLAGS += ${CXX_RELEASE_FLAGS}
 release: FluidSolver
 
@@ -30,7 +43,7 @@ sanitize: CXX_FLAGS += ${CXX_DEBUG_FLAGS} ${CXX_SANITIZER_FLAGS}
 sanitize: FluidSolver
 
 FluidSolver: ${SRC}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} -o $@ $< ${HYPRE_LIB}
+	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
 clean:
 	${RM} -r FluidSolver FluidSolver.dSYM

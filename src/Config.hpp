@@ -9,23 +9,23 @@
 using Float = double;
 
 constexpr size_t NDIMS = 2;
-constexpr size_t NX    = 512;
-constexpr size_t NY    = 64;
+constexpr size_t NX    = 5;  // 256;
+constexpr size_t NY    = 5;  // 256;
 
 constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 8.0;
+constexpr Float X_MAX = 20.0;
 constexpr Float Y_MIN = 0.0;
 constexpr Float Y_MAX = 1.0;
 
-constexpr Float T_END    = 10.0;
-constexpr Float DT_MAX   = 1e-1;
-constexpr Float CFL_MAX  = 0.9;
-constexpr Float DT_WRITE = 0.1;
+constexpr Float T_END    = 20.0;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.5;
+constexpr Float DT_WRITE = 0.05;
 
 constexpr Float U_IN  = 1.0;
 constexpr Float U_TOP = 0.0;
 constexpr Float U_BOT = 0.0;
-constexpr Float VISC  = 1e-2;
+constexpr Float VISC  = 1e-3;
 constexpr Float RHO   = 0.9;
 
 constexpr int PRESSURE_MAX_ITER = 500;

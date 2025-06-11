@@ -25,6 +25,9 @@ struct FS {
   Igor::MdArray<Float, V_STAGGERED_EXTENT> V_old = make_v_staggered();
 
   Igor::MdArray<Float, CENTERED_EXTENT> p = make_centered();
+
+  Igor::MdArray<Float, CENTERED_EXTENT> vof     = make_centered();
+  Igor::MdArray<Float, CENTERED_EXTENT> vof_old = make_centered();
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -132,7 +135,7 @@ void calc_dmomdt(const FS& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-void apply_bconds(FS& fs) {
+void apply_velocity_bconds(FS& fs) {
   // = Boundary conditions for U-component of velocity =============================================
   for (size_t j = 0; j < fs.U.extent(1); ++j) {
     // Inflow from left
@@ -165,6 +168,49 @@ void apply_bconds(FS& fs) {
 
     // No-slip on top
     fs.V[i, fs.V.extent(1) - 1] = 0.0;
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+void calc_dvofdt(const FS& fs, Igor::MdArray<Float, CENTERED_EXTENT>& dvofdt) {
+  static auto FX = make_u_staggered();
+  static auto FY = make_v_staggered();
+  std::fill_n(FX.get_data(), FX.size(), 0.0);
+  std::fill_n(FY.get_data(), FY.size(), 0.0);
+  std::fill_n(dvofdt.get_data(), dvofdt.size(), 0.0);
+
+  for (size_t i = 1; i < FX.extent(0) - 1; ++i) {
+    for (size_t j = 1; j < FX.extent(1) - 1; ++j) {
+      FX[i, j] = -(fs.vof[i, j] + fs.vof[i - 1, j]) * fs.U[i, j];
+    }
+  }
+  for (size_t i = 1; i < FY.extent(0) - 1; ++i) {
+    for (size_t j = 1; j < FY.extent(1) - 1; ++j) {
+      FY[i, j] = -(fs.vof[i, j] + fs.vof[i, j - 1]) * fs.V[i, j];
+    }
+  }
+
+  for (size_t i = 0; i < dvofdt.extent(0); ++i) {
+    for (size_t j = 0; j < dvofdt.extent(1); ++j) {
+      dvofdt[i, j] = (FX[i + 1, j] - FX[i, j]) / fs.dx[i] + (FY[i, j + 1] - FY[i, j]) / fs.dy[j];
+    }
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+void apply_vof_bconds(FS& fs) {
+  for (size_t j = 0; j < fs.vof.extent(1); ++j) {
+    // Neumann on left
+    fs.vof[0, j] = fs.vof[1, j];
+    // Neumann on right
+    fs.vof[fs.vof.extent(0) - 1, j] = fs.vof[fs.vof.extent(0) - 2, j];
+  }
+
+  for (size_t i = 0; i < fs.U.extent(0); ++i) {
+    // Neumann on bottom
+    fs.vof[i, 0] = fs.vof[i, 1];
+    // Neumann on top
+    fs.vof[i, fs.vof.extent(1) - 1] = fs.vof[i, fs.vof.extent(1) - 2];
   }
 }
 

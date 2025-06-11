@@ -21,7 +21,8 @@ Checks:
   -bugprone-easily-swappable-parameters,
   -cert-dcl16-c,
   -modernize-use-ranges,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-constant-array-index
 
 CheckOptions:
   {IgnoreMacros: true}

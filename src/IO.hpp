@@ -83,6 +83,7 @@ void write_vector_vtk(std::ofstream& out,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& p,
                                   const Igor::MdArray<Float, CENTERED_EXTENT>& div,
+                                  const Igor::MdArray<Float, CENTERED_EXTENT>& vof,
                                   Float t) -> bool {
   static_assert(std::is_same_v<Float, double>, "Assumes Float=double");
 
@@ -120,6 +121,7 @@ void write_vector_vtk(std::ofstream& out,
   write_scalar_vtk(out, p, "pressure");
   write_scalar_vtk(out, div, "divergence");
   write_vector_vtk(out, Ui, Vi, "velocity");
+  write_scalar_vtk(out, vof, "VOF");
 
   return out.good();
 }
@@ -133,11 +135,12 @@ void write_vector_vtk(std::ofstream& out,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& p,
                               const Igor::MdArray<Float, CENTERED_EXTENT>& div,
+                              const Igor::MdArray<Float, CENTERED_EXTENT>& vof,
                               Float t) -> bool {
 #ifdef FS_SAVE_NUMPY
   return detail::save_state_npy(Ui, Vi, p, div, t);
 #else
-  return detail::save_state_vtk(x, y, Ui, Vi, p, div, t);
+  return detail::save_state_vtk(x, y, Ui, Vi, p, div, vof, t);
 #endif
 }
 

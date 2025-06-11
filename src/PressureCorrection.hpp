@@ -298,6 +298,7 @@ class PS {
     HYPRE_StructSMGSetNumPostRelax(precond, 1);
     HYPRE_StructSMGSetMemoryUse(precond, 0);
     HYPRE_StructGMRESSetPrecond(solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, precond);
+    HYPRE_StructGMRESSetup(solver, matrix, rhs, sol);
 
     const HYPRE_Int error_flag = HYPRE_GetError();
     if (error_flag != 0) { Igor::Panic("An error occured in HYPRE."); }
@@ -335,6 +336,14 @@ class PS {
 
     static Igor::MdArray<Float, CENTERED_EXTENT, std::layout_left> rhs_values(resP.extent(0),
                                                                               resP.extent(1));
+
+    // = Set initial guess to zero =================================================================
+    std::array<HYPRE_Int, 2> ilower = {0, 0};
+    std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
+    std::fill_n(rhs_values.get_data(), rhs_values.size(), 0.0);
+    HYPRE_StructVectorSetBoxValues(sol, ilower.data(), iupper.data(), rhs_values.get_data());
+
+    // = Set right-hand side =======================================================================
     Float mean_rhs = 0.0;
     for (size_t i = 0; i < resP.extent(0); ++i) {
       for (size_t j = 0; j < resP.extent(1); ++j) {
@@ -348,21 +357,12 @@ class PS {
         rhs_values[i, j] -= mean_rhs;
       }
     }
-
-    std::array<HYPRE_Int, 2> ilower = {0, 0};
-    std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
     HYPRE_StructVectorSetBoxValues(rhs, ilower.data(), iupper.data(), rhs_values.get_data());
-    HYPRE_StructVectorAssemble(rhs);
 
-    // Set initial guess to zero
-    static std::vector<Float> zeros(rhs_values.size(), 0.0);
-    HYPRE_StructVectorSetBoxValues(sol, ilower.data(), iupper.data(), zeros.data());
-    HYPRE_StructVectorAssemble(sol);
-
+    // = Solve the system ==========================================================================
     Float final_residual = -1.0;
     HYPRE_Int num_iter   = -1;
-    HYPRE_StructGMRESSetup(solver, matrix, rhs, sol);
-    ierr = HYPRE_StructGMRESSolve(solver, matrix, rhs, sol);
+    ierr                 = HYPRE_StructGMRESSolve(solver, matrix, rhs, sol);
     HYPRE_StructGMRESGetFinalRelativeResidualNorm(solver, &final_residual);
     HYPRE_StructGMRESGetNumIterations(solver, &num_iter);
 

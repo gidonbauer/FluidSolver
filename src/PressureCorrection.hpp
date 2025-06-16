@@ -332,7 +332,7 @@ class PS {
     // TODO: Assumes equidistant spacing
     const auto vol = fs.dx[0] * fs.dy[0];
 
-    static Matrix<Float, NX, NY, Layout::C> rhs_values{};
+    static Matrix<Float, NX, NY, Layout::F> rhs_values{};
 
     // = Set initial guess to zero =================================================================
     std::array<HYPRE_Int, 2> ilower = {0, 0};

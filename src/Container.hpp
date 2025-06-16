@@ -39,7 +39,7 @@ class Vector {
 
   [[nodiscard]] constexpr auto size() const noexcept -> size_t { return N; }
 
-  [[nodiscard]] constexpr auto extent(size_t r) const noexcept -> size_t {
+  [[nodiscard]] constexpr auto extent([[maybe_unused]] size_t r) const noexcept -> size_t {
     IGOR_ASSERT(r < 1, "Dimension {} is out of bounds for Vector", r);
     return N;
   }
@@ -52,11 +52,10 @@ class Matrix {
   std::unique_ptr<std::array<Contained, M * N>> m_data{};
 
   [[nodiscard]] constexpr auto get_idx(size_t i, size_t j) const noexcept -> size_t {
-    // TODO: Have a look at this again...
     if constexpr (LAYOUT == Layout::C) {
-      return i + j * M;
-    } else {
       return j + i * N;
+    } else {
+      return i + j * M;
     }
   }
 

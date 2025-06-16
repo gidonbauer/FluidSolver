@@ -1,13 +1,12 @@
 #include <filesystem>
-#include <mdspan>
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
-#include <Igor/MdArray.hpp>
 #include <Igor/ProgressBar.hpp>
 #include <Igor/Timer.hpp>
 #include <Igor/TypeName.hpp>
 
+#ifdef USE_IRL
 // Disable warnings for IRL
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
@@ -20,6 +19,7 @@
 #include <irl/interface_reconstruction_methods/elvira_neighborhood.h>
 #include <irl/interface_reconstruction_methods/reconstruction_interface.h>
 #pragma clang diagnostic pop
+#endif  // USE_IRL
 
 // #define FS_HYPRE_VERBOSE
 
@@ -120,6 +120,7 @@ auto main() -> int {
   if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, fs.vof, t)) { return 1; }
   // = Initialize flow field =======================================================================
 
+#ifdef USE_IRL
   // = Reconstruct the interface ===================================================================
   {
     constexpr size_t NUM_NEIGHBORS = 9;
@@ -158,12 +159,11 @@ auto main() -> int {
   }
   Igor::Todo("Figure out IRL.");
   // = Reconstruct the interface ===================================================================
+#endif  // USE_IRL
 
   Igor::ScopeTimer timer("Solver");
-  std::vector<Float> ts;
-  ts.push_back(t);
   bool failed = false;
-  Igor::ProgressBar<Float> pbar(T_END, 60);
+  Igor::ProgressBar<Float> pbar(T_END, 67);
   while (t < T_END && !failed) {
     dt = adjust_dt(fs);
     dt = std::min(dt, T_END - t);
@@ -210,7 +210,7 @@ auto main() -> int {
       // TODO: Add capillary forces here.
       if (!ps.solve(fs, div, dt, delta_p)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
-        // failed = true;
+        failed = true;
       }
 
       shift_pressure_to_zero(fs, delta_p);
@@ -238,16 +238,10 @@ auto main() -> int {
     calc_divergence(fs, div);
     if (should_save(t, dt)) {
       if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, fs.vof, t)) { return 1; }
-      ts.push_back(t);
     }
     pbar.update(dt);
   }
   std::cout << '\n';
-
-  if (!Igor::mdspan_to_npy(std::mdspan(ts.data(), ts.size()),
-                           Igor::detail::format("{}/t.npy", OUTPUT_DIR))) {
-    return 1;
-  }
 
   if (failed) {
     Igor::Warn("Solver did not finish successfully.");

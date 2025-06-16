@@ -1,7 +1,7 @@
-SRC = src/FluidSolver.cpp src/Config.hpp src/FS.hpp src/IO.hpp src/Operators.hpp src/PressureCorrection.hpp
+SRC = src/FluidSolver.cpp src/Config.hpp src/FS.hpp src/IO.hpp src/Operators.hpp src/PressureCorrection.hpp src/Container.hpp
 
 CXX_FLAGS = -Wall -Wextra -pedantic -Wshadow -Wconversion -std=c++23
-CXX_RELEASE_FLAGS = -march=native -ffast-math -O3
+CXX_RELEASE_FLAGS = -march=native -ffast-math -O3 -DIGOR_NDEBUG
 CXX_DEBUG_FLAGS = -O0 -g -D_GLIBCXX_DEBUG
 CXX_SANITIZER_FLAGS = -fsanitize=address,undefined
 
@@ -42,8 +42,12 @@ debug: FluidSolver
 sanitize: CXX_FLAGS += ${CXX_DEBUG_FLAGS} ${CXX_SANITIZER_FLAGS}
 sanitize: FluidSolver
 
+profile: CXX_FLAGS += ${CXX_RELEASE_FLAGS} -g -pg
+profile: PROFILE_LIB = -L/opt/homebrew/opt/gperftools/lib -lprofiler
+profile: FluidSolver
+
 FluidSolver: ${SRC}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
+	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${PROFILE_LIB}
 
 clean:
 	${RM} -r FluidSolver FluidSolver.dSYM

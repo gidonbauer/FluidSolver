@@ -5,35 +5,10 @@
 #include <fstream>
 
 #include <Igor/Logging.hpp>
-#include <Igor/MdArray.hpp>
-#include <Igor/MdspanToNpy.hpp>
 
 #include "Config.hpp"
 
 namespace detail {
-
-// -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto save_state_npy(const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& p,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& div,
-                                  Float t) {
-  bool result = true;
-
-  const auto Ui_filename = Igor::detail::format("{}/Ui_{:.6f}.npy", OUTPUT_DIR, t);
-  result                 = Igor::mdspan_to_npy(Ui, Ui_filename) && result;
-
-  const auto Vi_filename = Igor::detail::format("{}/Vi_{:.6f}.npy", OUTPUT_DIR, t);
-  result                 = Igor::mdspan_to_npy(Vi, Vi_filename) && result;
-
-  const auto p_filename = Igor::detail::format("{}/p_{:.6f}.npy", OUTPUT_DIR, t);
-  result                = Igor::mdspan_to_npy(p, p_filename) && result;
-
-  const auto div_filename = Igor::detail::format("{}/div_{:.6f}.npy", OUTPUT_DIR, t);
-  result                  = Igor::mdspan_to_npy(div, div_filename) && result;
-
-  return result;
-}
 
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] constexpr auto interpret_as_bytes(double value)
@@ -47,7 +22,7 @@ namespace detail {
 
 // -------------------------------------------------------------------------------------------------
 void write_scalar_vtk(std::ofstream& out,
-                      const Igor::MdArray<Float, CENTERED_EXTENT>& scalar,
+                      const Matrix<Float, NX, NY>& scalar,
                       const std::string& name) {
   out << "SCALARS " << name << " double 1\n";
   out << "LOOKUP_TABLE default\n";
@@ -61,8 +36,8 @@ void write_scalar_vtk(std::ofstream& out,
 
 // -------------------------------------------------------------------------------------------------
 void write_vector_vtk(std::ofstream& out,
-                      const Igor::MdArray<Float, CENTERED_EXTENT>& x_comp,
-                      const Igor::MdArray<Float, CENTERED_EXTENT>& y_comp,
+                      const Matrix<Float, NX, NY>& x_comp,
+                      const Matrix<Float, NX, NY>& y_comp,
                       const std::string& name) {
   out << "VECTORS " << name << " double\n";
   for (size_t j = 0; j < x_comp.extent(1); ++j) {
@@ -77,18 +52,18 @@ void write_vector_vtk(std::ofstream& out,
 }
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto save_state_vtk(const Igor::MdArray<Float, NX_P1_EXTENT>& x,
-                                  const Igor::MdArray<Float, NY_P1_EXTENT>& y,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& p,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& div,
-                                  const Igor::MdArray<Float, CENTERED_EXTENT>& vof,
+[[nodiscard]] auto save_state_vtk(const Vector<Float, NX + 1>& x,
+                                  const Vector<Float, NY + 1>& y,
+                                  const Matrix<Float, NX, NY>& Ui,
+                                  const Matrix<Float, NX, NY>& Vi,
+                                  const Matrix<Float, NX, NY>& p,
+                                  const Matrix<Float, NX, NY>& div,
+                                  const Matrix<Float, NX, NY>& vof,
                                   Float t) -> bool {
   static_assert(std::is_same_v<Float, double>, "Assumes Float=double");
 
   static size_t write_counter = 0;
-  const auto filename = Igor::detail::format("{}/state_{}.vtk", OUTPUT_DIR, write_counter++);
+  const auto filename = Igor::detail::format("{}/state_{:06d}.vtk", OUTPUT_DIR, write_counter++);
   std::ofstream out(filename);
   if (!out) {
     Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
@@ -129,19 +104,15 @@ void write_vector_vtk(std::ofstream& out,
 }  // namespace detail
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto save_state([[maybe_unused]] const Igor::MdArray<Float, NX_P1_EXTENT>& x,
-                              [[maybe_unused]] const Igor::MdArray<Float, NY_P1_EXTENT>& y,
-                              const Igor::MdArray<Float, CENTERED_EXTENT>& Ui,
-                              const Igor::MdArray<Float, CENTERED_EXTENT>& Vi,
-                              const Igor::MdArray<Float, CENTERED_EXTENT>& p,
-                              const Igor::MdArray<Float, CENTERED_EXTENT>& div,
-                              const Igor::MdArray<Float, CENTERED_EXTENT>& vof,
+[[nodiscard]] auto save_state(const Vector<Float, NX + 1>& x,
+                              const Vector<Float, NY + 1>& y,
+                              const Matrix<Float, NX, NY>& Ui,
+                              const Matrix<Float, NX, NY>& Vi,
+                              const Matrix<Float, NX, NY>& p,
+                              const Matrix<Float, NX, NY>& div,
+                              const Matrix<Float, NX, NY>& vof,
                               Float t) -> bool {
-#ifdef FS_SAVE_NUMPY
-  return detail::save_state_npy(Ui, Vi, p, div, t);
-#else
   return detail::save_state_vtk(x, y, Ui, Vi, p, div, vof, t);
-#endif
 }
 
 // -------------------------------------------------------------------------------------------------

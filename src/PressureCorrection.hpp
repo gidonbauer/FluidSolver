@@ -5,7 +5,6 @@
 #include <HYPRE_utilities.h>
 
 #include <Igor/Math.hpp>
-#include <Igor/MdArray.hpp>
 
 #include "Config.hpp"
 #include "FS.hpp"
@@ -323,10 +322,9 @@ class PS {
   }
 
   // -------------------------------------------------------------------------------------------------
-  [[nodiscard]] auto solve(const FS& fs,
-                           const Igor::MdArray<Float, CENTERED_EXTENT>& div,
-                           Float dt,
-                           Igor::MdArray<Float, CENTERED_EXTENT>& resP) -> bool {
+  [[nodiscard]] auto
+  solve(const FS& fs, const Matrix<Float, NX, NY>& div, Float dt, Matrix<Float, NX, NY>& resP)
+      -> bool {
     static std::array<char, 1024UZ> buffer{};
     HYPRE_Int ierr = 0;
     bool res       = true;
@@ -334,8 +332,7 @@ class PS {
     // TODO: Assumes equidistant spacing
     const auto vol = fs.dx[0] * fs.dy[0];
 
-    static Igor::MdArray<Float, CENTERED_EXTENT, std::layout_left> rhs_values(resP.extent(0),
-                                                                              resP.extent(1));
+    static Matrix<Float, NX, NY, Layout::C> rhs_values{};
 
     // = Set initial guess to zero =================================================================
     std::array<HYPRE_Int, 2> ilower = {0, 0};
@@ -358,6 +355,12 @@ class PS {
       }
     }
     HYPRE_StructVectorSetBoxValues(rhs, ilower.data(), iupper.data(), rhs_values.get_data());
+    // for (size_t i = 0; i < resP.extent(0); ++i) {
+    //   for (size_t j = 0; j < resP.extent(1); ++j) {
+    //     std::array<HYPRE_Int, NDIMS> index{static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
+    //     HYPRE_StructVectorSetValues(rhs, index.data(), rhs_values[i, j]);
+    //   }
+    // }
 
     // = Solve the system ==========================================================================
     Float final_residual = -1.0;

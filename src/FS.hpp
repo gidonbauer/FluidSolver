@@ -4,30 +4,30 @@
 #include <algorithm>
 
 #include <Igor/Math.hpp>
-#include <Igor/MdArray.hpp>
 
 #include "Config.hpp"
+#include "Container.hpp"
 
 // -------------------------------------------------------------------------------------------------
 struct FS {
-  Igor::MdArray<Float, NX_P1_EXTENT> x = make_nx_p1();
-  Igor::MdArray<Float, NX_EXTENT> xm   = make_nx();
-  Igor::MdArray<Float, NX_EXTENT> dx   = make_nx();
+  Vector<Float, NX + 1> x = make_nx_p1();
+  Vector<Float, NX> xm    = make_nx();
+  Vector<Float, NX> dx    = make_nx();
 
-  Igor::MdArray<Float, NY_P1_EXTENT> y = make_ny_p1();
-  Igor::MdArray<Float, NY_EXTENT> ym   = make_ny();
-  Igor::MdArray<Float, NY_EXTENT> dy   = make_ny();
+  Vector<Float, NY + 1> y = make_ny_p1();
+  Vector<Float, NY> ym    = make_ny();
+  Vector<Float, NY> dy    = make_ny();
 
-  Igor::MdArray<Float, U_STAGGERED_EXTENT> U     = make_u_staggered();
-  Igor::MdArray<Float, U_STAGGERED_EXTENT> U_old = make_u_staggered();
+  Matrix<Float, NX + 1, NY> U     = make_u_staggered();
+  Matrix<Float, NX + 1, NY> U_old = make_u_staggered();
 
-  Igor::MdArray<Float, V_STAGGERED_EXTENT> V     = make_v_staggered();
-  Igor::MdArray<Float, V_STAGGERED_EXTENT> V_old = make_v_staggered();
+  Matrix<Float, NX, NY + 1> V     = make_v_staggered();
+  Matrix<Float, NX, NY + 1> V_old = make_v_staggered();
 
-  Igor::MdArray<Float, CENTERED_EXTENT> p = make_centered();
+  Matrix<Float, NX, NY> p = make_centered();
 
-  Igor::MdArray<Float, CENTERED_EXTENT> vof     = make_centered();
-  Igor::MdArray<Float, CENTERED_EXTENT> vof_old = make_centered();
+  Matrix<Float, NX, NY> vof     = make_centered();
+  Matrix<Float, NX, NY> vof_old = make_centered();
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -51,8 +51,8 @@ auto adjust_dt(const FS& fs) -> Float {
 
 // -------------------------------------------------------------------------------------------------
 void calc_dmomdt(const FS& fs,
-                 Igor::MdArray<Float, U_STAGGERED_EXTENT>& dmomUdt,
-                 Igor::MdArray<Float, V_STAGGERED_EXTENT>& dmomVdt) {
+                 Matrix<Float, NX + 1, NY>& dmomUdt,
+                 Matrix<Float, NX, NY + 1>& dmomVdt) {
   // TODO: Interpolate rho and visc, at the moment we assume that they are constant and it makes no
   //       difference but for two-phase flows this is not correct anymore.
   // TODO: Use the correct dx and dy in case of non-uniform grids (not planned at the moment)
@@ -172,7 +172,7 @@ void apply_velocity_bconds(FS& fs) {
 }
 
 // -------------------------------------------------------------------------------------------------
-void calc_dvofdt(const FS& fs, Igor::MdArray<Float, CENTERED_EXTENT>& dvofdt) {
+void calc_dvofdt(const FS& fs, Matrix<Float, NX, NY>& dvofdt) {
   static auto FX = make_u_staggered();
   static auto FY = make_v_staggered();
   std::fill_n(FX.get_data(), FX.size(), 0.0);
@@ -206,7 +206,7 @@ void apply_vof_bconds(FS& fs) {
     fs.vof[fs.vof.extent(0) - 1, j] = fs.vof[fs.vof.extent(0) - 2, j];
   }
 
-  for (size_t i = 0; i < fs.U.extent(0); ++i) {
+  for (size_t i = 0; i < fs.vof.extent(0); ++i) {
     // Neumann on bottom
     fs.vof[i, 0] = fs.vof[i, 1];
     // Neumann on top

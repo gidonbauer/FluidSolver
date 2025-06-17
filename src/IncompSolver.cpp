@@ -21,27 +21,42 @@ constexpr size_t NX = 2560;
 constexpr size_t NY = 256;
 
 constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 100.0;
+constexpr Float X_MAX = 100.0;  // 10.0;
 constexpr Float Y_MIN = 0.0;
 constexpr Float Y_MAX = 1.0;
 
-constexpr Float T_END    = 10.0;
-constexpr Float DT_MAX   = 1e-2;
+constexpr Float T_END    = 60.0;  // 10.0;
+constexpr Float DT_MAX   = 1e-1;
 constexpr Float CFL_MAX  = 0.9;
 constexpr Float DT_WRITE = 0.5;
 
-constexpr Float U_IN  = 1.0;
-constexpr Float U_TOP = 0.0;
-constexpr Float U_BOT = 0.0;
-constexpr Float VISC  = 1e-3;
-constexpr Float RHO   = 0.9;
+constexpr Float U_BCOND = 1.0;
+constexpr Float U_0     = 1.0;   // 0.0;
+constexpr Float VISC    = 1e-3;  // 1e-1;
+constexpr Float RHO     = 0.9;
 
 constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr size_t NUM_SUBITER = 2;
+constexpr size_t NUM_SUBITER = 5;
 
-constexpr auto OUTPUT_DIR = "output";
+// Channel flow
+constexpr FlowBConds<Float> bconds{
+    //        LEFT              RIGHT           BOTTOM            TOP
+    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+    .U     = {U_BCOND, 0.0, 0.0, 0.0},
+    .V     = {0.0, 0.0, 0.0, 0.0},
+};
+
+// // Couette flow
+// constexpr FlowBConds<Float> bconds{
+//     //        LEFT            RIGHT           BOTTOM            TOP
+//     .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+//     .U     = {0.0, 0.0, 0.0, U_BCOND},
+//     .V     = {0.0, 0.0, 0.0, 0.0},
+// };
+
+constexpr auto OUTPUT_DIR = "output/IncompSolver/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -69,7 +84,6 @@ auto main() -> int {
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
   PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);
-  FlowBConds<Float> bconds{.U_in = U_IN, .U_bot = U_BOT, .U_top = U_TOP};
 
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
@@ -105,7 +119,7 @@ auto main() -> int {
 
   for (size_t i = 0; i < fs.U.extent(0); ++i) {
     for (size_t j = 0; j < fs.U.extent(1); ++j) {
-      fs.U[i, j] = U_IN;
+      fs.U[i, j] = U_0;
     }
   }
   for (size_t i = 0; i < fs.V.extent(0); ++i) {

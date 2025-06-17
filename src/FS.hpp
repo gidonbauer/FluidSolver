@@ -34,11 +34,15 @@ struct FS {
   // Matrix<Float, NX, NY> vof_old{};
 };
 
+// TODO: Clipped Neumann?
+enum class BCond : uint8_t { DIRICHLET, NEUMANN };
+enum : size_t { LEFT, RIGHT, BOTTOM, TOP, NSIDES };
+
 template <typename Float>
 struct FlowBConds {
-  Float U_in;
-  Float U_bot;
-  Float U_top;
+  std::array<BCond, NSIDES> types;
+  std::array<Float, NSIDES> U;
+  std::array<Float, NSIDES> V;
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -152,36 +156,64 @@ template <typename Float, size_t NX, size_t NY>
 void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bconds) {
   // = Boundary conditions for U-component of velocity =============================================
   for (size_t j = 0; j < fs.U.extent(1); ++j) {
-    // Inflow from left
-    fs.U[0, j] = bconds.U_in;
+    // LEFT
+    switch (bconds.types[LEFT]) {
+      case BCond::DIRICHLET: fs.U[0, j] = bconds.U[LEFT]; break;
+      case BCond::NEUMANN:   fs.U[0, j] = fs.U[1, j]; break;
+    }
 
-    // Outflow on right: clipped Neumann
-    fs.U[fs.U.extent(0) - 1, j] = std::max(fs.U[fs.U.extent(0) - 2, j], 0.0);
+    // RIGHT
+    switch (bconds.types[RIGHT]) {
+      case BCond::DIRICHLET: fs.U[fs.U.extent(0) - 1, j] = bconds.U[RIGHT]; break;
+      case BCond::NEUMANN:   fs.U[fs.U.extent(0) - 1, j] = fs.U[fs.U.extent(0) - 2, j]; break;
+    }
   }
 
   for (size_t i = 0; i < fs.U.extent(0); ++i) {
-    // No-slip on bottom
-    fs.U[i, 0] = (fs.U[i, 1] + 2.0 * bconds.U_bot) / 3.0;
+    // BOTTOM
+    switch (bconds.types[BOTTOM]) {
+      case BCond::DIRICHLET: fs.U[i, 0] = (fs.U[i, 1] + 2.0 * bconds.U[BOTTOM]) / 3.0; break;
+      case BCond::NEUMANN:   fs.U[i, 0] = fs.U[i, 1]; break;
+    }
 
-    // No-slip on top
-    fs.U[i, fs.U.extent(1) - 1] = (fs.U[i, fs.U.extent(1) - 2] + 2.0 * bconds.U_top) / 3.0;
+    // TOP
+    switch (bconds.types[TOP]) {
+      case BCond::DIRICHLET:
+        fs.U[i, fs.U.extent(1) - 1] = (fs.U[i, fs.U.extent(1) - 2] + 2.0 * bconds.U[TOP]) / 3.0;
+        break;
+      case BCond::NEUMANN: fs.U[i, fs.U.extent(1) - 1] = fs.U[i, fs.U.extent(1) - 2]; break;
+    }
   }
 
   // = Boundary conditions for V-component of velocity =============================================
   for (size_t j = 0; j < fs.V.extent(1); ++j) {
-    // Inflow from left
-    fs.V[0, j] = fs.V[1, j] / 3.0;  // 0.0
+    // LEFT
+    switch (bconds.types[LEFT]) {
+      case BCond::DIRICHLET: fs.V[0, j] = (fs.V[1, j] + 2.0 * bconds.V[LEFT]) / 3.0; break;
+      case BCond::NEUMANN:   fs.V[0, j] = fs.V[1, j]; break;
+    }
 
-    // Outflow on right: clipped Neumann
-    fs.V[fs.V.extent(0) - 1, j] = fs.V[fs.V.extent(0) - 2, j];
+    // RIGHT
+    switch (bconds.types[RIGHT]) {
+      case BCond::DIRICHLET:
+        fs.V[fs.V.extent(0) - 1, j] = (fs.V[fs.V.extent(0) - 2, j] + 2.0 * bconds.V[RIGHT]) / 3.0;
+        break;
+      case BCond::NEUMANN: fs.V[fs.V.extent(0) - 1, j] = fs.V[fs.V.extent(0) - 2, j]; break;
+    }
   }
 
   for (size_t i = 0; i < fs.V.extent(0); ++i) {
-    // No-slip on bottom
-    fs.V[i, 0] = 0.0;
+    // BOTTOM
+    switch (bconds.types[BOTTOM]) {
+      case BCond::DIRICHLET: fs.V[i, 0] = bconds.V[BOTTOM]; break;
+      case BCond::NEUMANN:   fs.V[i, 0] = fs.V[i, 1]; break;
+    }
 
-    // No-slip on top
-    fs.V[i, fs.V.extent(1) - 1] = 0.0;
+    // TOP
+    switch (bconds.types[TOP]) {
+      case BCond::DIRICHLET: fs.V[i, fs.V.extent(1) - 1] = bconds.V[TOP]; break;
+      case BCond::NEUMANN:   fs.V[i, fs.V.extent(1) - 1] = fs.V[i, fs.V.extent(1) - 2]; break;
+    }
   }
 }
 

@@ -4,11 +4,15 @@ compile_commands.json
 
 IncompSolver
 IncompSolver.dSYM
+VOF
+VOF.dSYM
 
 output/
 output*/
 notes/
-python/
+python/*
+!python/verify_laminar_channel.py
+!python/verify_couette.py
 venv/
 *.ipynb
 sample.txt

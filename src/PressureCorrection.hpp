@@ -353,7 +353,7 @@ class PS {
         mean_rhs += rhs_values[i, j];
       }
     }
-    mean_rhs /= rhs_values.size();
+    mean_rhs /= static_cast<Float>(rhs_values.size());
     for (size_t i = 0; i < resP.extent(0); ++i) {
       for (size_t j = 0; j < resP.extent(1); ++j) {
         rhs_values[i, j] -= mean_rhs;

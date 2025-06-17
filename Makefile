@@ -1,4 +1,5 @@
-SRC = src/FluidSolver.cpp src/Config.hpp src/FS.hpp src/IO.hpp src/Operators.hpp src/PressureCorrection.hpp src/Container.hpp
+HEADERS = src/Container.hpp src/FS.hpp src/IO.hpp src/Operators.hpp src/PressureCorrection.hpp
+TARGETS = IncompSolver
 
 BASENAME_CXX = ${notdir ${CXX}}
 ifeq (${BASENAME_CXX}, clang++)
@@ -44,22 +45,25 @@ endif
 # endif
 
 release: CXX_FLAGS += ${CXX_RELEASE_FLAGS}
-release: FluidSolver
+release: ${TARGETS}
 
 debug: CXX_FLAGS += ${CXX_DEBUG_FLAGS}
-debug: FluidSolver
+debug: ${TARGETS}
 
 sanitize: CXX_FLAGS += ${CXX_DEBUG_FLAGS} ${CXX_SANITIZER_FLAGS}
-sanitize: FluidSolver
+sanitize: ${TARGETS}
 
 score-p: CXX_FLAGS += ${CXX_RELEASE_FLAGS} -g
 score-p: CXX := scorep ${CXX}
-score-p: FluidSolver
+score-p: ${TARGETS}
 
-FluidSolver: ${SRC}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${PROFILE_LIB}
+IncompSolver: src/IncompSolver.cpp ${HEADERS}
+	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} -o $@ $< ${HYPRE_LIB}
+
+%: src/%.cpp ${HEADERS}
+	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
 clean:
-	${RM} -r FluidSolver FluidSolver.dSYM
+	${RM} -r ${TARGETS} ${addsuffix .dSYM, ${TARGETS}}
 
 .PHONY: release debug clean

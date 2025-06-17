@@ -6,31 +6,38 @@
 
 #include <Igor/Math.hpp>
 
-#include "Config.hpp"
 #include "FS.hpp"
 
+template <typename Float, size_t NX, size_t NY>
 class PS {
-  constexpr static int COMM = -1;
+  static_assert(std::is_same_v<Float, double>, "HYPRE requires Float=double");
 
-  HYPRE_StructGrid grid{};
-  HYPRE_StructStencil stencil{};
-  HYPRE_StructMatrix matrix{};
-  HYPRE_StructVector rhs{};
-  HYPRE_StructVector sol{};
-  HYPRE_StructSolver solver{};
-  HYPRE_StructSolver precond{};
+  constexpr static int COMM     = -1;
+  constexpr static size_t NDIMS = 2;
+
+  HYPRE_StructGrid m_grid{};
+  HYPRE_StructStencil m_stencil{};
+  HYPRE_StructMatrix m_matrix{};
+  HYPRE_StructVector m_rhs{};
+  HYPRE_StructVector m_sol{};
+  HYPRE_StructSolver m_solver{};
+  HYPRE_StructSolver m_precond{};
+
+  Float m_tol;
 
  public:
-  constexpr PS() noexcept {
+  // TODO: Assumes equidistant spacing in x- and y-direction respectively
+  constexpr PS(Float dx, Float dy, Float tol, HYPRE_Int max_iter) noexcept
+      : m_tol(tol) {
     HYPRE_Initialize();
 
     // = Create structured grid ====================================================================
     {
-      HYPRE_StructGridCreate(COMM, NDIMS, &grid);
+      HYPRE_StructGridCreate(COMM, NDIMS, &m_grid);
       std::array<HYPRE_Int, 2> ilower = {0, 0};
       std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
-      HYPRE_StructGridSetExtents(grid, ilower.data(), iupper.data());
-      HYPRE_StructGridAssemble(grid);
+      HYPRE_StructGridSetExtents(m_grid, ilower.data(), iupper.data());
+      HYPRE_StructGridAssemble(m_grid);
     }
 
     // = Create stencil ============================================================================
@@ -42,20 +49,17 @@ class PS {
         std::array<HYPRE_Int, NDIMS>{0, -1},
         std::array<HYPRE_Int, NDIMS>{0, 1},
     };
-    HYPRE_StructStencilCreate(NDIMS, stencil_size, &stencil);
+    HYPRE_StructStencilCreate(NDIMS, stencil_size, &m_stencil);
     for (HYPRE_Int i = 0; i < stencil_size; ++i) {
       HYPRE_StructStencilSetElement(
-          stencil, i, stencil_offsets[static_cast<size_t>(i)].data());  // NOLINT
+          m_stencil, i, stencil_offsets[static_cast<size_t>(i)].data());  // NOLINT
     }
 
     // = Setup struct matrix =======================================================================
-    // TODO: Assumes equidistant spacing in x- and y-direction respectively
-    const auto dx  = (X_MAX - X_MIN) / static_cast<Float>(NX);
-    const auto dy  = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
     const auto vol = dx * dy;
 
-    HYPRE_StructMatrixCreate(COMM, grid, stencil, &matrix);
-    HYPRE_StructMatrixInitialize(matrix);
+    HYPRE_StructMatrixCreate(COMM, m_grid, m_stencil, &m_matrix);
+    HYPRE_StructMatrixInitialize(m_matrix);
 
     // Interior points
     {
@@ -74,7 +78,7 @@ class PS {
 
       std::array<HYPRE_Int, 2> ilower = {1, 1};
       std::array<HYPRE_Int, 2> iupper = {NX - 2, NY - 2};
-      HYPRE_StructMatrixSetBoxValues(matrix,
+      HYPRE_StructMatrixSetBoxValues(m_matrix,
                                      ilower.data(),
                                      iupper.data(),
                                      stencil_size,
@@ -105,7 +109,7 @@ class PS {
       for (auto& value : values) {
         value *= -vol;
       }
-      HYPRE_StructMatrixSetBoxValues(matrix,
+      HYPRE_StructMatrixSetBoxValues(m_matrix,
                                      ilower.data(),
                                      iupper.data(),
                                      stencil_size,
@@ -134,7 +138,7 @@ class PS {
       for (auto& value : values) {
         value *= -vol;
       }
-      HYPRE_StructMatrixSetBoxValues(matrix,
+      HYPRE_StructMatrixSetBoxValues(m_matrix,
                                      ilower.data(),
                                      iupper.data(),
                                      stencil_size,
@@ -163,7 +167,7 @@ class PS {
       for (auto& value : values) {
         value *= -vol;
       }
-      HYPRE_StructMatrixSetBoxValues(matrix,
+      HYPRE_StructMatrixSetBoxValues(m_matrix,
                                      ilower.data(),
                                      iupper.data(),
                                      stencil_size,
@@ -192,7 +196,7 @@ class PS {
       for (auto& value : values) {
         value *= -vol;
       }
-      HYPRE_StructMatrixSetBoxValues(matrix,
+      HYPRE_StructMatrixSetBoxValues(m_matrix,
                                      ilower.data(),
                                      iupper.data(),
                                      stencil_size,
@@ -215,7 +219,7 @@ class PS {
         value *= -vol;
       }
       HYPRE_StructMatrixSetValues(
-          matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
+          m_matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
     }
     // Bottom-right
     {
@@ -232,7 +236,7 @@ class PS {
         value *= -vol;
       }
       HYPRE_StructMatrixSetValues(
-          matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
+          m_matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
     }
     // Top-left
     {
@@ -249,7 +253,7 @@ class PS {
         value *= -vol;
       }
       HYPRE_StructMatrixSetValues(
-          matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
+          m_matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
     }
     // Top-right
     {
@@ -266,38 +270,38 @@ class PS {
         value *= -vol;
       }
       HYPRE_StructMatrixSetValues(
-          matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
+          m_matrix, idx.data(), stencil_size, stencil_indices.data(), values.data());
     }
 
-    HYPRE_StructMatrixAssemble(matrix);
+    HYPRE_StructMatrixAssemble(m_matrix);
 
     // = Create right-hand side ====================================================================
-    HYPRE_StructVectorCreate(COMM, grid, &rhs);
-    HYPRE_StructVectorInitialize(rhs);
+    HYPRE_StructVectorCreate(COMM, m_grid, &m_rhs);
+    HYPRE_StructVectorInitialize(m_rhs);
 
     // = Create solution vector ====================================================================
-    HYPRE_StructVectorCreate(COMM, grid, &sol);
-    HYPRE_StructVectorInitialize(sol);
+    HYPRE_StructVectorCreate(COMM, m_grid, &m_sol);
+    HYPRE_StructVectorInitialize(m_sol);
 
     // = Create solver =============================================================================
-    HYPRE_StructGMRESCreate(COMM, &solver);
-    HYPRE_StructGMRESSetTol(solver, PRESSURE_TOL);
-    HYPRE_StructGMRESSetMaxIter(solver, PRESSURE_MAX_ITER);
+    HYPRE_StructGMRESCreate(COMM, &m_solver);
+    HYPRE_StructGMRESSetTol(m_solver, tol);
+    HYPRE_StructGMRESSetMaxIter(m_solver, max_iter);
 #ifdef FS_HYPRE_VERBOSE
-    HYPRE_StructGMRESSetPrintLevel(solver, 2);
-    HYPRE_StructGMRESSetLogging(solver, 1);
+    HYPRE_StructGMRESSetPrintLevel(m_solver, 2);
+    HYPRE_StructGMRESSetLogging(m_solver, 1);
 #endif  // FS_HYPRE_VERBOSE
 
     // = Create preconditioner =====================================================================
-    HYPRE_StructSMGCreate(COMM, &precond);
-    HYPRE_StructSMGSetMaxIter(precond, 1);
-    HYPRE_StructSMGSetTol(precond, 0.0);
-    HYPRE_StructSMGSetZeroGuess(precond);
-    HYPRE_StructSMGSetNumPreRelax(precond, 1);
-    HYPRE_StructSMGSetNumPostRelax(precond, 1);
-    HYPRE_StructSMGSetMemoryUse(precond, 0);
-    HYPRE_StructGMRESSetPrecond(solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, precond);
-    HYPRE_StructGMRESSetup(solver, matrix, rhs, sol);
+    HYPRE_StructSMGCreate(COMM, &m_precond);
+    HYPRE_StructSMGSetMaxIter(m_precond, 1);
+    HYPRE_StructSMGSetTol(m_precond, 0.0);
+    HYPRE_StructSMGSetZeroGuess(m_precond);
+    HYPRE_StructSMGSetNumPreRelax(m_precond, 1);
+    HYPRE_StructSMGSetNumPostRelax(m_precond, 1);
+    HYPRE_StructSMGSetMemoryUse(m_precond, 0);
+    HYPRE_StructGMRESSetPrecond(m_solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, m_precond);
+    HYPRE_StructGMRESSetup(m_solver, m_matrix, m_rhs, m_sol);
 
     const HYPRE_Int error_flag = HYPRE_GetError();
     if (error_flag != 0) { Igor::Panic("An error occured in HYPRE."); }
@@ -311,20 +315,21 @@ class PS {
 
   // -----------------------------------------------------------------------------------------------
   constexpr ~PS() noexcept {
-    HYPRE_StructSMGDestroy(precond);
-    HYPRE_StructGMRESDestroy(solver);
-    HYPRE_StructVectorDestroy(sol);
-    HYPRE_StructVectorDestroy(rhs);
-    HYPRE_StructMatrixDestroy(matrix);
-    HYPRE_StructStencilDestroy(stencil);
-    HYPRE_StructGridDestroy(grid);
+    HYPRE_StructSMGDestroy(m_precond);
+    HYPRE_StructGMRESDestroy(m_solver);
+    HYPRE_StructVectorDestroy(m_sol);
+    HYPRE_StructVectorDestroy(m_rhs);
+    HYPRE_StructMatrixDestroy(m_matrix);
+    HYPRE_StructStencilDestroy(m_stencil);
+    HYPRE_StructGridDestroy(m_grid);
     HYPRE_Finalize();
   }
 
   // -------------------------------------------------------------------------------------------------
-  [[nodiscard]] auto
-  solve(const FS& fs, const Matrix<Float, NX, NY>& div, Float dt, Matrix<Float, NX, NY>& resP)
-      -> bool {
+  [[nodiscard]] auto solve(const FS<Float, NX, NY>& fs,
+                           const Matrix<Float, NX, NY>& div,
+                           Float dt,
+                           Matrix<Float, NX, NY>& resP) -> bool {
     static std::array<char, 1024UZ> buffer{};
     HYPRE_Int ierr = 0;
     bool res       = true;
@@ -338,13 +343,13 @@ class PS {
     std::array<HYPRE_Int, 2> ilower = {0, 0};
     std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
     std::fill_n(rhs_values.get_data(), rhs_values.size(), 0.0);
-    HYPRE_StructVectorSetBoxValues(sol, ilower.data(), iupper.data(), rhs_values.get_data());
+    HYPRE_StructVectorSetBoxValues(m_sol, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Set right-hand side =======================================================================
     Float mean_rhs = 0.0;
     for (size_t i = 0; i < resP.extent(0); ++i) {
       for (size_t j = 0; j < resP.extent(1); ++j) {
-        rhs_values[i, j] = -vol * RHO * div[i, j] / dt;
+        rhs_values[i, j] = -vol * fs.rho * div[i, j] / dt;
         mean_rhs += rhs_values[i, j];
       }
     }
@@ -354,29 +359,29 @@ class PS {
         rhs_values[i, j] -= mean_rhs;
       }
     }
-    HYPRE_StructVectorSetBoxValues(rhs, ilower.data(), iupper.data(), rhs_values.get_data());
+    HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
     // for (size_t i = 0; i < resP.extent(0); ++i) {
     //   for (size_t j = 0; j < resP.extent(1); ++j) {
     //     std::array<HYPRE_Int, NDIMS> index{static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
-    //     HYPRE_StructVectorSetValues(rhs, index.data(), rhs_values[i, j]);
+    //     HYPRE_StructVectorSetValues(m_rhs, index.data(), rhs_values[i, j]);
     //   }
     // }
 
     // = Solve the system ==========================================================================
     Float final_residual = -1.0;
     HYPRE_Int num_iter   = -1;
-    ierr                 = HYPRE_StructGMRESSolve(solver, matrix, rhs, sol);
-    HYPRE_StructGMRESGetFinalRelativeResidualNorm(solver, &final_residual);
-    HYPRE_StructGMRESGetNumIterations(solver, &num_iter);
+    ierr                 = HYPRE_StructGMRESSolve(m_solver, m_matrix, m_rhs, m_sol);
+    HYPRE_StructGMRESGetFinalRelativeResidualNorm(m_solver, &final_residual);
+    HYPRE_StructGMRESGetNumIterations(m_solver, &num_iter);
 
     for (size_t i = 0; i < resP.extent(0); ++i) {
       for (size_t j = 0; j < resP.extent(1); ++j) {
         std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
-        HYPRE_StructVectorGetValues(sol, idx.data(), &resP[i, j]);
+        HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP[i, j]);
       }
     }
 
-    if (final_residual > 100.0 * PRESSURE_TOL) {
+    if (final_residual > 100.0 * m_tol) {
       if (ierr != 0) {
         HYPRE_DescribeError(ierr, buffer.data());
         Igor::Warn("Could not solve the system successfully: {}", buffer.data());

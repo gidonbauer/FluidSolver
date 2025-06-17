@@ -7,7 +7,7 @@
 
 #include <Igor/Logging.hpp>
 
-#include "Config.hpp"
+#include "Container.hpp"
 
 namespace detail {
 
@@ -22,6 +22,7 @@ namespace detail {
 }
 
 // -------------------------------------------------------------------------------------------------
+template <typename Float, size_t NX, size_t NY>
 void write_scalar_vtk(std::ofstream& out,
                       const Matrix<Float, NX, NY>& scalar,
                       const std::string& name) {
@@ -36,6 +37,7 @@ void write_scalar_vtk(std::ofstream& out,
 }
 
 // -------------------------------------------------------------------------------------------------
+template <typename Float, size_t NX, size_t NY>
 void write_vector_vtk(std::ofstream& out,
                       const Matrix<Float, NX, NY>& x_comp,
                       const Matrix<Float, NX, NY>& y_comp,
@@ -53,18 +55,20 @@ void write_vector_vtk(std::ofstream& out,
 }
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto save_state_vtk(const Vector<Float, NX + 1>& x,
+template <typename Float, size_t NX, size_t NY>
+[[nodiscard]] auto save_state_vtk(const std::string& output_dir,
+                                  const Vector<Float, NX + 1>& x,
                                   const Vector<Float, NY + 1>& y,
                                   const Matrix<Float, NX, NY>& Ui,
                                   const Matrix<Float, NX, NY>& Vi,
                                   const Matrix<Float, NX, NY>& p,
                                   const Matrix<Float, NX, NY>& div,
-                                  const Matrix<Float, NX, NY>& vof,
+                                  // const Matrix<Float, NX, NY>& vof,
                                   Float t) -> bool {
   static_assert(std::is_same_v<Float, double>, "Assumes Float=double");
 
   static size_t write_counter = 0;
-  const auto filename = Igor::detail::format("{}/state_{:06d}.vtk", OUTPUT_DIR, write_counter++);
+  const auto filename = Igor::detail::format("{}/state_{:06d}.vtk", output_dir, write_counter++);
   std::ofstream out(filename);
   if (!out) {
     Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
@@ -97,7 +101,7 @@ void write_vector_vtk(std::ofstream& out,
   write_scalar_vtk(out, p, "pressure");
   write_scalar_vtk(out, div, "divergence");
   write_vector_vtk(out, Ui, Vi, "velocity");
-  write_scalar_vtk(out, vof, "VOF");
+  // write_scalar_vtk(out, vof, "VOF");
 
   return out.good();
 }
@@ -105,22 +109,25 @@ void write_vector_vtk(std::ofstream& out,
 }  // namespace detail
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto save_state(const Vector<Float, NX + 1>& x,
+template <typename Float, size_t NX, size_t NY>
+[[nodiscard]] auto save_state(const std::string& output_dir,
+                              const Vector<Float, NX + 1>& x,
                               const Vector<Float, NY + 1>& y,
                               const Matrix<Float, NX, NY>& Ui,
                               const Matrix<Float, NX, NY>& Vi,
                               const Matrix<Float, NX, NY>& p,
                               const Matrix<Float, NX, NY>& div,
-                              const Matrix<Float, NX, NY>& vof,
+                              // const Matrix<Float, NX, NY>& vof,
                               Float t) -> bool {
-  return detail::save_state_vtk(x, y, Ui, Vi, p, div, vof, t);
+  return detail::save_state_vtk(output_dir, x, y, Ui, Vi, p, div, /*vof,*/ t);
 }
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] constexpr auto should_save(Float t, Float dt) -> bool {
+template <typename Float>
+[[nodiscard]] constexpr auto should_save(Float t, Float dt, Float dt_write, Float t_end) -> bool {
   constexpr Float DT_SAFE = 1e-6;
-  return std::fmod(t + DT_SAFE * dt, DT_WRITE) < dt * (1.0 - DT_SAFE) ||
-         std::abs(t - T_END) < DT_SAFE;
+  return std::fmod(t + DT_SAFE * dt, dt_write) < dt * (1.0 - DT_SAFE) ||
+         std::abs(t - t_end) < DT_SAFE;
 }
 
 #endif  // FLUID_SOLVER_IO_HPP_

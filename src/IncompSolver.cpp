@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <filesystem>
 
 #include <Igor/Defer.hpp>
@@ -6,28 +7,42 @@
 #include <Igor/Timer.hpp>
 #include <Igor/TypeName.hpp>
 
-#ifdef USE_IRL
-// Disable warnings for IRL
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wconversion"
-#pragma clang diagnostic ignored "-Wall"
-#pragma clang diagnostic ignored "-Wextra"
-#pragma clang diagnostic ignored "-Wnullability-extension"
-#pragma clang diagnostic ignored "-Wgcc-compat"
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#include <irl/geometry/general/pt.h>
-#include <irl/interface_reconstruction_methods/elvira_neighborhood.h>
-#include <irl/interface_reconstruction_methods/reconstruction_interface.h>
-#pragma clang diagnostic pop
-#endif  // USE_IRL
-
 // #define FS_HYPRE_VERBOSE
 
-#include "Config.hpp"
 #include "FS.hpp"
 #include "IO.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+
+// = Config ========================================================================================
+using Float = double;
+
+constexpr size_t NX = 2560;
+constexpr size_t NY = 256;
+
+constexpr Float X_MIN = 0.0;
+constexpr Float X_MAX = 100.0;
+constexpr Float Y_MIN = 0.0;
+constexpr Float Y_MAX = 1.0;
+
+constexpr Float T_END    = 10.0;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.9;
+constexpr Float DT_WRITE = 0.5;
+
+constexpr Float U_IN  = 1.0;
+constexpr Float U_TOP = 0.0;
+constexpr Float U_BOT = 0.0;
+constexpr Float VISC  = 1e-3;
+constexpr Float RHO   = 0.9;
+
+constexpr int PRESSURE_MAX_ITER = 500;
+constexpr Float PRESSURE_TOL    = 1e-6;
+
+constexpr size_t NUM_SUBITER = 2;
+
+constexpr auto OUTPUT_DIR = "output";
+// = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
@@ -50,18 +65,19 @@ auto main() -> int {
   // = Create output directory =====================================================================
 
   // = Allocate memory =============================================================================
-  FS fs{};
-  PS ps{};
+  FS<Float, NX, NY> fs{.visc = VISC, .rho = RHO};
+  constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
+  constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+  PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  FlowBConds<Float> bconds{.U_in = U_IN, .U_bot = U_BOT, .U_top = U_TOP};
 
-  auto Ui  = make_centered();
-  auto Vi  = make_centered();
-  auto div = make_centered();
+  Matrix<Float, NX, NY> Ui{};
+  Matrix<Float, NX, NY> Vi{};
+  Matrix<Float, NX, NY> div{};
 
-  auto dvofdt = make_centered();
-
-  auto drhoUdt = make_u_staggered();
-  auto drhoVdt = make_v_staggered();
-  auto delta_p = make_centered();
+  Matrix<Float, NX + 1, NY> drhoUdt{};
+  Matrix<Float, NX, NY + 1> drhoVdt{};
+  Matrix<Float, NX, NY> delta_p{};
 
   Float t  = 0.0;
   Float dt = DT_MAX;
@@ -69,14 +85,14 @@ auto main() -> int {
 
   // = Initialize grid =============================================================================
   for (size_t i = 0; i < fs.x.extent(0); ++i) {
-    fs.x[i] = X_MIN + static_cast<Float>(i) * (X_MAX - X_MIN) / static_cast<Float>(NX);
+    fs.x[i] = X_MIN + static_cast<Float>(i) * dx;
   }
   for (size_t i = 0; i < fs.xm.extent(0); ++i) {
     fs.xm[i] = (fs.x[i] + fs.x[i + 1]) / 2;
     fs.dx[i] = fs.x[i + 1] - fs.x[i];
   }
   for (size_t j = 0; j < fs.y.extent(0); ++j) {
-    fs.y[j] = Y_MIN + static_cast<Float>(j) * (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+    fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
   }
   for (size_t j = 0; j < fs.ym.extent(0); ++j) {
     fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
@@ -98,94 +114,28 @@ auto main() -> int {
     }
   }
 
-  for (size_t i = 0; i < fs.vof.extent(0); ++i) {
-    for (size_t j = 0; j < fs.vof.extent(1); ++j) {
-      constexpr size_t nsample = 4;
-      auto is_in               = [](Float y) -> Float { return y <= 0.5; };
-      fs.vof[i, j]             = 0.0;
-      for (size_t jj = 1; jj <= nsample; ++jj) {
-        fs.vof[i, j] +=
-            is_in(fs.y[j] + static_cast<Float>(jj) / static_cast<Float>(nsample + 1) * fs.dy[j]);
-      }
-      fs.vof[i, j] /= nsample;
-    }
-  }
-
-  apply_velocity_bconds(fs);
-  apply_vof_bconds(fs);
+  apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.U, Ui);
   interpolate_V(fs.V, Vi);
   calc_divergence(fs, div);
-  if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, fs.vof, t)) { return 1; }
+  if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
   // = Initialize flow field =======================================================================
-
-#ifdef USE_IRL
-  // = Reconstruct the interface ===================================================================
-  {
-    constexpr size_t NUM_NEIGHBORS = 9;
-    IRL::ELVIRANeighborhood neighborhood{};
-    neighborhood.resize(NUM_NEIGHBORS);
-    std::array<IRL::RectangularCuboid, NUM_NEIGHBORS> cells{};
-    std::array<Float, NUM_NEIGHBORS> cells_vof{};
-
-    size_t counter = 0;
-    for (size_t i = 1; i < 4; ++i) {
-      for (size_t j = 1; j < 4; ++j) {
-        cells[counter] = IRL::RectangularCuboid::fromBoundingPts(
-            IRL::Pt{fs.x[i], fs.y[j], -std::max(fs.dx[i], fs.dy[j]) / 2},
-            IRL::Pt{fs.x[i + 1], fs.y[j + 1], std::max(fs.dx[i], fs.dy[j]) / 2});
-        cells_vof[counter] = fs.vof[i, j];
-        neighborhood.setMember(
-            &cells[counter], &cells_vof[counter], static_cast<int>(i) - 2, static_cast<int>(j) - 2);
-        counter += 1;
-      }
-    }
-    const auto planar_separator = IRL::reconstructionWithELVIRA2D(neighborhood);
-    IGOR_DEBUG_PRINT(planar_separator.getNumberOfPlanes());
-    for (const auto& plane : planar_separator) {
-      const auto norm = std::sqrt(Igor::sqr(plane.normal()[0]) + Igor::sqr(plane.normal()[1]) +
-                                  Igor::sqr(plane.normal()[2]));
-      IGOR_DEBUG_PRINT(norm);
-      IGOR_DEBUG_PRINT(plane.normal());
-      IGOR_DEBUG_PRINT(plane.distance());
-    }
-    for (size_t i = 0; i < fs.vof.extent(0); ++i) {
-      for (size_t j = 0; j < fs.vof.extent(1); ++j) {
-        std::cout << fs.vof[i, j] << '\t';
-      }
-      std::cout << '\n';
-    }
-  }
-  Igor::Todo("Figure out IRL.");
-  // = Reconstruct the interface ===================================================================
-#endif  // USE_IRL
 
   Igor::ScopeTimer timer("Solver");
   bool failed = false;
   Igor::ProgressBar<Float> pbar(T_END, 67);
   while (t < T_END && !failed) {
-    dt = adjust_dt(fs);
+    dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
 
     // Save previous state
     std::copy_n(fs.U.get_data(), fs.U.size(), fs.U_old.get_data());
     std::copy_n(fs.V.get_data(), fs.V.size(), fs.V_old.get_data());
-    std::copy_n(fs.vof.get_data(), fs.vof.size(), fs.vof_old.get_data());
 
     for (size_t sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.U, fs.U_old);
       calc_mid_time(fs.V, fs.V_old);
-      calc_mid_time(fs.vof, fs.vof_old);
-
-      // = Update VOF field ========================================================================
-      // calc_dvofdt(fs, dvofdt);
-      // for (size_t i = 0; i < fs.vof.extent(0); ++i) {
-      //   for (size_t j = 0; j < fs.vof.extent(1); ++j) {
-      //     fs.vof[i, j] = fs.vof_old[i, j] + dt * dvofdt[i, j];
-      //   }
-      // }
-      // apply_vof_bconds(fs);
 
       // = Update flow field =======================================================================
       // TODO: Handle density and interfaces
@@ -204,7 +154,7 @@ auto main() -> int {
       }
 
       // Boundary conditions
-      apply_velocity_bconds(fs);
+      apply_velocity_bconds(fs, bconds);
 
       calc_divergence(fs, div);
       // TODO: Add capillary forces here.
@@ -236,8 +186,8 @@ auto main() -> int {
     interpolate_U(fs.U, Ui);
     interpolate_V(fs.V, Vi);
     calc_divergence(fs, div);
-    if (should_save(t, dt)) {
-      if (!save_state(fs.x, fs.y, Ui, Vi, fs.p, div, fs.vof, t)) { return 1; }
+    if (should_save(t, dt, DT_WRITE, T_END)) {
+      if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
     }
     pbar.update(dt);
   }

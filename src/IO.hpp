@@ -2,6 +2,7 @@
 #define FLUID_SOLVER_IO_HPP_
 
 #include <bit>
+#include <cstring>
 #include <fstream>
 
 #include <Igor/Logging.hpp>

@@ -1,6 +1,8 @@
 HEADERS = src/Container.hpp src/FS.hpp src/IO.hpp src/Operators.hpp src/PressureCorrection.hpp
 TARGETS = IncompSolver VOF
 
+include test/test.mk
+
 BASENAME_CXX = ${notdir ${CXX}}
 ifeq (${BASENAME_CXX}, clang++)
 	CXX_FLAGS = -Wall -Wextra -pedantic -Wshadow -Wconversion -std=c++23
@@ -68,7 +70,7 @@ IncompSolver: src/IncompSolver.cpp ${HEADERS}
 VOF: src/VOF.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
-clean:
+clean: clean-test
 	${RM} -r ${TARGETS} ${addsuffix .dSYM, ${TARGETS}}
 
 .PHONY: release debug clean

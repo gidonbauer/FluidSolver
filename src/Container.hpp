@@ -32,9 +32,9 @@ class Vector {
     return (*m_data)[idx];
   }
 
-  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* { return &(m_data[0]); }
+  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* { return &((*m_data)[0]); }
   [[nodiscard]] constexpr auto get_data() const noexcept -> const Contained* {
-    return &(m_data[0]);
+    return &((*m_data)[0]);
   }
 
   [[nodiscard]] constexpr auto size() const noexcept -> size_t { return N; }
@@ -72,13 +72,13 @@ class Matrix {
 
   constexpr auto operator[](size_t i, size_t j) noexcept -> Contained& {
     IGOR_ASSERT(
-        i < M && j < N, "Index ({}, {}) is out of bounds for Vector of size {}x{}", i, j, M, N);
+        i < M && j < N, "Index ({}, {}) is out of bounds for Matrix of size {}x{}", i, j, M, N);
     return (*m_data)[get_idx(i, j)];
   }
 
   constexpr auto operator[](size_t i, size_t j) const noexcept -> const Contained& {
     IGOR_ASSERT(
-        i < M && j < N, "Index ({}, {}) is out of bounds for Vector of size {}x{}", i, j, M, N);
+        i < M && j < N, "Index ({}, {}) is out of bounds for Matrix of size {}x{}", i, j, M, N);
     return (*m_data)[get_idx(i, j)];
   }
 

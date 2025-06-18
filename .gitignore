@@ -7,6 +7,9 @@ IncompSolver.dSYM
 VOF
 VOF.dSYM
 
+fs.env
+run.slurm
+
 output/
 output*/
 notes/
@@ -16,3 +19,7 @@ python/*
 venv/
 *.ipynb
 sample.txt
+
+*.stdout
+*.stderr
+scorep-*

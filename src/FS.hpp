@@ -9,7 +9,7 @@
 #include "Container.hpp"
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, size_t NX, size_t NY>
+template <typename Float, Index NX, Index NY>
 struct FS {
   Float visc{};
   Float rho{};
@@ -36,7 +36,7 @@ struct FS {
 
 // TODO: Clipped Neumann?
 enum class BCond : uint8_t { DIRICHLET, NEUMANN };
-enum : size_t { LEFT, RIGHT, BOTTOM, TOP, NSIDES };
+enum : Index { LEFT, RIGHT, BOTTOM, TOP, NSIDES };
 
 template <typename Float>
 struct FlowBConds {
@@ -46,15 +46,15 @@ struct FlowBConds {
 };
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, size_t NX, size_t NY>
+template <typename Float, Index NX, Index NY>
 auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Float {
   Float CFLc_x = 0.0;
   Float CFLc_y = 0.0;
   Float CFLv_x = 0.0;
   Float CFLv_y = 0.0;
 
-  for (size_t i = 0; i < NX; ++i) {
-    for (size_t j = 0; j < NY; ++j) {
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
       CFLc_x = std::max(CFLc_x, (fs.U[i, j] + fs.U[i + 1, j]) / 2 / fs.dx[i]);
       CFLc_y = std::max(CFLc_y, (fs.V[i, j] + fs.V[i, j + 1]) / 2 / fs.dy[j]);
       CFLv_x = std::max(CFLv_x, 4.0 * fs.visc / (Igor::sqr(fs.dx[i]) * fs.rho));
@@ -66,7 +66,7 @@ auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Floa
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, size_t NX, size_t NY>
+template <typename Float, Index NX, Index NY>
 void calc_dmomdt(const FS<Float, NX, NY>& fs,
                  Matrix<Float, NX + 1, NY>& dmomUdt,
                  Matrix<Float, NX, NY + 1>& dmomVdt) {
@@ -81,8 +81,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
   std::fill_n(FY.get_data(), FY.size(), 0.0);
 
   // = Calculate dmomUdt ===========================================================================
-  for (size_t i = 0; i < FX.extent(0); ++i) {
-    for (size_t j = 0; j < FX.extent(1); ++j) {
+  for (Index i = 0; i < FX.extent(0); ++i) {
+    for (Index j = 0; j < FX.extent(1); ++j) {
       // FX = -rho*U*U + mu*(dUdx + dUdx - 2/3*(dUdx + dVdy)) - p
       //    = -rho*U^2 + mu*(2*dUdx -2/3*(dUdx + dVdy)) - p
       FX[i, j] = -fs.rho * Igor::sqr((fs.U[i, j] + fs.U[i + 1, j]) / 2) +
@@ -108,16 +108,16 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
       }
     }
   }
-  for (size_t i = 1; i < dmomUdt.extent(0) - 1; ++i) {
-    for (size_t j = 1; j < dmomUdt.extent(1) - 1; ++j) {
+  for (Index i = 1; i < dmomUdt.extent(0) - 1; ++i) {
+    for (Index j = 1; j < dmomUdt.extent(1) - 1; ++j) {
       dmomUdt[i, j] = (FX[i, j] - FX[i - 1, j]) / fs.dx[i - 1] +  //
                       (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
     }
   }
 
   // = Calculate dmomVdt ===========================================================================
-  for (size_t i = 0; i < FX.extent(0); ++i) {
-    for (size_t j = 0; j < FX.extent(1); ++j) {
+  for (Index i = 0; i < FX.extent(0); ++i) {
+    for (Index j = 0; j < FX.extent(1); ++j) {
 
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
@@ -143,8 +143,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
                  fs.p[i, j];
     }
   }
-  for (size_t i = 1; i < dmomVdt.extent(0) - 1; ++i) {
-    for (size_t j = 1; j < dmomVdt.extent(1) - 1; ++j) {
+  for (Index i = 1; i < dmomVdt.extent(0) - 1; ++i) {
+    for (Index j = 1; j < dmomVdt.extent(1) - 1; ++j) {
       dmomVdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx[i - 1] +  //
                       (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
     }
@@ -152,10 +152,10 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, size_t NX, size_t NY>
+template <typename Float, Index NX, Index NY>
 void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bconds) {
   // = Boundary conditions for U-component of velocity =============================================
-  for (size_t j = 0; j < fs.U.extent(1); ++j) {
+  for (Index j = 0; j < fs.U.extent(1); ++j) {
     // LEFT
     switch (bconds.types[LEFT]) {
       case BCond::DIRICHLET: fs.U[0, j] = bconds.U[LEFT]; break;
@@ -169,7 +169,7 @@ void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bcond
     }
   }
 
-  for (size_t i = 0; i < fs.U.extent(0); ++i) {
+  for (Index i = 0; i < fs.U.extent(0); ++i) {
     // BOTTOM
     switch (bconds.types[BOTTOM]) {
       case BCond::DIRICHLET: fs.U[i, 0] = (fs.U[i, 1] + 2.0 * bconds.U[BOTTOM]) / 3.0; break;
@@ -186,7 +186,7 @@ void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bcond
   }
 
   // = Boundary conditions for V-component of velocity =============================================
-  for (size_t j = 0; j < fs.V.extent(1); ++j) {
+  for (Index j = 0; j < fs.V.extent(1); ++j) {
     // LEFT
     switch (bconds.types[LEFT]) {
       case BCond::DIRICHLET: fs.V[0, j] = (fs.V[1, j] + 2.0 * bconds.V[LEFT]) / 3.0; break;
@@ -202,7 +202,7 @@ void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bcond
     }
   }
 
-  for (size_t i = 0; i < fs.V.extent(0); ++i) {
+  for (Index i = 0; i < fs.V.extent(0); ++i) {
     // BOTTOM
     switch (bconds.types[BOTTOM]) {
       case BCond::DIRICHLET: fs.V[i, 0] = bconds.V[BOTTOM]; break;
@@ -226,19 +226,19 @@ void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bcond
 //   std::fill_n(FY.get_data(), FY.size(), 0.0);
 //   std::fill_n(dvofdt.get_data(), dvofdt.size(), 0.0);
 //
-//   for (size_t i = 1; i < FX.extent(0) - 1; ++i) {
-//     for (size_t j = 1; j < FX.extent(1) - 1; ++j) {
+//   for (Index i = 1; i < FX.extent(0) - 1; ++i) {
+//     for (Index j = 1; j < FX.extent(1) - 1; ++j) {
 //       FX[i, j] = -(fs.vof[i, j] + fs.vof[i - 1, j]) * fs.U[i, j];
 //     }
 //   }
-//   for (size_t i = 1; i < FY.extent(0) - 1; ++i) {
-//     for (size_t j = 1; j < FY.extent(1) - 1; ++j) {
+//   for (Index i = 1; i < FY.extent(0) - 1; ++i) {
+//     for (Index j = 1; j < FY.extent(1) - 1; ++j) {
 //       FY[i, j] = -(fs.vof[i, j] + fs.vof[i, j - 1]) * fs.V[i, j];
 //     }
 //   }
 //
-//   for (size_t i = 0; i < dvofdt.extent(0); ++i) {
-//     for (size_t j = 0; j < dvofdt.extent(1); ++j) {
+//   for (Index i = 0; i < dvofdt.extent(0); ++i) {
+//     for (Index j = 0; j < dvofdt.extent(1); ++j) {
 //       dvofdt[i, j] = (FX[i + 1, j] - FX[i, j]) / fs.dx[i] + (FY[i, j + 1] - FY[i, j]) / fs.dy[j];
 //     }
 //   }
@@ -247,14 +247,14 @@ void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bcond
 // //
 // -------------------------------------------------------------------------------------------------
 // void apply_vof_bconds(FS& fs) {
-//   for (size_t j = 0; j < fs.vof.extent(1); ++j) {
+//   for (Index j = 0; j < fs.vof.extent(1); ++j) {
 //     // Neumann on left
 //     fs.vof[0, j] = fs.vof[1, j];
 //     // Neumann on right
 //     fs.vof[fs.vof.extent(0) - 1, j] = fs.vof[fs.vof.extent(0) - 2, j];
 //   }
 //
-//   for (size_t i = 0; i < fs.vof.extent(0); ++i) {
+//   for (Index i = 0; i < fs.vof.extent(0); ++i) {
 //     // Neumann on bottom
 //     fs.vof[i, 0] = fs.vof[i, 1];
 //     // Neumann on top

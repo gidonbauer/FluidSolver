@@ -17,8 +17,8 @@
 // = Config ========================================================================================
 using Float = double;
 
-constexpr size_t NX = 2560;
-constexpr size_t NY = 256;
+constexpr Index NX = 2560;
+constexpr Index NY = 256;
 
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 100.0;  // 10.0;
@@ -38,7 +38,7 @@ constexpr Float RHO     = 0.9;
 constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr size_t NUM_SUBITER = 5;
+constexpr Index NUM_SUBITER = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -98,17 +98,17 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Initialize grid =============================================================================
-  for (size_t i = 0; i < fs.x.extent(0); ++i) {
+  for (Index i = 0; i < fs.x.extent(0); ++i) {
     fs.x[i] = X_MIN + static_cast<Float>(i) * dx;
   }
-  for (size_t i = 0; i < fs.xm.extent(0); ++i) {
+  for (Index i = 0; i < fs.xm.extent(0); ++i) {
     fs.xm[i] = (fs.x[i] + fs.x[i + 1]) / 2;
     fs.dx[i] = fs.x[i + 1] - fs.x[i];
   }
-  for (size_t j = 0; j < fs.y.extent(0); ++j) {
+  for (Index j = 0; j < fs.y.extent(0); ++j) {
     fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
   }
-  for (size_t j = 0; j < fs.ym.extent(0); ++j) {
+  for (Index j = 0; j < fs.ym.extent(0); ++j) {
     fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
     fs.dy[j] = fs.y[j + 1] - fs.y[j];
   }
@@ -117,13 +117,13 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
   std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
 
-  for (size_t i = 0; i < fs.U.extent(0); ++i) {
-    for (size_t j = 0; j < fs.U.extent(1); ++j) {
+  for (Index i = 0; i < fs.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.U.extent(1); ++j) {
       fs.U[i, j] = U_0;
     }
   }
-  for (size_t i = 0; i < fs.V.extent(0); ++i) {
-    for (size_t j = 0; j < fs.V.extent(1); ++j) {
+  for (Index i = 0; i < fs.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.V.extent(1); ++j) {
       fs.V[i, j] = 0.0;
     }
   }
@@ -147,21 +147,21 @@ auto main() -> int {
     std::copy_n(fs.U.get_data(), fs.U.size(), fs.U_old.get_data());
     std::copy_n(fs.V.get_data(), fs.V.size(), fs.V_old.get_data());
 
-    for (size_t sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
+    for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.U, fs.U_old);
       calc_mid_time(fs.V, fs.V_old);
 
       // = Update flow field =======================================================================
       // TODO: Handle density and interfaces
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (size_t i = 0; i < fs.U.extent(0); ++i) {
-        for (size_t j = 0; j < fs.U.extent(1); ++j) {
+      for (Index i = 0; i < fs.U.extent(0); ++i) {
+        for (Index j = 0; j < fs.U.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
           fs.U[i, j] = fs.U_old[i, j] + dt * drhoUdt[i, j] / RHO;
         }
       }
-      for (size_t i = 0; i < fs.V.extent(0); ++i) {
-        for (size_t j = 0; j < fs.V.extent(1); ++j) {
+      for (Index i = 0; i < fs.V.extent(0); ++i) {
+        for (Index j = 0; j < fs.V.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
           fs.V[i, j] = fs.V_old[i, j] + dt * drhoVdt[i, j] / RHO;
         }
@@ -178,19 +178,19 @@ auto main() -> int {
       }
 
       shift_pressure_to_zero(fs, delta_p);
-      for (size_t i = 0; i < fs.p.extent(0); ++i) {
-        for (size_t j = 0; j < fs.p.extent(1); ++j) {
+      for (Index i = 0; i < fs.p.extent(0); ++i) {
+        for (Index j = 0; j < fs.p.extent(1); ++j) {
           fs.p[i, j] += delta_p[i, j];
         }
       }
 
-      for (size_t i = 1; i < fs.U.extent(0) - 1; ++i) {
-        for (size_t j = 1; j < fs.U.extent(1) - 1; ++j) {
+      for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
           fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
         }
       }
-      for (size_t i = 1; i < fs.V.extent(0) - 1; ++i) {
-        for (size_t j = 1; j < fs.V.extent(1) - 1; ++j) {
+      for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
           fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
         }
       }

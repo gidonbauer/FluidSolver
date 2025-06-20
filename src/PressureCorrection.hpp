@@ -8,7 +8,7 @@
 
 #include "FS.hpp"
 
-template <typename Float, size_t NX, size_t NY>
+template <typename Float, Index NX, Index NY>
 class PS {
   static_assert(std::is_same_v<Float, double>, "HYPRE requires Float=double");
 
@@ -347,21 +347,21 @@ class PS {
 
     // = Set right-hand side =======================================================================
     Float mean_rhs = 0.0;
-    for (size_t i = 0; i < resP.extent(0); ++i) {
-      for (size_t j = 0; j < resP.extent(1); ++j) {
+    for (Index i = 0; i < resP.extent(0); ++i) {
+      for (Index j = 0; j < resP.extent(1); ++j) {
         rhs_values[i, j] = -vol * fs.rho * div[i, j] / dt;
         mean_rhs += rhs_values[i, j];
       }
     }
     mean_rhs /= static_cast<Float>(rhs_values.size());
-    for (size_t i = 0; i < resP.extent(0); ++i) {
-      for (size_t j = 0; j < resP.extent(1); ++j) {
+    for (Index i = 0; i < resP.extent(0); ++i) {
+      for (Index j = 0; j < resP.extent(1); ++j) {
         rhs_values[i, j] -= mean_rhs;
       }
     }
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
-    // for (size_t i = 0; i < resP.extent(0); ++i) {
-    //   for (size_t j = 0; j < resP.extent(1); ++j) {
+    // for (Index i = 0; i < resP.extent(0); ++i) {
+    //   for (Index j = 0; j < resP.extent(1); ++j) {
     //     std::array<HYPRE_Int, NDIMS> index{static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
     //     HYPRE_StructVectorSetValues(m_rhs, index.data(), rhs_values[i, j]);
     //   }
@@ -374,8 +374,8 @@ class PS {
     HYPRE_StructGMRESGetFinalRelativeResidualNorm(m_solver, &final_residual);
     HYPRE_StructGMRESGetNumIterations(m_solver, &num_iter);
 
-    for (size_t i = 0; i < resP.extent(0); ++i) {
-      for (size_t j = 0; j < resP.extent(1); ++j) {
+    for (Index i = 0; i < resP.extent(0); ++i) {
+      for (Index j = 0; j < resP.extent(1); ++j) {
         std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
         HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP[i, j]);
       }

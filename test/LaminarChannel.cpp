@@ -16,8 +16,8 @@
 // = Config ========================================================================================
 using Float = double;
 
-constexpr size_t NX = 500;
-constexpr size_t NY = 51;
+constexpr Index NX = 500;
+constexpr Index NY = 51;
 
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 100.0;
@@ -37,7 +37,7 @@ constexpr Float RHO    = 0.9;
 constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr size_t NUM_SUBITER = 5;
+constexpr Index NUM_SUBITER = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -89,17 +89,17 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Initialize grid =============================================================================
-  for (size_t i = 0; i < fs.x.extent(0); ++i) {
+  for (Index i = 0; i < fs.x.extent(0); ++i) {
     fs.x[i] = X_MIN + static_cast<Float>(i) * dx;
   }
-  for (size_t i = 0; i < fs.xm.extent(0); ++i) {
+  for (Index i = 0; i < fs.xm.extent(0); ++i) {
     fs.xm[i] = (fs.x[i] + fs.x[i + 1]) / 2;
     fs.dx[i] = fs.x[i + 1] - fs.x[i];
   }
-  for (size_t j = 0; j < fs.y.extent(0); ++j) {
+  for (Index j = 0; j < fs.y.extent(0); ++j) {
     fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
   }
-  for (size_t j = 0; j < fs.ym.extent(0); ++j) {
+  for (Index j = 0; j < fs.ym.extent(0); ++j) {
     fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
     fs.dy[j] = fs.y[j + 1] - fs.y[j];
   }
@@ -108,13 +108,13 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
   std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
 
-  for (size_t i = 0; i < fs.U.extent(0); ++i) {
-    for (size_t j = 0; j < fs.U.extent(1); ++j) {
+  for (Index i = 0; i < fs.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.U.extent(1); ++j) {
       fs.U[i, j] = U_INIT;
     }
   }
-  for (size_t i = 0; i < fs.V.extent(0); ++i) {
-    for (size_t j = 0; j < fs.V.extent(1); ++j) {
+  for (Index i = 0; i < fs.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.V.extent(1); ++j) {
       fs.V[i, j] = 0.0;
     }
   }
@@ -127,7 +127,7 @@ auto main() -> int {
   if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
   // = Initialize flow field =======================================================================
 
-  Igor::ScopeTimer timer("Solver");
+  Igor::ScopeTimer timer("LaminarChannel");
   bool failed = false;
   while (t < T_END && !failed) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
@@ -137,21 +137,21 @@ auto main() -> int {
     std::copy_n(fs.U.get_data(), fs.U.size(), fs.U_old.get_data());
     std::copy_n(fs.V.get_data(), fs.V.size(), fs.V_old.get_data());
 
-    for (size_t sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
+    for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.U, fs.U_old);
       calc_mid_time(fs.V, fs.V_old);
 
       // = Update flow field =======================================================================
       // TODO: Handle density and interfaces
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (size_t i = 0; i < fs.U.extent(0); ++i) {
-        for (size_t j = 0; j < fs.U.extent(1); ++j) {
+      for (Index i = 0; i < fs.U.extent(0); ++i) {
+        for (Index j = 0; j < fs.U.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
           fs.U[i, j] = fs.U_old[i, j] + dt * drhoUdt[i, j] / RHO;
         }
       }
-      for (size_t i = 0; i < fs.V.extent(0); ++i) {
-        for (size_t j = 0; j < fs.V.extent(1); ++j) {
+      for (Index i = 0; i < fs.V.extent(0); ++i) {
+        for (Index j = 0; j < fs.V.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
           fs.V[i, j] = fs.V_old[i, j] + dt * drhoVdt[i, j] / RHO;
         }
@@ -168,19 +168,19 @@ auto main() -> int {
       }
 
       shift_pressure_to_zero(fs, delta_p);
-      for (size_t i = 0; i < fs.p.extent(0); ++i) {
-        for (size_t j = 0; j < fs.p.extent(1); ++j) {
+      for (Index i = 0; i < fs.p.extent(0); ++i) {
+        for (Index j = 0; j < fs.p.extent(1); ++j) {
           fs.p[i, j] += delta_p[i, j];
         }
       }
 
-      for (size_t i = 1; i < fs.U.extent(0) - 1; ++i) {
-        for (size_t j = 1; j < fs.U.extent(1) - 1; ++j) {
+      for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
           fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
         }
       }
-      for (size_t i = 1; i < fs.V.extent(0) - 1; ++i) {
-        for (size_t j = 1; j < fs.V.extent(1) - 1; ++j) {
+      for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
           fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
         }
       }
@@ -196,24 +196,24 @@ auto main() -> int {
   }
 
   if (failed) {
-    Igor::Warn("Solver failed.");
+    Igor::Warn("LaminarChannel failed.");
     return 1;
   }
 
   // = Perform tests ===============================================================================
   bool any_test_failed = false;
 
-  const auto i_above_60 = static_cast<size_t>(std::find_if(fs.x.get_data(),
-                                                           fs.x.get_data() + fs.x.size(),
-                                                           [](Float xi) { return xi > 60.0; }) -
-                                              fs.x.get_data());
+  const auto i_above_60 = static_cast<Index>(std::find_if(fs.x.get_data(),
+                                                          fs.x.get_data() + fs.x.size(),
+                                                          [](Float xi) { return xi > 60.0; }) -
+                                             fs.x.get_data());
 
   // Test pressure
   {
     constexpr Float TOL = 1e-4;
-    for (size_t i = i_above_60; i < fs.p.extent(0); ++i) {
+    for (Index i = i_above_60; i < fs.p.extent(0); ++i) {
       const auto ref_pressure = fs.p[i, 0];
-      for (size_t j = 0; j < fs.p.extent(1); ++j) {
+      for (Index j = 0; j < fs.p.extent(1); ++j) {
         if (std::abs(fs.p[i, j] - ref_pressure) > TOL) {
           Igor::Warn("Non constant pressure along y-axis for x={}.", fs.xm[i]);
           any_test_failed = true;
@@ -223,7 +223,7 @@ auto main() -> int {
 
     const auto ref_dpdx =
         (fs.p[i_above_60 + 1, NY / 2] - fs.p[i_above_60, NY / 2]) / fs.dx[i_above_60 + 1];
-    for (size_t i = i_above_60 + 1; i < fs.p.extent(0); ++i) {
+    for (Index i = i_above_60 + 1; i < fs.p.extent(0); ++i) {
       const auto dpdx = (fs.p[i, NY / 2] - fs.p[i - 1, NY / 2]) / fs.dx[i];
       if (std::abs(ref_dpdx - dpdx) > TOL) {
         Igor::Warn(
@@ -251,9 +251,10 @@ auto main() -> int {
 
     size_t counter = 0;
     for (size_t i : i_check) {
-      for (size_t j = 0; j < fs.U.extent(1); ++j) {
-        const auto dpdx = (fs.p[i, j] - fs.p[i - 1, j]) / fs.dx[i];
-        diff[j]         = std::abs(fs.U[i, j] - u_analytical(fs.ym[j], dpdx));
+      for (Index j = 0; j < fs.U.extent(1); ++j) {
+        const auto dpdx = (fs.p[static_cast<Index>(i), j] - fs.p[static_cast<Index>(i - 1), j]) /
+                          fs.dx[static_cast<Index>(i)];
+        diff[j] = std::abs(fs.U[static_cast<Index>(i), j] - u_analytical(fs.ym[j], dpdx));
       }
       L1_errors[counter++] = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
     }
@@ -264,7 +265,7 @@ auto main() -> int {
       if (err > TOL) {
         Igor::Warn(
             "U-velocity profile at x={} does not align with analytical solution: L1-error is {}",
-            fs.x[i],
+            fs.x[static_cast<Index>(i)],
             err);
         any_test_failed = true;
       }

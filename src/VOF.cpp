@@ -14,18 +14,24 @@
 
 #include <Igor/Logging.hpp>
 #include <Igor/Math.hpp>
+#include <Igor/TypeName.hpp>
 
 #include "Container.hpp"
 #include "IO.hpp"
 
 // = Config ========================================================================================
 using Float           = double;
-constexpr Index NX    = 10;
-constexpr Index NY    = 10;
+constexpr Index NX    = 5;
+constexpr Index NY    = 5;
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 1.0;
 constexpr Float Y_MIN = 0.0;
 constexpr Float Y_MAX = 1.0;
+
+// Uniform velocity field
+constexpr Float U  = 1.0;
+constexpr Float V  = 0.5;
+constexpr Float DT = 1e-2;
 
 constexpr size_t NEIGHBORHOOD_SIZE = 9;
 
@@ -94,6 +100,13 @@ auto main() -> int {
   }
 
   // = Reconstruct the interface ===================================================================
+  IRL::PlanarSeparator separator{};
+  const auto interface_filename = Igor::detail::format("{}/interface.txt", OUTPUT_DIR);
+  std::ofstream interface_out(interface_filename);
+  if (!interface_out) {
+    Igor::Warn("Could not open file `{}`: {}", interface_filename, std::strerror(errno));
+    return 1;
+  }
   for (Index i = 1; i < vof.extent(0) - 1; ++i) {
     for (Index j = 1; j < vof.extent(1) - 1; ++j) {
       if (vof[i, j] < 1e-8 || vof[i, j] > (1 - 1e-8)) { continue; }
@@ -104,30 +117,54 @@ auto main() -> int {
       std::array<Float, NEIGHBORHOOD_SIZE> cells_vof{};
 
       size_t counter = 0;
-      for (int ii = -1; ii <= 1; ++ii) {
-        for (int jj = -1; jj <= 1; ++jj) {
+      for (Index di = -1; di <= 1; ++di) {
+        for (Index dj = -1; dj <= 1; ++dj) {
           cells[counter] = IRL::RectangularCuboid::fromBoundingPts(
-              IRL::Pt{x[i + ii], y[j + jj], -std::max(dx, dy) / 2},
-              IRL::Pt{x[i + ii + 1], y[j + jj + 1], std::max(dx, dy) / 2});
-          cells_vof[counter] = vof[i, j];
-          neighborhood.setMember(&cells[counter], &cells_vof[counter], ii, jj);
+              IRL::Pt{x[i + di], y[j + dj], -std::max(dx, dy) / 2},
+              IRL::Pt{x[i + di + 1], y[j + dj + 1], std::max(dx, dy) / 2});
+          cells_vof[counter] = vof[i + di, j + dj];
+          neighborhood.setMember(&cells[counter], &cells_vof[counter], di, dj);
           counter += 1;
         }
       }
       const auto planar_separator = IRL::reconstructionWithELVIRA2D(neighborhood);
-      IGOR_DEBUG_PRINT(planar_separator.getNumberOfPlanes());
-      for (const auto& plane : planar_separator) {
-        const auto norm = std::sqrt(Igor::sqr(plane.normal()[0]) + Igor::sqr(plane.normal()[1]) +
-                                    Igor::sqr(plane.normal()[2]));
-        IGOR_DEBUG_PRINT(norm);
-        IGOR_DEBUG_PRINT(plane.normal());
-        IGOR_DEBUG_PRINT(plane.distance());
+      if (i == 1 && j == 2) { separator = planar_separator; }
+      IGOR_ASSERT(planar_separator.getNumberOfPlanes() == 1,
+                  "({}, {}): Expected one planar but got {}",
+                  i,
+                  j,
+                  planar_separator.getNumberOfPlanes());
+
+      interface_out << i << ", " << j << ":\n";
+      interface_out << "  normal: " << planar_separator[0].normal() << '\n';
+      interface_out << "  distance: " << planar_separator[0].distance() << '\n';
+    }
+  }
+  // = Reconstruct the interface ===================================================================
+
+  // = Advect cell (0,2) ===========================================================================
+  IRL::Dodecahedron advected_cell{};
+  IRL::UnsignedIndex_t counter = 0;
+  for (Index di = 0; di <= 1; ++di) {
+    for (Index dj = 0; dj <= 1; ++dj) {
+      for (Index dk = 0; dk <= 1; ++dk) {
+        advected_cell[counter++] = IRL::Pt(x[0 + di] - DT * U - DT * V,
+                                           y[2 + dj] - DT * U - DT * V,
+                                           (2.0 * dk - 1.0) * std::min(dx, dy));
       }
     }
   }
+  IGOR_DEBUG_PRINT(advected_cell.getNumberOfVertices());
 
-  // = Reconstruct the interface ===================================================================
+  const auto vol = IRL::getVolumeMoments<IRL::Volume>(advected_cell, separator);
+  IGOR_DEBUG_PRINT(Igor::type_name(vol));
+  IGOR_DEBUG_PRINT(static_cast<double>(vol));
+  IGOR_DEBUG_PRINT(Igor::type_name(advected_cell.calculateVolume()));
+  IGOR_DEBUG_PRINT(static_cast<double>(advected_cell.calculateVolume()));
+  // = Advect cell (0,2) ===========================================================================
 
+  if (!to_npy(Igor::detail::format("{}/x.npy", OUTPUT_DIR), x)) { return 1; }
+  if (!to_npy(Igor::detail::format("{}/y.npy", OUTPUT_DIR), y)) { return 1; }
   if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), xm)) { return 1; }
   if (!to_npy(Igor::detail::format("{}/ym.npy", OUTPUT_DIR), ym)) { return 1; }
   if (!to_npy(Igor::detail::format("{}/vof.npy", OUTPUT_DIR), vof)) { return 1; }

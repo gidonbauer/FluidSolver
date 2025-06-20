@@ -46,6 +46,9 @@ class Vector {
     IGOR_ASSERT(r >= 0 && r < 1, "Dimension {} is out of bounds for Vector", r);
     return N;
   }
+
+  [[nodiscard]] constexpr auto begin() noexcept -> Contained* { return m_data->data(); }
+  [[nodiscard]] constexpr auto end() noexcept -> Contained* { return m_data->data() + size(); }
 };
 
 // =================================================================================================

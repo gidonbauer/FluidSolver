@@ -4,6 +4,7 @@
 #include <bit>
 #include <cstring>
 #include <fstream>
+#include <type_traits>
 
 #include <Igor/Logging.hpp>
 
@@ -12,7 +13,20 @@
 namespace detail {
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] constexpr auto interpret_as_big_endian_bytes(double value)
+template <typename T>
+requires(std::is_fundamental_v<T> && sizeof(T) == 4)
+[[nodiscard]] constexpr auto interpret_as_big_endian_bytes(T value)
+    -> std::array<const char, sizeof(value)> {
+  if constexpr (std::endian::native == std::endian::big) {
+    return std::bit_cast<std::array<const char, sizeof(value)>>(value);
+  }
+  return std::bit_cast<std::array<const char, sizeof(value)>>(
+      std::byteswap(std::bit_cast<uint32_t>(value)));
+}
+
+template <typename T>
+requires(std::is_fundamental_v<T> && sizeof(T) == 8)
+[[nodiscard]] constexpr auto interpret_as_big_endian_bytes(T value)
     -> std::array<const char, sizeof(value)> {
   if constexpr (std::endian::native == std::endian::big) {
     return std::bit_cast<std::array<const char, sizeof(value)>>(value);
@@ -95,8 +109,6 @@ template <typename Float, Index NX, Index NY>
   out << "\n\n";
 
   // = Write cell data =============================================================================
-  IGOR_ASSERT(Ui.size() == Vi.size() && Ui.size() == p.size() && Ui.size() == div.size(),
-              "Expected all fields to have the same size.");
   out << "CELL_DATA " << Ui.size() << '\n';
   write_scalar_vtk(out, p, "pressure");
   write_scalar_vtk(out, div, "divergence");

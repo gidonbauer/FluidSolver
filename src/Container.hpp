@@ -18,6 +18,9 @@ class Vector {
   Vector()
       : m_data(new std::array<Contained, static_cast<size_t>(N)>) {
     IGOR_ASSERT(m_data != nullptr, "Allocation failed.");
+    if constexpr (std::is_arithmetic_v<Contained>) {
+      std::fill_n(m_data->data(), size(), Contained{0});
+    }
   }
   Vector(const Vector& other) noexcept                              = delete;
   Vector(Vector&& other) noexcept                                   = delete;
@@ -70,6 +73,9 @@ class Matrix {
   Matrix()
       : m_data(new std::array<Contained, static_cast<size_t>(M* N)>) {
     IGOR_ASSERT(m_data != nullptr, "Allocation failed.");
+    if constexpr (std::is_arithmetic_v<Contained>) {
+      std::fill_n(m_data->data(), size(), Contained{0});
+    }
   }
   Matrix(const Matrix& other) noexcept                              = delete;
   Matrix(Matrix&& other) noexcept                                   = delete;

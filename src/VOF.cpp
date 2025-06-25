@@ -24,8 +24,8 @@
 
 // = Config ========================================================================================
 using Float           = double;
-constexpr Index NX    = 6;
-constexpr Index NY    = 6;
+constexpr Index NX    = 51;
+constexpr Index NY    = 51;
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 1.0;
 constexpr Float Y_MIN = 0.0;
@@ -36,12 +36,13 @@ constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 constexpr Index VOF_NSAMPLE = 10;
 constexpr Float VOF_LOW     = 1e-8;
 constexpr Float VOF_HIGH    = 1.0 - VOF_LOW;
+Float INIT_VOF_INT          = 0.0;  // NOLINT
 
 // Uniform velocity field
 constexpr Float U     = 1.0;
 constexpr Float V     = 0.5;
-constexpr Float DT    = 5e-2;
-constexpr Index NITER = 1;
+constexpr Float DT    = 5e-3;
+constexpr Index NITER = 100;
 
 constexpr size_t NEIGHBORHOOD_SIZE = 9;
 
@@ -120,11 +121,19 @@ auto save_interface(const std::string& filename,
     for (Index j = 0; j < NY; ++j) {
       if (!has_interface[i, j]) { continue; }
 
+      const auto begin_idx = points.size();
       for (Index idx = i; idx < i + 2; ++idx) {
         const Float x_trial = x[idx];
         const auto y_trial =
             get_y(interface[i, j][0].normal(), interface[i, j][0].distance(), x_trial);
-        if (y_trial.has_value() && *y_trial > y[j] - 1e-4 && *y_trial < y[j + 1] + 1e-4) {
+        if (y_trial.has_value() && *y_trial > y[j] - 1e-4 && *y_trial < y[j + 1] + 1e-4 &&
+            std::none_of(
+                std::next(std::cbegin(points), static_cast<std::ptrdiff_t>(begin_idx)),
+                std::cend(points),
+                [x_trial, y_trial](const std::pair<Float, Float>& p) {
+                  return std::sqrt(Igor::sqr(p.first - x_trial) + Igor::sqr(p.second - *y_trial)) <
+                         1e-6;
+                })) {
           points.emplace_back(x_trial, *y_trial);
         }
       }
@@ -133,22 +142,36 @@ auto save_interface(const std::string& filename,
         const Float y_trial = y[idx];
         const auto x_trial =
             get_x(interface[i, j][0].normal(), interface[i, j][0].distance(), y_trial);
-        if (x_trial.has_value() && *x_trial > x[i] - 1e-4 && *x_trial < x[i + 1] + 1e-4) {
+        if (x_trial.has_value() && *x_trial > x[i] - 1e-4 && *x_trial < x[i + 1] + 1e-4 &&
+            std::none_of(
+                std::next(std::cbegin(points), static_cast<std::ptrdiff_t>(begin_idx)),
+                std::cend(points),
+                [x_trial, y_trial](const std::pair<Float, Float>& p) {
+                  return std::sqrt(Igor::sqr(p.first - *x_trial) + Igor::sqr(p.second - y_trial)) <
+                         1e-6;
+                })) {
           points.emplace_back(*x_trial, y_trial);
         }
       }
+      if (points.size() - begin_idx != 2) { points.resize(begin_idx); }
+      // IGOR_ASSERT(points.size() - begin_idx == 2,
+      //             "{}, {}: Expected to add exactly two points to array but added {}: {}",
+      //             i,
+      //             j,
+      //             points.size() - begin_idx,
+      //             std::span(points.data() + begin_idx, points.size() - begin_idx));
     }
   }
 
-  [[maybe_unused]] const auto num_interfaces =
-      std::accumulate(has_interface.get_data(),
-                      has_interface.get_data() + has_interface.size(),
-                      0UZ,
-                      [](size_t count, bool b) { return count + static_cast<size_t>(b); });
-  IGOR_ASSERT(points.size() == 2 * num_interfaces,
-              "Expected two points per interface ({}) but got {}",
-              num_interfaces,
-              points.size());
+  // [[maybe_unused]] const auto num_interfaces =
+  //     std::accumulate(has_interface.get_data(),
+  //                     has_interface.get_data() + has_interface.size(),
+  //                     0UZ,
+  //                     [](size_t count, bool b) { return count + static_cast<size_t>(b); });
+  // IGOR_ASSERT(points.size() == 2 * num_interfaces,
+  //             "Expected two points per interface ({}) but got {}",
+  //             2 * num_interfaces,
+  //             points.size());
 
   std::ofstream out(filename);
   if (!out) {
@@ -174,8 +197,6 @@ auto save_interface(const std::string& filename,
 
   // = Write cell data =============================================================================
   out << "LINES " << 3 << ' ' << points.size() / 2 * 3 << '\n';
-  static_assert(std::endian::native == std::endian::little, "Assume little endian machine");
-  static_assert(sizeof(int) == 4, "Expect 32 bit integers");
   for (uint32_t i = 0; i < points.size(); i += 2) {
     out.write(detail::interpret_as_big_endian_bytes(uint32_t{2}).data(), sizeof(uint32_t));
     out.write(detail::interpret_as_big_endian_bytes(i).data(), sizeof(uint32_t));
@@ -186,27 +207,32 @@ auto save_interface(const std::string& filename,
 }
 
 // -------------------------------------------------------------------------------------------------
+constexpr auto advect_point(const IRL::Pt& p) -> IRL::Pt {
+  return IRL::Pt{p[0] - DT * U, p[1] - DT * V, p[2]};
+}
+
+// -------------------------------------------------------------------------------------------------
+void print_vof_stats(const Matrix<Float, NX, NY>& vof) noexcept {
+  const auto [min, max] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
+  const auto integral =
+      std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
+  Igor::Info("min(vof)  = {:.6e}", *min);
+  Igor::Info("max(vof)  = {:.6e}", *max);
+  Igor::Info("int(vof)  = {:.6e}", integral);
+  Igor::Info("loss(vof) = {:.6e} ({:.4f}%)",
+             INIT_VOF_INT - integral,
+             100.0 * (INIT_VOF_INT - integral) / INIT_VOF_INT);
+  std::cout << "--------------------------------------------------------------------------------\n";
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
-  {
-    std::error_code ec;
-
-    std::filesystem::remove_all(OUTPUT_DIR, ec);
-    if (ec) {
-      Igor::Warn("Could remove directory `{}`: {}", OUTPUT_DIR, ec.message());
-      return 1;
-    }
-
-    std::filesystem::create_directories(OUTPUT_DIR, ec);
-    if (ec) {
-      Igor::Warn("Could not create directory `{}`: {}", OUTPUT_DIR, ec.message());
-      return 1;
-    }
-  }
-  // = Create output directory =====================================================================
+  if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
   Matrix<Float, NX, NY> vof{};
+  Matrix<Float, NX, NY> vof_next{};
   Vector<Float, NX + 1> x{};
   Vector<Float, NY + 1> y{};
   Vector<Float, NX> xm{};
@@ -230,8 +256,8 @@ auto main() -> int {
   }
 
   // Localize the cells
-  for (Index i = 1; i < vof.extent(0) - 1; ++i) {
-    for (Index j = 1; j < vof.extent(1) - 1; ++j) {
+  for (Index i = 0; i < vof.extent(0); ++i) {
+    for (Index j = 0; j < vof.extent(1); ++j) {
       // Localize the cell for volume calculation
       constexpr std::array<IRL::Normal, 6> plane_normals = {
           IRL::Normal(-1.0, 0.0, 0.0),
@@ -255,7 +281,7 @@ auto main() -> int {
   for (Index i = 0; i < vof.extent(0); ++i) {
     for (Index j = 0; j < vof.extent(1); ++j) {
       auto is_in = [](Float x, Float y) -> Float {
-        return Igor::sqr(x - 0.5) + Igor::sqr(y - 0.5) <= Igor::sqr(0.25);
+        return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
       };
 
       vof[i, j] = 0.0;
@@ -276,9 +302,11 @@ auto main() -> int {
   if (!to_npy(Igor::detail::format("{}/ym.npy", OUTPUT_DIR), ym)) { return 1; }
   if (!to_npy(Igor::detail::format("{}/vof_0.npy", OUTPUT_DIR), vof)) { return 1; }
   if (!save_vof(Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), x, y, vof)) { return 1; }
-  Igor::Info("int(vof) = {:.6e}",
-             std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX *
-                 DY);
+  INIT_VOF_INT =
+      std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
+
+  Igor::Info("iter = {}", 0);
+  print_vof_stats(vof);
   // = Setup grid and cell localizers ==============================================================
 
   for (Index iter = 0; iter < NITER; ++iter) {
@@ -288,6 +316,8 @@ auto main() -> int {
       Igor::Warn("Could not open file `{}`: {}", interface_filename, std::strerror(errno));
       return 1;
     }
+
+    std::fill_n(ir.interface.get_data(), ir.interface.size(), IRL::PlanarSeparator{});
 
     // = Reconstruct the interface =================================================================
     for (Index i = 1; i < vof.extent(0) - 1; ++i) {
@@ -343,59 +373,30 @@ auto main() -> int {
         const auto cell = IRL::RectangularCuboid::fromBoundingPts(IRL::Pt{x[i], y[j], -0.5},
                                                                   IRL::Pt{x[i + 1], y[j + 1], 0.5});
         for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < cell.getNumberOfVertices(); ++cell_idx) {
-          advected_cell[cell_idx] = IRL::Pt{
-              cell[cell_idx][0] - DT * U - DT * V,
-              cell[cell_idx][1] - DT * U - DT * V,
-              cell[cell_idx][2],
-          };
+          advected_cell[cell_idx] = advect_point(cell[cell_idx]);
         }
 
         Float overlap_vol = 0.0;
-        // for (Index i = std::max(0, CX - 1); i < std::min(NX, CX + 2); ++i) {
-        //   for (Index j = std::max(0, CY - 1); j < std::min(NY, CY + 2); ++j) {
         for (Index ii = 0; ii < NX; ++ii) {
           for (Index jj = 0; jj < NY; ++jj) {
-            if (ir.has_interface[ii, jj]) {
+            if (ir.has_interface[ii, jj] || vof[ii, jj] >= VOF_HIGH) {
               overlap_vol += IRL::getVolumeMoments<IRL::Volume>(
                   advected_cell,
                   IRL::LocalizedSeparator(&ir.cell_localizer[ii, jj], &ir.interface[ii, jj]));
-            } else if (vof[ii, jj] >= VOF_HIGH) {
-              overlap_vol +=
-                  IRL::getVolumeMoments<IRL::Volume>(advected_cell, ir.cell_localizer[ii, jj]);
             }
           }
         }
 
-        vof[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
-
-        if (i == 3 && j == 3) {
-          Matrix<Float, 4, 2> ac{};
-          ac[0, 0] = advected_cell[0][0];
-          ac[0, 1] = advected_cell[0][1];
-          ac[1, 0] = advected_cell[1][0];
-          ac[1, 1] = advected_cell[1][1];
-          ac[2, 0] = advected_cell[5][0];
-          ac[2, 1] = advected_cell[5][1];
-          ac[3, 0] = advected_cell[4][0];
-          ac[3, 1] = advected_cell[4][1];
-          if (!to_npy(Igor::detail::format("{}/advected_cell_{}.npy", OUTPUT_DIR, iter), ac)) {
-            return 1;
-          }
-          Igor::Debug("overlap_vol = {:.6e}", overlap_vol);
-          Igor::Debug("cell volume = {:.6e}",
-                      static_cast<double>(advected_cell.calculateAbsoluteVolume()));
-          Igor::Debug("VOF         = {:.6e}",
-                      overlap_vol / advected_cell.calculateAbsoluteVolume());
-        }
+        vof_next[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
       }
     }
+    std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
     // = Advect cells ==============================================================================
     if (!to_npy(Igor::detail::format("{}/vof_{}.npy", OUTPUT_DIR, iter + 1), vof)) { return 1; }
     if (!save_vof(Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, iter + 1), x, y, vof)) {
       return 1;
     }
-    Igor::Info("int(vof) = {:.6e}",
-               std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX *
-                   DY);
+    Igor::Info("iter = {}", iter + 1);
+    print_vof_stats(vof);
   }
 }

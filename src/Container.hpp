@@ -15,7 +15,7 @@ class Vector {
   std::unique_ptr<std::array<Contained, N>> m_data{};
 
  public:
-  Vector()
+  Vector() noexcept
       : m_data(new std::array<Contained, static_cast<size_t>(N)>) {
     IGOR_ASSERT(m_data != nullptr, "Allocation failed.");
     if constexpr (std::is_arithmetic_v<Contained>) {
@@ -70,7 +70,7 @@ class Matrix {
   }
 
  public:
-  Matrix()
+  Matrix() noexcept
       : m_data(new std::array<Contained, static_cast<size_t>(M* N)>) {
     IGOR_ASSERT(m_data != nullptr, "Allocation failed.");
     if constexpr (std::is_arithmetic_v<Contained>) {

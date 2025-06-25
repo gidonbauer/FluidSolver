@@ -227,7 +227,7 @@ template <std::floating_point Float, Index N>
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   if (!out.write(reinterpret_cast<const char*>(vector.get_data()),
-                 static_cast<std::streamsize>(vector.size() * sizeof(Float)))) {
+                 static_cast<std::streamsize>(static_cast<size_t>(vector.size()) * sizeof(Float)))) {
     Igor::Warn("Could not write data to `{}`: {}", filename, std::strerror(errno));
     return false;
   }
@@ -252,7 +252,7 @@ template <std::floating_point Float, Index M, Index N, Layout LAYOUT>
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   if (!out.write(reinterpret_cast<const char*>(matrix.get_data()),
-                 static_cast<std::streamsize>(matrix.size() * sizeof(Float)))) {
+                 static_cast<std::streamsize>(static_cast<size_t>(matrix.size()) * sizeof(Float)))) {
     Igor::Warn("Could not write data to `{}`: {}", filename, std::strerror(errno));
     return false;
   }

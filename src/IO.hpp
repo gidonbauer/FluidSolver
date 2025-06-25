@@ -3,6 +3,7 @@
 
 #include <bit>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <type_traits>
 
@@ -253,6 +254,25 @@ template <std::floating_point Float, Index M, Index N, Layout LAYOUT>
   if (!out.write(reinterpret_cast<const char*>(matrix.get_data()),
                  static_cast<std::streamsize>(matrix.size() * sizeof(Float)))) {
     Igor::Warn("Could not write data to `{}`: {}", filename, std::strerror(errno));
+    return false;
+  }
+
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto init_output_directory(const std::string& directory_name) noexcept -> bool {
+  std::error_code ec;
+
+  std::filesystem::remove_all(directory_name, ec);
+  if (ec) {
+    Igor::Warn("Could remove directory `{}`: {}", directory_name, ec.message());
+    return false;
+  }
+
+  std::filesystem::create_directories(directory_name, ec);
+  if (ec) {
+    Igor::Warn("Could not create directory `{}`: {}", directory_name, ec.message());
     return false;
   }
 

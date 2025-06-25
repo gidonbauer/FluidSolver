@@ -62,22 +62,7 @@ constexpr auto OUTPUT_DIR = "output/IncompSolver/";
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
-  {
-    std::error_code ec;
-
-    std::filesystem::remove_all(OUTPUT_DIR, ec);
-    if (ec) {
-      Igor::Warn("Could remove directory `{}`: {}", OUTPUT_DIR, ec.message());
-      return 1;
-    }
-
-    std::filesystem::create_directories(OUTPUT_DIR, ec);
-    if (ec) {
-      Igor::Warn("Could not create directory `{}`: {}", OUTPUT_DIR, ec.message());
-      return 1;
-    }
-  }
-  // = Create output directory =====================================================================
+  if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY> fs{.visc = VISC, .rho = RHO};

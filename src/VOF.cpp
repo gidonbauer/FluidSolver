@@ -105,15 +105,21 @@ auto save_interface(const std::string& filename,
   points.resize(0);
 
   auto get_x = [](IRL::Normal normal, Float dist, Float y) -> std::optional<Float> {
-    IGOR_ASSERT(
-        std::abs(normal[2]) < 1e-8, "Expect normal to not have a z-component, but got ({}, {}, {})", normal[0], normal[1], normal[2]);
+    IGOR_ASSERT(std::abs(normal[2]) < 1e-8,
+                "Expect normal to not have a z-component, but got ({}, {}, {})",
+                normal[0],
+                normal[1],
+                normal[2]);
     if (std::abs(normal[0]) < 1e-6) { return {}; }
     return std::optional{-normal[1] / normal[0] * y + dist / normal[0]};
   };
 
   auto get_y = [](IRL::Normal normal, Float dist, Float x) -> std::optional<Float> {
-    IGOR_ASSERT(
-        std::abs(normal[2]) < 1e-8, "Expect normal to not have a z-component, but got ({}, {}, {})", normal[0], normal[1], normal[2]);
+    IGOR_ASSERT(std::abs(normal[2]) < 1e-8,
+                "Expect normal to not have a z-component, but got ({}, {}, {})",
+                normal[0],
+                normal[1],
+                normal[2]);
     if (std::abs(normal[1]) < 1e-6) { return {}; }
     return std::optional{-normal[0] / normal[1] * x + dist / normal[1]};
   };
@@ -217,6 +223,110 @@ void print_vof_stats(const Matrix<Float, NX, NY>& vof) noexcept {
 }
 
 // -------------------------------------------------------------------------------------------------
+void reconstruct_interface(const Vector<Float, NX + 1>& x,
+                           const Vector<Float, NY + 1>& y,
+                           const Matrix<Float, NX, NY>& vof,
+                           InterfaceReconstruction& ir) {
+  // Reset ir.interface
+  std::fill_n(ir.interface.get_data(), ir.interface.size(), IRL::PlanarSeparator{});
+
+  for (Index i = 1; i < vof.extent(0) - 1; ++i) {
+    for (Index j = 1; j < vof.extent(1) - 1; ++j) {
+      // Check if the cell contains an interface
+      ir.has_interface[i, j] = vof[i, j] >= VOF_LOW && vof[i, j] <= VOF_HIGH;
+
+      // Calculate the interface; skip if does not contain an interface
+      if (!ir.has_interface[i, j]) { continue; }
+      IRL::ELVIRANeighborhood neighborhood{};
+      neighborhood.resize(NEIGHBORHOOD_SIZE);
+      std::array<IRL::RectangularCuboid, NEIGHBORHOOD_SIZE> cells{};
+      std::array<Float, NEIGHBORHOOD_SIZE> cells_vof{};
+
+      size_t counter = 0;
+      for (Index di = -1; di <= 1; ++di) {
+        for (Index dj = -1; dj <= 1; ++dj) {
+          cells[counter] = IRL::RectangularCuboid::fromBoundingPts(
+              IRL::Pt{x[i + di], y[j + dj], -0.5}, IRL::Pt{x[i + di + 1], y[j + dj + 1], 0.5});
+          cells_vof[counter] = vof[i + di, j + dj];
+          neighborhood.setMember(&cells[counter], &cells_vof[counter], di, dj);
+          counter += 1;
+        }
+      }
+      ir.interface[i, j] = IRL::reconstructionWithELVIRA2D(neighborhood);
+      IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
+                  "({}, {}): Expected one planar but got {}",
+                  i,
+                  j,
+                  (ir.interface[i, j].getNumberOfPlanes()));
+    }
+  }
+}
+
+void advect_cells(const Vector<Float, NX + 1>& x,
+                  const Vector<Float, NY + 1>& y,
+                  const Matrix<Float, NX, NY>& vof,
+                  const Matrix<Float, NX + 1, NY>& U,
+                  const Matrix<Float, NX, NY + 1>& V,
+                  const InterfaceReconstruction& ir,
+                  Matrix<Float, NX, NY>& vof_next) {
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      IRL::Dodecahedron advected_cell{};
+      // IRL::Hexahedron advected_cell{};
+
+      constexpr std::array offsets{
+          std::array<Index, 3>{1, 0, 0},
+          std::array<Index, 3>{1, 1, 0},
+          std::array<Index, 3>{1, 1, 1},
+          std::array<Index, 3>{1, 0, 1},
+          std::array<Index, 3>{0, 0, 0},
+          std::array<Index, 3>{0, 1, 0},
+          std::array<Index, 3>{0, 1, 1},
+          std::array<Index, 3>{0, 0, 1},
+      };
+      for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < advected_cell.getNumberOfVertices();
+           ++cell_idx) {
+        const auto [di, dj, dk] = offsets[cell_idx];
+        const IRL::Pt pt{x[i + di], y[j + dj], dk == 1 ? 0.5 : -0.5};
+        const Float U_advect = [&] {
+          if (j + dj == 0) {
+            return U[i + di, j + dj];
+          } else if (j + dj == NY) {
+            return U[i + di, j + dj - 1];
+          } else {
+            return (U[i + di, j + dj] + U[i + di, j + dj - 1]) / 2.0;
+          }
+        }();
+        const Float V_advect = [&] {
+          if (i + di == 0) {
+            return V[i + di, j + dj];
+          } else if (i + di == NX) {
+            return V[i + di - 1, j + dj];
+          } else {
+            return (V[i + di, j + dj] + V[i + di - 1, j + dj]) / 2.0;
+          }
+        }();
+
+        advected_cell[cell_idx] = advect_point(pt, U_advect, V_advect);
+      }
+
+      Float overlap_vol = 0.0;
+      for (Index ii = std::max(i - 2, 0); ii < std::min(i + 2, NX); ++ii) {
+        for (Index jj = std::max(j - 2, 0); jj < std::min(j + 2, NY); ++jj) {
+          if (ir.has_interface[ii, jj] || vof[ii, jj] >= VOF_HIGH) {
+            overlap_vol += IRL::getVolumeMoments<IRL::Volume>(
+                advected_cell,
+                IRL::LocalizedSeparator(&ir.cell_localizer[ii, jj], &ir.interface[ii, jj]));
+          }
+        }
+      }
+
+      vof_next[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
+    }
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
@@ -274,10 +384,6 @@ auto main() -> int {
       l[5] = IRL::Plane(plane_normals[5], 0.5);
     }
   }
-  if (!to_npy(Igor::detail::format("{}/x.npy", OUTPUT_DIR), x)) { return 1; }
-  if (!to_npy(Igor::detail::format("{}/y.npy", OUTPUT_DIR), y)) { return 1; }
-  if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), xm)) { return 1; }
-  if (!to_npy(Igor::detail::format("{}/ym.npy", OUTPUT_DIR), ym)) { return 1; }
   // = Setup grid and cell localizers ==============================================================
 
   // = Setup velocity and vof field ================================================================
@@ -313,8 +419,6 @@ auto main() -> int {
 
   interpolate_U(U, Ui);
   interpolate_V(V, Vi);
-
-  if (!to_npy(Igor::detail::format("{}/vof_0.npy", OUTPUT_DIR), vof)) { return 1; }
   if (!save_vof_state(
           Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), x, y, vof, Ui, Vi)) {
     return 1;
@@ -327,51 +431,8 @@ auto main() -> int {
   print_vof_stats(vof);
 
   for (Index iter = 0; iter < NITER; ++iter) {
-    const auto interface_filename = Igor::detail::format("{}/interface_{}.txt", OUTPUT_DIR, iter);
-    std::ofstream interface_out(interface_filename);
-    if (!interface_out) {
-      Igor::Warn("Could not open file `{}`: {}", interface_filename, std::strerror(errno));
-      return 1;
-    }
-
-    std::fill_n(ir.interface.get_data(), ir.interface.size(), IRL::PlanarSeparator{});
-
     // = Reconstruct the interface =================================================================
-    for (Index i = 1; i < vof.extent(0) - 1; ++i) {
-      for (Index j = 1; j < vof.extent(1) - 1; ++j) {
-        // Check if the cell contains an interface
-        ir.has_interface[i, j] = vof[i, j] >= VOF_LOW && vof[i, j] <= VOF_HIGH;
-
-        // Calculate the interface; skip if does not contain an interface
-        if (!ir.has_interface[i, j]) { continue; }
-        IRL::ELVIRANeighborhood neighborhood{};
-        neighborhood.resize(NEIGHBORHOOD_SIZE);
-        std::array<IRL::RectangularCuboid, NEIGHBORHOOD_SIZE> cells{};
-        std::array<Float, NEIGHBORHOOD_SIZE> cells_vof{};
-
-        size_t counter = 0;
-        for (Index di = -1; di <= 1; ++di) {
-          for (Index dj = -1; dj <= 1; ++dj) {
-            cells[counter] = IRL::RectangularCuboid::fromBoundingPts(
-                IRL::Pt{x[i + di], y[j + dj], -0.5}, IRL::Pt{x[i + di + 1], y[j + dj + 1], 0.5});
-            cells_vof[counter] = vof[i + di, j + dj];
-            neighborhood.setMember(&cells[counter], &cells_vof[counter], di, dj);
-            counter += 1;
-          }
-        }
-        ir.interface[i, j] = IRL::reconstructionWithELVIRA2D(neighborhood);
-
-        IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
-                    "({}, {}): Expected one planar but got {}",
-                    i,
-                    j,
-                    (ir.interface[i, j].getNumberOfPlanes()));
-
-        interface_out << i << ", " << j << ":\n";
-        interface_out << "  normal: " << ir.interface[i, j][0].normal() << '\n';
-        interface_out << "  distance: " << ir.interface[i, j][0].distance() << '\n';
-      }
-    }
+    reconstruct_interface(x, y, vof, ir);
     if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, iter),
                         x,
                         y,
@@ -379,70 +440,14 @@ auto main() -> int {
                         ir.has_interface)) {
       return 1;
     }
-    // = Reconstruct the interface =================================================================
 
     // = Advect cells ==============================================================================
-    for (Index i = 0; i < NX; ++i) {
-      for (Index j = 0; j < NY; ++j) {
-        IRL::Dodecahedron advected_cell{};
-        // IRL::Hexahedron advected_cell{};
-
-        constexpr std::array offsets{
-            std::array<Index, 3>{1, 0, 0},
-            std::array<Index, 3>{1, 1, 0},
-            std::array<Index, 3>{1, 1, 1},
-            std::array<Index, 3>{1, 0, 1},
-            std::array<Index, 3>{0, 0, 0},
-            std::array<Index, 3>{0, 1, 0},
-            std::array<Index, 3>{0, 1, 1},
-            std::array<Index, 3>{0, 0, 1},
-        };
-        for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < advected_cell.getNumberOfVertices();
-             ++cell_idx) {
-          const auto [di, dj, dk] = offsets[cell_idx];
-          const IRL::Pt pt{x[i + di], y[j + dj], dk == 1 ? 0.5 : -0.5};
-          const Float U_advect = [&] {
-            if (j + dj == 0) {
-              return U[i + di, j + dj];
-            } else if (j + dj == NY) {
-              return U[i + di, j + dj - 1];
-            } else {
-              return (U[i + di, j + dj] + U[i + di, j + dj - 1]) / 2.0;
-            }
-          }();
-          const Float V_advect = [&] {
-            if (i + di == 0) {
-              return V[i + di, j + dj];
-            } else if (i + di == NX) {
-              return V[i + di - 1, j + dj];
-            } else {
-              return (V[i + di, j + dj] + V[i + di - 1, j + dj]) / 2.0;
-            }
-          }();
-
-          advected_cell[cell_idx] = advect_point(pt, U_advect, V_advect);
-        }
-
-        Float overlap_vol = 0.0;
-        for (Index ii = std::max(i - 2, 0); ii < std::min(i + 2, NX); ++ii) {
-          for (Index jj = std::max(j - 2, 0); jj < std::min(j + 2, NY); ++jj) {
-            if (ir.has_interface[ii, jj] || vof[ii, jj] >= VOF_HIGH) {
-              overlap_vol += IRL::getVolumeMoments<IRL::Volume>(
-                  advected_cell,
-                  IRL::LocalizedSeparator(&ir.cell_localizer[ii, jj], &ir.interface[ii, jj]));
-            }
-          }
-        }
-
-        vof_next[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
-      }
-    }
+    advect_cells(x, y, vof, U, V, ir, vof_next);
     std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
-    // = Advect cells ==============================================================================
+
     // Don't save last state because we don't have a reconstruction for that and it messes with the
     // visualization
     if (iter < NITER - 1) {
-      if (!to_npy(Igor::detail::format("{}/vof_{}.npy", OUTPUT_DIR, iter + 1), vof)) { return 1; }
       if (!save_vof_state(
               Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, iter + 1), x, y, vof, Ui, Vi)) {
         return 1;

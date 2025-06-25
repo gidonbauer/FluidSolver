@@ -106,14 +106,14 @@ auto save_interface(const std::string& filename,
 
   auto get_x = [](IRL::Normal normal, Float dist, Float y) -> std::optional<Float> {
     IGOR_ASSERT(
-        std::abs(normal[2]) < 1e-8, "Expect normal to not have a z-component, but got {}", normal);
+        std::abs(normal[2]) < 1e-8, "Expect normal to not have a z-component, but got ({}, {}, {})", normal[0], normal[1], normal[2]);
     if (std::abs(normal[0]) < 1e-6) { return {}; }
     return std::optional{-normal[1] / normal[0] * y + dist / normal[0]};
   };
 
   auto get_y = [](IRL::Normal normal, Float dist, Float x) -> std::optional<Float> {
     IGOR_ASSERT(
-        std::abs(normal[2]) < 1e-8, "Expect normal to not have a z-component, but got {}", normal);
+        std::abs(normal[2]) < 1e-8, "Expect normal to not have a z-component, but got ({}, {}, {})", normal[0], normal[1], normal[2]);
     if (std::abs(normal[1]) < 1e-6) { return {}; }
     return std::optional{-normal[0] / normal[1] * x + dist / normal[1]};
   };

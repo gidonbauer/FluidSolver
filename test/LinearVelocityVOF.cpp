@@ -27,7 +27,7 @@ Float INIT_VOF_INT          = 0.0;  // NOLINT
 constexpr Float DT    = 5e-3;
 constexpr Index NITER = 120;
 
-constexpr auto OUTPUT_DIR = "test/output/ConstantVelocityVOF";
+constexpr auto OUTPUT_DIR = "test/output/LinearVelocityVOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -202,7 +202,8 @@ auto check_vof(const Matrix<Float, NX, NY>& vof) noexcept -> bool {
     return false;
   }
 
-  if (std::abs(integral - INIT_VOF_INT) > EPS) {
+  // TODO: Use EPS here when the correction has been implemented
+  if (std::abs(integral - INIT_VOF_INT) > 5e-4) {
     Igor::Warn("Expected integral of vof to be {:.6e} but is {:.6e}: error = {:.6e}",
                INIT_VOF_INT,
                integral,
@@ -274,13 +275,13 @@ auto main() -> int {
 
   for (Index i = 0; i < U.extent(0); ++i) {
     for (Index j = 0; j < U.extent(1); ++j) {
-      U[i, j] = 1.0;
+      U[i, j] = ym[j];
     }
   }
 
   for (Index i = 0; i < V.extent(0); ++i) {
     for (Index j = 0; j < V.extent(1); ++j) {
-      V[i, j] = 0.5;
+      V[i, j] = xm[i];
     }
   }
 
@@ -294,7 +295,7 @@ auto main() -> int {
       std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
   // = Setup velocity and vof field ================================================================
 
-  Igor::ScopeTimer timer("ConstantVelocityVOF");
+  Igor::ScopeTimer timer("LinearVelocityVOF");
   for (Index iter = 0; iter < NITER; ++iter) {
     // = Reconstruct the interface =================================================================
     reconstruct_interface(x, y, vof, ir);

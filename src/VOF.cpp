@@ -48,11 +48,11 @@ constexpr auto OUTPUT_DIR = "output/VOF";
 // = Config ========================================================================================
 
 struct InterfaceReconstruction {
-  Matrix<bool, NX, NY> has_interface;
   Matrix<IRL::PlanarSeparator, NX, NY> interface;
   Matrix<IRL::PlanarLocalizer, NX, NY> cell_localizer;
-  // Matrix<IRL::LocalizedSeparatorLink, NX, NY> traversing_links;
 };
+
+constexpr auto has_interface(Float vof) noexcept -> bool { return VOF_LOW < vof && vof < VOF_HIGH; }
 
 // -------------------------------------------------------------------------------------------------
 auto save_vof_state(const std::string& filename,
@@ -98,8 +98,7 @@ auto save_vof_state(const std::string& filename,
 auto save_interface(const std::string& filename,
                     const Vector<Float, NX + 1>& x,
                     const Vector<Float, NY + 1>& y,
-                    const Matrix<IRL::PlanarSeparator, NX, NY>& interface,
-                    const Matrix<bool, NX, NY>& has_interface) -> bool {
+                    const Matrix<IRL::PlanarSeparator, NX, NY>& interface) -> bool {
   // Find intersection points of planar separator and grid
   static std::vector<std::pair<Float, Float>> points{};
   points.resize(0);
@@ -126,7 +125,14 @@ auto save_interface(const std::string& filename,
 
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      if (!has_interface[i, j]) { continue; }
+      if (interface[i, j].getNumberOfPlanes() != 1) {
+        IGOR_ASSERT((interface[i, j].getNumberOfPlanes() == 0),
+                    "{}, {}: Number of planes can only be 0 or 1 but is {}",
+                    i,
+                    j,
+                    interface[i, j].getNumberOfPlanes());
+        continue;
+      }
 
       const auto begin_idx = points.size();
       for (Index idx = i; idx < i + 2; ++idx) {
@@ -232,11 +238,9 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
 
   for (Index i = 1; i < vof.extent(0) - 1; ++i) {
     for (Index j = 1; j < vof.extent(1) - 1; ++j) {
-      // Check if the cell contains an interface
-      ir.has_interface[i, j] = vof[i, j] >= VOF_LOW && vof[i, j] <= VOF_HIGH;
-
       // Calculate the interface; skip if does not contain an interface
-      if (!ir.has_interface[i, j]) { continue; }
+      if (!has_interface(vof[i, j])) { continue; }
+
       IRL::ELVIRANeighborhood neighborhood{};
       neighborhood.resize(NEIGHBORHOOD_SIZE);
       std::array<IRL::RectangularCuboid, NEIGHBORHOOD_SIZE> cells{};
@@ -262,6 +266,7 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
   }
 }
 
+// -------------------------------------------------------------------------------------------------
 void advect_cells(const Vector<Float, NX + 1>& x,
                   const Vector<Float, NY + 1>& y,
                   const Matrix<Float, NX, NY>& vof,
@@ -310,10 +315,15 @@ void advect_cells(const Vector<Float, NX + 1>& x,
         advected_cell[cell_idx] = advect_point(pt, U_advect, V_advect);
       }
 
-      Float overlap_vol = 0.0;
-      for (Index ii = std::max(i - 2, 0); ii < std::min(i + 2, NX); ++ii) {
-        for (Index jj = std::max(j - 2, 0); jj < std::min(j + 2, NY); ++jj) {
-          if (ir.has_interface[ii, jj] || vof[ii, jj] >= VOF_HIGH) {
+      Float overlap_vol                   = 0.0;
+      constexpr Index neighborhood_offset = 1;
+      for (Index ii = std::max(i - neighborhood_offset, 0);
+           ii < std::min(i + neighborhood_offset, NX);
+           ++ii) {
+        for (Index jj = std::max(j - neighborhood_offset, 0);
+             jj < std::min(j + neighborhood_offset, NY);
+             ++jj) {
+          if (vof[ii, jj] > VOF_LOW) {
             overlap_vol += IRL::getVolumeMoments<IRL::Volume>(
                 advected_cell,
                 IRL::LocalizedSeparator(&ir.cell_localizer[ii, jj], &ir.interface[ii, jj]));
@@ -436,8 +446,7 @@ auto main() -> int {
     if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, iter),
                         x,
                         y,
-                        ir.interface,
-                        ir.has_interface)) {
+                        ir.interface)) {
       return 1;
     }
 

@@ -1,6 +1,8 @@
 #ifndef FLUID_SOLVER_VOF_HPP_
 #define FLUID_SOLVER_VOF_HPP_
 
+#include <fstream>
+
 // Disable warnings for IRL
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
@@ -16,6 +18,7 @@
 #pragma clang diagnostic pop
 
 #include "Container.hpp"
+#include "IO.hpp"
 
 constexpr double VOF_LOW  = 1e-8;
 constexpr double VOF_HIGH = 1.0 - VOF_LOW;
@@ -176,6 +179,109 @@ void advect_cells(const Vector<Float, NX + 1>& x,
       vof_next[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
     }
   }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+auto save_interface(const std::string& filename,
+                    const Vector<Float, NX + 1>& x,
+                    const Vector<Float, NY + 1>& y,
+                    const Matrix<IRL::PlanarSeparator, NX, NY>& interface) -> bool {
+  // - Find intersection points of planar separator and grid =======================================
+  // TODO: Implement a proper algorithm for this and handle the edge cases
+  static std::vector<std::pair<Float, Float>> points{};
+  points.resize(0);
+
+  auto get_x = [](IRL::Normal normal, Float dist, Float y) -> std::optional<Float> {
+    IGOR_ASSERT(std::abs(normal[2]) < 1e-8,
+                "Expect normal to not have a z-component, but got ({}, {}, {})",
+                normal[0],
+                normal[1],
+                normal[2]);
+    if (std::abs(normal[0]) < 1e-6) { return {}; }
+    return std::optional{-normal[1] / normal[0] * y + dist / normal[0]};
+  };
+
+  auto get_y = [](IRL::Normal normal, Float dist, Float x) -> std::optional<Float> {
+    IGOR_ASSERT(std::abs(normal[2]) < 1e-8,
+                "Expect normal to not have a z-component, but got ({}, {}, {})",
+                normal[0],
+                normal[1],
+                normal[2]);
+    if (std::abs(normal[1]) < 1e-6) { return {}; }
+    return std::optional{-normal[0] / normal[1] * x + dist / normal[1]};
+  };
+
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      if (interface[i, j].getNumberOfPlanes() != 1) {
+        IGOR_ASSERT((interface[i, j].getNumberOfPlanes() == 0),
+                    "{}, {}: Number of planes can only be 0 or 1 but is {}",
+                    i,
+                    j,
+                    interface[i, j].getNumberOfPlanes());
+        continue;
+      }
+
+      const auto begin_idx = points.size();
+      for (Index idx = i; idx < i + 2; ++idx) {
+        const Float x_trial = x[idx];
+        const auto y_trial =
+            get_y(interface[i, j][0].normal(), interface[i, j][0].distance(), x_trial);
+        if (y_trial.has_value() && *y_trial > y[j] - 1e-4 && *y_trial < y[j + 1] + 1e-4) {
+          points.emplace_back(x_trial, *y_trial);
+        }
+      }
+
+      for (Index idx = j; idx < j + 2; ++idx) {
+        const Float y_trial = y[idx];
+        const auto x_trial =
+            get_x(interface[i, j][0].normal(), interface[i, j][0].distance(), y_trial);
+        if (x_trial.has_value() && *x_trial > x[i] - 1e-4 && *x_trial < x[i + 1] + 1e-4) {
+          points.emplace_back(*x_trial, y_trial);
+        }
+      }
+      // Just ignore edge cases
+      if (points.size() - begin_idx != 2) { points.resize(begin_idx); }
+      // IGOR_ASSERT(points.size() - begin_idx == 2,
+      //             "{}, {}: Expected to add exactly two points to array but added {}: {}",
+      //             i,
+      //             j,
+      //             points.size() - begin_idx,
+      //             std::span(points.data() + begin_idx, points.size() - begin_idx));
+    }
+  }
+  std::ofstream out(filename);
+  if (!out) {
+    Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
+    return false;
+  }
+
+  // = Write VTK header ============================================================================
+  out << "# vtk DataFile Version 2.0\n";
+  out << "VOF field\n";
+  out << "BINARY\n";
+
+  // = Write grid ==================================================================================
+  out << "DATASET POLYDATA\n";
+  out << "POINTS " << points.size() << " double\n";
+  for (const auto [xi, yj] : points) {
+    constexpr double zk = 0.0;
+    out.write(detail::interpret_as_big_endian_bytes(xi).data(), sizeof(xi));
+    out.write(detail::interpret_as_big_endian_bytes(yj).data(), sizeof(yj));
+    out.write(detail::interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
+  }
+  out << "\n\n";
+
+  // = Write cell data =============================================================================
+  out << "LINES " << 3 << ' ' << points.size() / 2 * 3 << '\n';
+  for (uint32_t i = 0; i < points.size(); i += 2) {
+    out.write(detail::interpret_as_big_endian_bytes(uint32_t{2}).data(), sizeof(uint32_t));
+    out.write(detail::interpret_as_big_endian_bytes(i).data(), sizeof(uint32_t));
+    out.write(detail::interpret_as_big_endian_bytes(i + 1).data(), sizeof(uint32_t));
+  }
+
+  return out.good();
 }
 
 #endif  // FLUID_SOLVER_VOF_HPP_

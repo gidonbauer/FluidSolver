@@ -1,4 +1,4 @@
-TESTS = LaminarChannel Couette TaylorGreenVortex
+TESTS = LaminarChannel Couette TaylorGreenVortex ConstantVelocityVOF
 
 test: CXX_FLAGS += ${CXX_DEBUG_FLAGS}
 test: ${addprefix test/, ${TESTS}} ${addprefix run-, ${TESTS}}
@@ -10,6 +10,9 @@ run-%: test/%
 
 test/%: test/%.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} -o $@ $< ${HYPRE_LIB}
+
+test/ConstantVelocityVOF: test/ConstantVelocityVOF.cpp ${HEADERS}
+	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
 clean-test:
 	${RM} -r ${addprefix test/, ${TESTS}} ${addsuffix .dSYM, ${addprefix test/, ${TESTS}}}

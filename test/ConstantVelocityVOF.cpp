@@ -1,7 +1,9 @@
+#include <numeric>
 #include <optional>
 
 #include <Igor/Logging.hpp>
 #include <Igor/Math.hpp>
+#include <Igor/Timer.hpp>
 
 #include "Container.hpp"
 #include "IO.hpp"
@@ -23,9 +25,9 @@ constexpr Index VOF_NSAMPLE = 10;
 Float INIT_VOF_INT          = 0.0;  // NOLINT
 
 constexpr Float DT    = 5e-3;
-constexpr Index NITER = 250;
+constexpr Index NITER = 120;
 
-constexpr auto OUTPUT_DIR = "output/VOF";
+constexpr auto OUTPUT_DIR = "test/output/VOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -184,17 +186,31 @@ auto save_interface(const std::string& filename,
 }
 
 // -------------------------------------------------------------------------------------------------
-void print_vof_stats(const Matrix<Float, NX, NY>& vof) noexcept {
+auto check_vof(const Matrix<Float, NX, NY>& vof) noexcept -> bool {
   const auto [min, max] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
   const auto integral =
       std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
-  Igor::Info("min(vof)  = {:.6e}", *min);
-  Igor::Info("max(vof)  = {:.6e}", *max);
-  Igor::Info("int(vof)  = {:.6e}", integral);
-  Igor::Info("loss(vof) = {:.6e} ({:.4f}%)",
-             INIT_VOF_INT - integral,
-             100.0 * (INIT_VOF_INT - integral) / INIT_VOF_INT);
-  std::cout << "--------------------------------------------------------------------------------\n";
+
+  constexpr Float EPS = 1e-8;
+  if (std::abs(*min) > EPS) {
+    Igor::Warn("Expected minimum VOF value to be 0 but is {:.6e}", *min);
+    return false;
+  }
+
+  if (std::abs(*max - 1.0) > EPS) {
+    Igor::Warn("Expected maximum VOF value to be 1 but is {:.6e}", *max);
+    return false;
+  }
+
+  if (std::abs(integral - INIT_VOF_INT) > EPS) {
+    Igor::Warn("Expected integral of vof to be {:.6e} but is {:.6e}: error = {:.6e}",
+               INIT_VOF_INT,
+               integral,
+               std::abs(integral - INIT_VOF_INT));
+    return false;
+  }
+
+  return true;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -258,13 +274,13 @@ auto main() -> int {
 
   for (Index i = 0; i < U.extent(0); ++i) {
     for (Index j = 0; j < U.extent(1); ++j) {
-      U[i, j] = ym[j];
+      U[i, j] = 1.0;
     }
   }
 
   for (Index i = 0; i < V.extent(0); ++i) {
     for (Index j = 0; j < V.extent(1); ++j) {
-      V[i, j] = 0.5 * xm[i];
+      V[i, j] = 0.5;
     }
   }
 
@@ -278,9 +294,7 @@ auto main() -> int {
       std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
   // = Setup velocity and vof field ================================================================
 
-  Igor::Info("iter = {}", 0);
-  print_vof_stats(vof);
-
+  Igor::ScopeTimer timer("ConstantVelocityVOF");
   for (Index iter = 0; iter < NITER; ++iter) {
     // = Reconstruct the interface =================================================================
     reconstruct_interface(x, y, vof, ir);
@@ -303,7 +317,6 @@ auto main() -> int {
         return 1;
       }
     }
-    Igor::Info("iter = {}", iter + 1);
-    print_vof_stats(vof);
+    if (!check_vof(vof)) { return 1; }
   }
 }

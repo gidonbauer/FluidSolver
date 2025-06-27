@@ -1,4 +1,4 @@
-HEADERS = src/Container.hpp src/FS.hpp src/IO.hpp src/Operators.hpp src/PressureCorrection.hpp
+HEADERS = src/Container.hpp src/FS.hpp src/IO.hpp src/Operators.hpp src/PressureCorrection.hpp src/VOF.hpp
 TARGETS = IncompSolver VOF
 
 BASENAME_CXX = ${notdir ${CXX}}

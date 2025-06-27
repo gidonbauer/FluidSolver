@@ -160,6 +160,15 @@ void advect_cells(const Vector<Float, NX + 1>& x,
         advected_cell[cell_idx] = advect_point(pt, U_advect, V_advect, dt);
       }
 
+      {
+        const auto original_cell_vol = (x[i + 1] - x[i]) * (y[j + 1] - y[j]);
+        IGOR_ASSERT(std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()) < 1e-8,
+                    "Advected cell must have the same volume as original cell but volumes are "
+                    "{:.6e} and {:.6e}.",
+                    static_cast<double>(advected_cell.calculateAbsoluteVolume()),
+                    original_cell_vol);
+      }
+
       Float overlap_vol                   = 0.0;
       constexpr Index neighborhood_offset = 1;
       for (Index ii = std::max(i - neighborhood_offset, 0);

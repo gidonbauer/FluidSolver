@@ -19,6 +19,8 @@
 
 #include "Container.hpp"
 #include "IO.hpp"
+#include "Monitor.hpp"
+#include "Operators.hpp"
 
 constexpr double VOF_LOW  = 1e-8;
 constexpr double VOF_HIGH = 1.0 - VOF_LOW;
@@ -35,9 +37,35 @@ struct InterfaceReconstruction {
 };
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float>
-constexpr auto advect_point(const IRL::Pt& point, Float u, Float v, Float dt) -> IRL::Pt {
-  return {point[0] - dt * u, point[1] - dt * v, point[2]};
+template <typename Float, Index NX, Index NY>
+constexpr auto advect_point(const IRL::Pt& pt,
+                            const Vector<Float, NX>& xm,
+                            const Vector<Float, NY>& ym,
+                            const Matrix<Float, NX, NY>& Ui,
+                            const Matrix<Float, NX, NY>& Vi,
+                            Float dt) -> IRL::Pt {
+#ifdef ADVECT_EULER
+  const auto [u, v] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
+  return {pt[0] - dt * u, pt[1] - dt * v, pt[2]};
+#elif defined(ADVECT_RK2)
+  const auto [u1, v1] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
+  const auto [u2, v2] =
+      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - dt / 2.0 * u1, pt[1] - dt / 2.0 * v1);
+  return {pt[0] - dt * u2, pt[1] - dt * v2, pt[2]};
+#else
+  const auto [u1, v1] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
+  const auto [u2, v2] =
+      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
+  const auto [u3, v3] =
+      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
+  const auto [u4, v4] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - dt * u3, pt[1] - dt * v3);
+
+  return {
+      pt[0] - dt / 6.0 * (u1 + 2.0 * u2 + 2.0 * u3 + u4),
+      pt[1] - dt / 6.0 * (v1 + 2.0 * v2 + 2.0 * v3 + v4),
+      pt[2],
+  };
+#endif
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -113,12 +141,16 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
 template <typename Float, Index NX, Index NY>
 void advect_cells(const Vector<Float, NX + 1>& x,
                   const Vector<Float, NY + 1>& y,
+                  const Vector<Float, NX>& xm,
+                  const Vector<Float, NY>& ym,
                   const Matrix<Float, NX, NY>& vof,
-                  const Matrix<Float, NX + 1, NY>& U,
-                  const Matrix<Float, NX, NY + 1>& V,
+                  const Matrix<Float, NX, NY>& Ui,
+                  const Matrix<Float, NX, NY>& Vi,
                   Float dt,
                   const InterfaceReconstruction<NX, NY>& ir,
-                  Matrix<Float, NX, NY>& vof_next) {
+                  Matrix<Float, NX, NY>& vof_next,
+                  Monitor<Float>* monitor = nullptr) {
+  Float max_volume_error = 0.0;
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
       // TODO: Use IRL::Polyhedron24 with correction to conserve vof in linear velocity fields
@@ -138,36 +170,12 @@ void advect_cells(const Vector<Float, NX + 1>& x,
            ++cell_idx) {
         const auto [di, dj, dk] = offsets[cell_idx];
         const IRL::Pt pt{x[i + di], y[j + dj], dk == 1 ? 0.5 : -0.5};
-        const Float U_advect = [&] {
-          if (j + dj == 0) {
-            return U[i + di, j + dj];
-          } else if (j + dj == NY) {
-            return U[i + di, j + dj - 1];
-          } else {
-            return (U[i + di, j + dj] + U[i + di, j + dj - 1]) / 2.0;
-          }
-        }();
-        const Float V_advect = [&] {
-          if (i + di == 0) {
-            return V[i + di, j + dj];
-          } else if (i + di == NX) {
-            return V[i + di - 1, j + dj];
-          } else {
-            return (V[i + di, j + dj] + V[i + di - 1, j + dj]) / 2.0;
-          }
-        }();
-
-        advected_cell[cell_idx] = advect_point(pt, U_advect, V_advect, dt);
+        advected_cell[cell_idx] = advect_point(pt, xm, ym, Ui, Vi, dt);
       }
 
-      {
-        const auto original_cell_vol = (x[i + 1] - x[i]) * (y[j + 1] - y[j]);
-        IGOR_ASSERT(std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()) < 1e-8,
-                    "Advected cell must have the same volume as original cell but volumes are "
-                    "{:.6e} and {:.6e}.",
-                    static_cast<double>(advected_cell.calculateAbsoluteVolume()),
-                    original_cell_vol);
-      }
+      const auto original_cell_vol = (x[i + 1] - x[i]) * (y[j + 1] - y[j]);
+      max_volume_error             = std::max(
+          max_volume_error, std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()));
 
       Float overlap_vol                   = 0.0;
       constexpr Index neighborhood_offset = 1;
@@ -188,6 +196,49 @@ void advect_cells(const Vector<Float, NX + 1>& x,
       vof_next[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
     }
   }
+
+  if (monitor) { monitor->max_volume_error = max_volume_error; }
+}
+
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto save_cells(const std::string& filename,
+                              const std::vector<std::array<IRL::Pt, 4>>& cells) -> bool {
+  std::ofstream out(filename);
+  if (!out) {
+    Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
+    return false;
+  }
+
+  // = Write VTK header ============================================================================
+  out << "# vtk DataFile Version 2.0\n";
+  out << "Advected cells\n";
+  out << "BINARY\n";
+
+  // = Write grid ==================================================================================
+  out << "DATASET POLYDATA\n";
+  out << "POINTS " << cells.size() * 4 << " double\n";
+  for (const auto& cell : cells) {
+    for (const auto& pt : cell) {
+      static_assert(std::is_same_v<std::remove_cvref_t<decltype(pt[0])>, double>);
+      constexpr double zk = 0.0;
+      out.write(detail::interpret_as_big_endian_bytes(pt[0]).data(), sizeof(pt[0]));
+      out.write(detail::interpret_as_big_endian_bytes(pt[1]).data(), sizeof(pt[1]));
+      out.write(detail::interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
+    }
+  }
+  out << "\n\n";
+
+  // = Write cell data =============================================================================
+  out << "LINES " << 3 << ' ' << cells.size() * 5 << '\n';
+  for (uint32_t i = 0; i < cells.size() * 4; i += 4) {
+    out.write(detail::interpret_as_big_endian_bytes(uint32_t{4}).data(), sizeof(uint32_t));
+    out.write(detail::interpret_as_big_endian_bytes(i + 0).data(), sizeof(uint32_t));
+    out.write(detail::interpret_as_big_endian_bytes(i + 1).data(), sizeof(uint32_t));
+    out.write(detail::interpret_as_big_endian_bytes(i + 2).data(), sizeof(uint32_t));
+    out.write(detail::interpret_as_big_endian_bytes(i + 3).data(), sizeof(uint32_t));
+  }
+
+  return out.good();
 }
 
 // -------------------------------------------------------------------------------------------------

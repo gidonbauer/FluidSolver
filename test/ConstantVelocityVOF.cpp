@@ -76,7 +76,7 @@ auto check_vof(const Matrix<Float, NX, NY>& vof) noexcept -> bool {
   const auto integral =
       std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
 
-  constexpr Float EPS = 1e-8;
+  constexpr Float EPS = 1e-12;
   if (std::abs(*min) > EPS) {
     Igor::Warn("Expected minimum VOF value to be 0 but is {:.6e}", *min);
     return false;
@@ -118,6 +118,8 @@ auto main() -> int {
   Vector<Float, NY> ym{};
 
   InterfaceReconstruction<NX, NY> ir{};
+
+  Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   // = Allocate memory =============================================================================
 
   // = Setup grid and cell localizers ==============================================================
@@ -191,7 +193,7 @@ auto main() -> int {
     }
 
     // = Advect cells ==============================================================================
-    advect_cells(x, y, vof, U, V, DT, ir, vof_next);
+    advect_cells(x, y, xm, ym, vof, Ui, Vi, DT, ir, vof_next, &monitor);
     std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
 
     // Don't save last state because we don't have a reconstruction for that and it messes with the
@@ -201,6 +203,10 @@ auto main() -> int {
               Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, iter + 1), x, y, vof, Ui, Vi)) {
         return 1;
       }
+    }
+    if (monitor.max_volume_error > 1e-12) {
+      Igor::Warn("Advected cells expanded: max. volume error = {:.6e}", monitor.max_volume_error);
+      return 1;
     }
     if (!check_vof(vof)) { return 1; }
   }

@@ -102,6 +102,8 @@ auto main() -> int {
   Vector<Float, NY> ym{};
 
   InterfaceReconstruction<NX, NY> ir{};
+
+  Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   // = Allocate memory =============================================================================
 
   // = Setup grid and cell localizers ==============================================================
@@ -177,7 +179,7 @@ auto main() -> int {
     }
 
     // = Advect cells ==============================================================================
-    advect_cells(x, y, vof, U, V, DT, ir, vof_next);
+    advect_cells(x, y, xm, ym, vof, Ui, Vi, DT, ir, vof_next, &monitor);
     std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
 
     // Don't save last state because we don't have a reconstruction for that and it messes with the
@@ -190,5 +192,6 @@ auto main() -> int {
     }
     Igor::Info("iter = {}", iter + 1);
     print_vof_stats(vof);
+    monitor.write();
   }
 }

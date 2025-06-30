@@ -1,4 +1,4 @@
-TESTS = LaminarChannel Couette TaylorGreenVortex ConstantVelocityVOF LinearVelocityVOF
+TESTS = LaminarChannel Couette TaylorGreenVortex ConstantVelocityVOF LinearVelocityVOF EvalFlowFieldAt
 
 test: CXX_FLAGS += ${CXX_DEBUG_FLAGS}
 test: ${addprefix test/, ${TESTS}} ${addprefix run-, ${TESTS}}

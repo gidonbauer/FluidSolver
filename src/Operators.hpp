@@ -64,4 +64,42 @@ void shift_pressure_to_zero(const FS<Float, NX, NY>& fs, Matrix<Float, NX, NY>& 
   }
 }
 
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+[[nodiscard]] constexpr auto eval_flow_field_at(const Vector<Float, NX>& xm,
+                                                const Vector<Float, NY>& ym,
+                                                const Matrix<Float, NX, NY>& Ui,
+                                                const Matrix<Float, NX, NY>& Vi,
+                                                Float x,
+                                                Float y) -> std::pair<Float, Float> {
+  // TODO: Assumes equidistant grid
+  const auto dx = xm[1] - xm[0];
+  const auto dy = ym[1] - ym[0];
+
+  auto get_indices =
+      []<Index N>(Float pos, const Vector<Float, N>& grid, Float delta) -> std::pair<Index, Index> {
+    if (pos <= grid[0]) { return {0, 0}; }
+    if (pos >= grid[N - 1]) { return {N - 1, N - 1}; }
+    const auto prev = static_cast<Index>(std::floor((pos - grid[0]) / delta));
+    const auto next = static_cast<Index>(std::floor((pos - grid[0]) / delta + 1.0));
+    return {prev, next};
+  };
+
+  const auto [iprev, inext] = get_indices(x, xm, dx);
+  const auto [jprev, jnext] = get_indices(y, ym, dy);
+
+  auto interpolate_bilinear = [&](const Matrix<Float, NX, NY>& field) -> Float {
+    // Interpolate in x
+    const auto a =
+        (field[inext, jprev] - field[iprev, jprev]) / dx * (x - xm[iprev]) + field[iprev, jprev];
+    const auto b =
+        (field[inext, jnext] - field[iprev, jnext]) / dx * (x - xm[iprev]) + field[iprev, jnext];
+
+    // Interpolate in y
+    return (b - a) / dy * (y - ym[jprev]) + a;
+  };
+
+  return {interpolate_bilinear(Ui), interpolate_bilinear(Vi)};
+}
+
 #endif  // FLUID_SOLVER_OPERATORS_HPP_

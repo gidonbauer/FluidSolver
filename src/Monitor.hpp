@@ -10,6 +10,32 @@ class Monitor {
   std::ofstream m_out;
   std::string m_filename;
 
+  bool m_wrote_header = false;
+  size_t m_max_length = 13;  // Min. value for format `.6e`
+
+  std::vector<Float const*> m_values{};
+  std::vector<std::string> m_names;
+
+  void write_header() {
+    for (const auto& name : m_names) {
+      m_max_length = std::max(name.length(), m_max_length);
+    }
+
+    m_out << "| ";
+    for (const auto& name : m_names) {
+      m_out << Igor::detail::format("{:^{}} | ", name, m_max_length);
+    }
+    m_out << '\n';
+
+    m_out << '|';
+    for (const auto& _ : m_names) {
+      m_out << Igor::detail::format("{:-<{}}|", "", m_max_length + 2);
+    }
+    m_out << '\n';
+
+    m_wrote_header = true;
+  }
+
  public:
   Monitor(std::string filename)
       : m_out(filename),
@@ -25,12 +51,20 @@ class Monitor {
   auto operator=(Monitor&&) -> Monitor&      = delete;
   ~Monitor() noexcept                        = default;
 
-  // VOF
-  Float max_volume_error;
+  constexpr void add_variable(Float const* variable, std::string name) {
+    IGOR_ASSERT(variable != nullptr, "Expected valid pointer but got nullptr.");
+    m_values.push_back(variable);
+    m_names.emplace_back(std::move(name));
+  }
 
   void write() {
-    m_out << Igor::detail::format("max_volume_error = {:.6e}\n", max_volume_error);
-    m_out << "------------------------------------------------------------\n";
+    if (!m_wrote_header) { write_header(); }
+
+    m_out << "| ";
+    for (const auto& val : m_values) {
+      m_out << Igor::detail::format("{:^{}.6e} | ", *val, m_max_length);
+    }
+    m_out << '\n' << std::flush;
   }
 };
 

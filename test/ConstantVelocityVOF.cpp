@@ -118,8 +118,6 @@ auto main() -> int {
   Vector<Float, NY> ym{};
 
   InterfaceReconstruction<NX, NY> ir{};
-
-  Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   // = Allocate memory =============================================================================
 
   // = Setup grid and cell localizers ==============================================================
@@ -182,6 +180,7 @@ auto main() -> int {
   // = Setup velocity and vof field ================================================================
 
   Igor::ScopeTimer timer("ConstantVelocityVOF");
+  Float max_volume_error = 0.0;
   for (Index iter = 0; iter < NITER; ++iter) {
     // = Reconstruct the interface =================================================================
     reconstruct_interface(x, y, vof, ir);
@@ -193,7 +192,7 @@ auto main() -> int {
     }
 
     // = Advect cells ==============================================================================
-    advect_cells(x, y, xm, ym, vof, Ui, Vi, DT, ir, vof_next, &monitor);
+    advect_cells(x, y, xm, ym, vof, Ui, Vi, DT, ir, vof_next, &max_volume_error);
     std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
 
     // Don't save last state because we don't have a reconstruction for that and it messes with the
@@ -204,8 +203,8 @@ auto main() -> int {
         return 1;
       }
     }
-    if (monitor.max_volume_error > 1e-12) {
-      Igor::Warn("Advected cells expanded: max. volume error = {:.6e}", monitor.max_volume_error);
+    if (max_volume_error > 1e-12) {
+      Igor::Warn("Advected cells expanded: max. volume error = {:.6e}", max_volume_error);
       return 1;
     }
     if (!check_vof(vof)) { return 1; }

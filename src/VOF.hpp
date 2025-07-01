@@ -19,7 +19,6 @@
 
 #include "Container.hpp"
 #include "IO.hpp"
-#include "Monitor.hpp"
 #include "Operators.hpp"
 
 constexpr double VOF_LOW  = 1e-8;
@@ -149,8 +148,8 @@ void advect_cells(const Vector<Float, NX + 1>& x,
                   Float dt,
                   const InterfaceReconstruction<NX, NY>& ir,
                   Matrix<Float, NX, NY>& vof_next,
-                  Monitor<Float>* monitor = nullptr) {
-  Float max_volume_error = 0.0;
+                  Float* max_volume_error = nullptr) {
+  Float local_max_volume_error = 0.0;
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
       // TODO: Use IRL::Polyhedron24 with correction to conserve vof in linear velocity fields
@@ -174,11 +173,12 @@ void advect_cells(const Vector<Float, NX + 1>& x,
       }
 
       const auto original_cell_vol = (x[i + 1] - x[i]) * (y[j + 1] - y[j]);
-      max_volume_error             = std::max(
-          max_volume_error, std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()));
+      local_max_volume_error =
+          std::max(local_max_volume_error,
+                   std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()));
 
       Float overlap_vol                   = 0.0;
-      constexpr Index neighborhood_offset = 1;
+      constexpr Index neighborhood_offset = 3;
       for (Index ii = std::max(i - neighborhood_offset, 0);
            ii < std::min(i + neighborhood_offset, NX);
            ++ii) {
@@ -197,7 +197,7 @@ void advect_cells(const Vector<Float, NX + 1>& x,
     }
   }
 
-  if (monitor) { monitor->max_volume_error = max_volume_error; }
+  if (max_volume_error) { *max_volume_error = local_max_volume_error; }
 }
 
 // -------------------------------------------------------------------------------------------------

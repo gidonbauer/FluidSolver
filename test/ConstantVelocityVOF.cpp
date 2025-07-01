@@ -21,6 +21,9 @@ constexpr Float Y_MAX = 1.0;
 constexpr auto DX     = (X_MAX - X_MIN) / static_cast<Float>(NX);
 constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
+constexpr Float U0 = 1.0;
+constexpr Float V0 = 0.5;
+
 constexpr Index VOF_NSAMPLE = 10;
 Float INIT_VOF_INT          = 0.0;  // NOLINT
 
@@ -99,6 +102,27 @@ auto check_vof(const Matrix<Float, NX, NY>& vof) noexcept -> bool {
 }
 
 // -------------------------------------------------------------------------------------------------
+auto calc_center_of_mass(const Vector<Float, NX>& xm,
+                         const Vector<Float, NY>& ym,
+                         const Matrix<Float, NX, NY>& vof) -> std::array<Float, 2> {
+  const auto mass =
+      std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
+
+  Float weighted_x = 0.0;
+  Float weighted_y = 0.0;
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      weighted_x += xm[i] * vof[i, j];
+      weighted_y += ym[j] * vof[i, j];
+    }
+  }
+  weighted_x *= DX * DY;
+  weighted_y *= DX * DY;
+
+  return {weighted_x / mass, weighted_y / mass};
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
@@ -159,13 +183,13 @@ auto main() -> int {
 
   for (Index i = 0; i < U.extent(0); ++i) {
     for (Index j = 0; j < U.extent(1); ++j) {
-      U[i, j] = 1.0;
+      U[i, j] = U0;
     }
   }
 
   for (Index i = 0; i < V.extent(0); ++i) {
     for (Index j = 0; j < V.extent(1); ++j) {
-      V[i, j] = 0.5;
+      V[i, j] = V0;
     }
   }
 
@@ -177,6 +201,8 @@ auto main() -> int {
   }
   INIT_VOF_INT =
       std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
+
+  const std::array<Float, 2> init_center_of_mass = calc_center_of_mass(xm, ym, vof);
   // = Setup velocity and vof field ================================================================
 
   Igor::ScopeTimer timer("ConstantVelocityVOF");
@@ -194,6 +220,25 @@ auto main() -> int {
     // = Advect cells ==============================================================================
     advect_cells(x, y, xm, ym, vof, Ui, Vi, DT, ir, vof_next, &max_volume_error);
     std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
+
+    const auto center_of_mass = calc_center_of_mass(xm, ym, vof);
+    const std::array<Float, 2> expected_center_of_mass{
+        init_center_of_mass[0] + static_cast<Float>(iter + 1) * DT * U0,
+        init_center_of_mass[1] + static_cast<Float>(iter + 1) * DT * V0,
+    };
+    const auto distance = std::sqrt(Igor::sqr(center_of_mass[0] - expected_center_of_mass[0]) +
+                                    Igor::sqr(center_of_mass[1] - expected_center_of_mass[1]));
+    if (distance > 5e-5) {
+      Igor::Warn(
+          "Center of mass did not move with the velocity field, is at position ({:.6e}, {:.6e}) "
+          "but expected it to be at ({:.6e}, {:.6e}): distance = {:.6e}",
+          center_of_mass[0],
+          center_of_mass[1],
+          expected_center_of_mass[0],
+          expected_center_of_mass[1],
+          distance);
+      return 1;
+    }
 
     // Don't save last state because we don't have a reconstruction for that and it messes with the
     // visualization

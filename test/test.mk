@@ -8,7 +8,7 @@ test-fast: ${addprefix test/, ${TESTS}} ${addprefix run-, ${TESTS}}
 
 run-%: test/%
 	@echo "Running test case $*..."
-	@$< && echo "$* finished successfully." || echo "$* failed."
+	@$< && echo "\033[32m[OK]\033[0m $* finished successfully." || echo "\033[31m[FAIL]\033[0m $* failed."
 	@echo ""
 
 test/%: test/%.cpp ${HEADERS}

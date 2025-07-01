@@ -149,9 +149,30 @@ void advect_cells(const Vector<Float, NX + 1>& x,
                   const InterfaceReconstruction<NX, NY>& ir,
                   Matrix<Float, NX, NY>& vof_next,
                   Float* max_volume_error = nullptr) {
+  constexpr Index NEIGHBORHOOD_OFFSET = 1;
+
   Float local_max_volume_error = 0.0;
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
+      // Early exit of loop iteration if we are entirely inside or outside of liquid phase
+      {
+        Float neighborhood_vof_sum = 0.0;
+        for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
+             ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
+             ++ii) {
+          for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
+               jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
+               ++jj) {
+            neighborhood_vof_sum += vof[ii, jj];
+          }
+        }
+        if (neighborhood_vof_sum < VOF_LOW) { continue; }
+        if (neighborhood_vof_sum >= Igor::sqr(2.0 * NEIGHBORHOOD_OFFSET + 1.0) * VOF_HIGH) {
+          vof_next[i, j] = 1.0;
+          continue;
+        }
+      }
+
       // TODO: Use IRL::Polyhedron24 with correction to conserve vof in linear velocity fields
       IRL::Dodecahedron advected_cell{};
 
@@ -177,13 +198,12 @@ void advect_cells(const Vector<Float, NX + 1>& x,
           std::max(local_max_volume_error,
                    std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()));
 
-      Float overlap_vol                   = 0.0;
-      constexpr Index neighborhood_offset = 1;
-      for (Index ii = std::max(i - neighborhood_offset, 0);
-           ii < std::min(i + neighborhood_offset + 1, NX);
+      Float overlap_vol = 0.0;
+      for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
+           ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
            ++ii) {
-        for (Index jj = std::max(j - neighborhood_offset, 0);
-             jj < std::min(j + neighborhood_offset + 1, NY);
+        for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
+             jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
              ++jj) {
           if (vof[ii, jj] > VOF_LOW) {
             overlap_vol += IRL::getVolumeMoments<IRL::Volume>(

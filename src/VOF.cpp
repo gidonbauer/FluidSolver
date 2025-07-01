@@ -13,8 +13,8 @@
 
 // = Config ========================================================================================
 using Float           = double;
-constexpr Index NX    = 2 * 128;
-constexpr Index NY    = 2 * 128;
+constexpr Index NX    = 128;
+constexpr Index NY    = 128;
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 2.0 * std::numbers::pi_v<Float>;
 constexpr Float Y_MIN = 0.0;
@@ -28,10 +28,10 @@ constexpr Float RHO  = 0.9;
 constexpr Index VOF_NSAMPLE = 10;
 Float INIT_VOF_INT          = 0.0;  // NOLINT
 
-constexpr Float DT_MAX   = 1e-3;
+constexpr Float DT_MAX   = 1e-2;
 constexpr Float CFL_MAX  = 0.5;
-constexpr Float T_END    = 5.0;
-constexpr Float DT_WRITE = 1e-2;
+constexpr Float T_END    = 10.0;
+constexpr Float DT_WRITE = 5e-2;
 
 constexpr auto OUTPUT_DIR = "output/VOF";
 // = Config ========================================================================================
@@ -77,27 +77,27 @@ auto save_vof_state(const std::string& filename,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto get_vof_stats(const Matrix<Float, NX, NY>& vof) noexcept -> std::array<Float, 5> {
-  const auto [min, max] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
-  const auto integral =
-      std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
-  return {*min,
-          *max,
-          integral,
-          INIT_VOF_INT - integral,
-          100.0 * (INIT_VOF_INT - integral) / INIT_VOF_INT};
+void get_vof_stats(const Matrix<Float, NX, NY>& vof,
+                   Float& min,
+                   Float& max,
+                   Float& integral,
+                   Float& loss,
+                   Float& loss_prct) noexcept {
+  const auto [min_it, max_it] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
+
+  min      = *min_it;
+  max      = *max_it;
+  integral = std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
+  loss     = INIT_VOF_INT - integral;
+  loss_prct = 100.0 * loss / INIT_VOF_INT;
 }
 
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] constexpr auto F(Float t) -> Float { return std::exp(-2.0 * VISC / RHO * t); }
 [[nodiscard]] constexpr auto u_analytical(Float x, Float y, Float t) -> Float {
-  // static_cast<void>(x);
-  // return y * (T_END - t) / T_END;
   return std::sin(x) * std::cos(y) * F(t);
 }
 [[nodiscard]] constexpr auto v_analytical(Float x, Float y, Float t) -> Float {
-  // static_cast<void>(y);
-  // return x * (T_END - t) / T_END;
   return -std::cos(x) * std::sin(y) * F(t);
 }
 
@@ -164,7 +164,8 @@ auto main() -> int {
   for (Index i = 0; i < vof.extent(0); ++i) {
     for (Index j = 0; j < vof.extent(1); ++j) {
       auto is_in = [](Float x, Float y) -> Float {
-        return Igor::sqr(x - std::numbers::pi) + Igor::sqr(y - std::numbers::pi) <= Igor::sqr(0.5);
+        return Igor::sqr(x - std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
+               Igor::sqr(0.5);
       };
 
       vof[i, j] = 0.0;
@@ -200,8 +201,6 @@ auto main() -> int {
       std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
   // = Setup velocity and vof field ================================================================
 
-  get_vof_stats(vof);
-
   Float t                = 0.0;
   Float dt               = DT_MAX;
   Float max_volume_error = 0.0;
@@ -221,7 +220,7 @@ auto main() -> int {
   monitor.add_variable(&vof_loss_prct, "loss(vof) [%]");
   monitor.add_variable(&max_div, "max(div)");
 
-  std::tie(vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct) = get_vof_stats(vof);
+  get_vof_stats(vof, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
 
   Index counter = 0;
   Igor::ScopeTimer timer("Geometric VOF-transport");
@@ -273,7 +272,7 @@ auto main() -> int {
 
       counter += 1;
     }
-    std::tie(vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct) = get_vof_stats(vof);
+    get_vof_stats(vof, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
     monitor.write();
   }
 }

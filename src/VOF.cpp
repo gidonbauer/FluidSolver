@@ -213,7 +213,7 @@ auto main() -> int {
 
   monitor.add_variable(&t, "time");
   monitor.add_variable(&dt, "dt");
-  monitor.add_variable(&max_volume_error, "Max. vol. error");
+  monitor.add_variable(&max_volume_error, "max(vol. error)");
   monitor.add_variable(&vof_min, "min(vof)");
   monitor.add_variable(&vof_max, "max(vof)");
   monitor.add_variable(&vof_integral, "int(vof)");

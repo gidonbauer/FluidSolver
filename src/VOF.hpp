@@ -178,12 +178,12 @@ void advect_cells(const Vector<Float, NX + 1>& x,
                    std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()));
 
       Float overlap_vol                   = 0.0;
-      constexpr Index neighborhood_offset = 3;
+      constexpr Index neighborhood_offset = 1;
       for (Index ii = std::max(i - neighborhood_offset, 0);
-           ii < std::min(i + neighborhood_offset, NX);
+           ii < std::min(i + neighborhood_offset + 1, NX);
            ++ii) {
         for (Index jj = std::max(j - neighborhood_offset, 0);
-             jj < std::min(j + neighborhood_offset, NY);
+             jj < std::min(j + neighborhood_offset + 1, NY);
              ++jj) {
           if (vof[ii, jj] > VOF_LOW) {
             overlap_vol += IRL::getVolumeMoments<IRL::Volume>(

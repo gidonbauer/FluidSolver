@@ -1,15 +1,10 @@
 TESTS = LaminarChannel Couette TaylorGreenVortex ConstantVelocityVOF LinearVelocityVOF EvalFlowFieldAt
 
-test: CXX_FLAGS += ${CXX_DEBUG_FLAGS}
 test: ${addprefix test/, ${TESTS}} ${addprefix run-, ${TESTS}}
 
-test-fast: CXX_FLAGS += ${CXX_RELEASE_FLAGS}
-test-fast: ${addprefix test/, ${TESTS}} ${addprefix run-, ${TESTS}}
-
 run-%: test/%
-	@echo "Running test case $*..."
-	@$< && printf "\033[32m[OK]\033[0m $* finished successfully.\n" || printf "\033[31m[FAIL]\033[0m $* failed.\n"
-	@echo ""
+	@printf "\033[32m[TEST]\033[0m Running test case $*...\n"
+	@$< && printf "\033[32m[PASS]\033[0m $* finished successfully.\n\n" || printf "\033[31m[FAIL]\033[0m $* failed.\n\n"
 
 test/%: test/%.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} -o $@ $< ${HYPRE_LIB}

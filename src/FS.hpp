@@ -217,49 +217,17 @@ void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bcond
   }
 }
 
-// //
 // -------------------------------------------------------------------------------------------------
-// void calc_dvofdt(const FS& fs, Matrix<Float, NX, NY>& dvofdt) {
-//   static auto FX = make_u_staggered();
-//   static auto FY = make_v_staggered();
-//   std::fill_n(FX.get_data(), FX.size(), 0.0);
-//   std::fill_n(FY.get_data(), FY.size(), 0.0);
-//   std::fill_n(dvofdt.get_data(), dvofdt.size(), 0.0);
-//
-//   for (Index i = 1; i < FX.extent(0) - 1; ++i) {
-//     for (Index j = 1; j < FX.extent(1) - 1; ++j) {
-//       FX[i, j] = -(fs.vof[i, j] + fs.vof[i - 1, j]) * fs.U[i, j];
-//     }
-//   }
-//   for (Index i = 1; i < FY.extent(0) - 1; ++i) {
-//     for (Index j = 1; j < FY.extent(1) - 1; ++j) {
-//       FY[i, j] = -(fs.vof[i, j] + fs.vof[i, j - 1]) * fs.V[i, j];
-//     }
-//   }
-//
-//   for (Index i = 0; i < dvofdt.extent(0); ++i) {
-//     for (Index j = 0; j < dvofdt.extent(1); ++j) {
-//       dvofdt[i, j] = (FX[i + 1, j] - FX[i, j]) / fs.dx[i] + (FY[i, j + 1] - FY[i, j]) / fs.dy[j];
-//     }
-//   }
-// }
-//
-// //
-// -------------------------------------------------------------------------------------------------
-// void apply_vof_bconds(FS& fs) {
-//   for (Index j = 0; j < fs.vof.extent(1); ++j) {
-//     // Neumann on left
-//     fs.vof[0, j] = fs.vof[1, j];
-//     // Neumann on right
-//     fs.vof[fs.vof.extent(0) - 1, j] = fs.vof[fs.vof.extent(0) - 2, j];
-//   }
-//
-//   for (Index i = 0; i < fs.vof.extent(0); ++i) {
-//     // Neumann on bottom
-//     fs.vof[i, 0] = fs.vof[i, 1];
-//     // Neumann on top
-//     fs.vof[i, fs.vof.extent(1) - 1] = fs.vof[i, fs.vof.extent(1) - 2];
-//   }
-// }
+template <typename Float, Index NX, Index NY>
+constexpr void init_mid_and_delta(FS<Float, NX, NY>& fs) noexcept {
+  for (Index i = 0; i < NX; ++i) {
+    fs.xm[i] = (fs.x[i] + fs.x[i + 1]) / 2;
+    fs.dx[i] = fs.x[i + 1] - fs.x[i];
+  }
+  for (Index j = 0; j < NY; ++j) {
+    fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
+    fs.dy[j] = fs.y[j + 1] - fs.y[j];
+  }
+}
 
 #endif  // FLUID_SOLVER_FS_HPP_

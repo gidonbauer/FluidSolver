@@ -86,17 +86,10 @@ auto main() -> int {
   for (Index i = 0; i < fs.x.extent(0); ++i) {
     fs.x[i] = X_MIN + static_cast<Float>(i) * dx;
   }
-  for (Index i = 0; i < fs.xm.extent(0); ++i) {
-    fs.xm[i] = (fs.x[i] + fs.x[i + 1]) / 2;
-    fs.dx[i] = fs.x[i + 1] - fs.x[i];
-  }
   for (Index j = 0; j < fs.y.extent(0); ++j) {
     fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
   }
-  for (Index j = 0; j < fs.ym.extent(0); ++j) {
-    fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
-    fs.dy[j] = fs.y[j + 1] - fs.y[j];
-  }
+  init_mid_and_delta(fs);
   // = Initialize grid =============================================================================
 
   // = Initialize flow field =======================================================================

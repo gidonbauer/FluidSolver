@@ -7,7 +7,7 @@ IncompSolver.dSYM
 VOF
 VOF.dSYM
 
-fs.env
+*.env
 run.slurm
 
 output/

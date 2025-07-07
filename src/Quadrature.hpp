@@ -8,33 +8,10 @@
 
 #include "QuadratureTables.hpp"
 
-// -------------------------------------------------------------------------------------------------
-template <size_t N = 15UZ, typename FUNC, typename Float>
-[[nodiscard]] constexpr auto quadrature(FUNC f, Float x_min, Float x_max) noexcept -> Float {
-  static_assert(N > 0UZ && N <= detail::MAX_QUAD_N);
-
-  constexpr auto& gauss_points  = detail::gauss_points_table<Float>[N - 1UZ];
-  constexpr auto& gauss_weights = detail::gauss_weights_table<Float>[N - 1UZ];
-  static_assert(gauss_points.size() == gauss_weights.size(),
-                "Weights and points must have the same size.");
-  static_assert(gauss_points.size() == N, "Number of weights and points must be equal to N.");
-  static_assert(Igor::constexpr_abs(std::reduce(gauss_weights.cbegin(), gauss_weights.cend()) -
-                                    static_cast<Float>(2)) <= 1e-15,
-                "Weights must add up to 2.");
-
-  auto integral = static_cast<Float>(0);
-  for (size_t xidx = 0; xidx < gauss_points.size(); ++xidx) {
-    const auto xi = gauss_points[xidx];
-    const auto w  = gauss_weights[xidx];
-
-    const auto x = (x_max - x_min) / 2 * xi + (x_max + x_min) / 2;
-    integral += w * f(x);
-  }
-  return (x_max - x_min) / 2 * integral;
-}
+namespace detail {
 
 // -------------------------------------------------------------------------------------------------
-template <size_t N = 15UZ, typename FUNC, typename Float>
+template <size_t N = 16UZ, typename FUNC, typename Float>
 [[nodiscard]] constexpr auto quadrature(FUNC f,
                                         const std::array<std::array<Float, 2>, 4>& domain) noexcept
     -> Float {
@@ -103,6 +80,46 @@ template <size_t N = 15UZ, typename FUNC, typename Float>
     }
   }
   return integral;
+}
+
+}  // namespace detail
+
+// -------------------------------------------------------------------------------------------------
+template <size_t N = 16UZ, typename FUNC, typename Float>
+[[nodiscard]] constexpr auto quadrature(FUNC f, Float x_min, Float x_max) noexcept -> Float {
+  static_assert(N > 0UZ && N <= detail::MAX_QUAD_N);
+
+  constexpr auto& gauss_points  = detail::gauss_points_table<Float>[N - 1UZ];
+  constexpr auto& gauss_weights = detail::gauss_weights_table<Float>[N - 1UZ];
+  static_assert(gauss_points.size() == gauss_weights.size(),
+                "Weights and points must have the same size.");
+  static_assert(gauss_points.size() == N, "Number of weights and points must be equal to N.");
+  static_assert(Igor::constexpr_abs(std::reduce(gauss_weights.cbegin(), gauss_weights.cend()) -
+                                    static_cast<Float>(2)) <= 1e-15,
+                "Weights must add up to 2.");
+
+  auto integral = static_cast<Float>(0);
+  for (size_t xidx = 0; xidx < gauss_points.size(); ++xidx) {
+    const auto xi = gauss_points[xidx];
+    const auto w  = gauss_weights[xidx];
+
+    const auto x = (x_max - x_min) / 2 * xi + (x_max + x_min) / 2;
+    integral += w * f(x);
+  }
+  return (x_max - x_min) / 2 * integral;
+}
+
+// -------------------------------------------------------------------------------------------------
+template <size_t N = 16UZ, typename FUNC, typename Float>
+[[nodiscard]] constexpr auto
+quadrature(FUNC f, Float x_min, Float x_max, Float y_min, Float y_max) noexcept -> Float {
+  return detail::quadrature<N>(f,
+                               std::array{
+                                   std::array{x_min, y_min},
+                                   std::array{x_max, y_min},
+                                   std::array{x_max, y_max},
+                                   std::array{x_min, y_max},
+                               });
 }
 
 #endif  // FLUID_SOLVER_QUADRATURE_

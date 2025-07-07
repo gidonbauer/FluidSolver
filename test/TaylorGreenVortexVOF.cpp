@@ -187,12 +187,8 @@ auto main() -> int {
                Igor::sqr(0.5);
       };
 
-      vof[i, j] = quadrature<16>(is_in,
-                                 std::array{std::array{fs.x[i], fs.y[j]},
-                                            std::array{fs.x[i + 1], fs.y[j]},
-                                            std::array{fs.x[i + 1], fs.y[j + 1]},
-                                            std::array{fs.x[i], fs.y[j + 1]}}) /
-                  (fs.dx[i] * fs.dy[j]);
+      vof[i, j] =
+          quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx[i] * fs.dy[j]);
     }
   }
 

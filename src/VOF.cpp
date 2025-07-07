@@ -167,12 +167,8 @@ auto main() -> int {
   // = Setup velocity and vof field ================================================================
   for (Index i = 0; i < vof.extent(0); ++i) {
     for (Index j = 0; j < vof.extent(1); ++j) {
-      vof[i, j] = quadrature<16>(is_in,
-                                 std::array{std::array{fs.x[i], fs.y[j]},
-                                            std::array{fs.x[i + 1], fs.y[j]},
-                                            std::array{fs.x[i + 1], fs.y[j + 1]},
-                                            std::array{fs.x[i], fs.y[j + 1]}}) /
-                  (fs.dx[i] * fs.dy[j]);
+      vof[i, j] =
+          quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx[i] * fs.dy[j]);
     }
   }
 

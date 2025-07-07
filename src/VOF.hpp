@@ -21,12 +21,12 @@
 #include "IO.hpp"
 #include "Operators.hpp"
 
-constexpr double VOF_LOW  = 1e-8;
-constexpr double VOF_HIGH = 1.0 - VOF_LOW;
+inline constexpr double VOF_LOW  = 1e-8;
+inline constexpr double VOF_HIGH = 1.0 - VOF_LOW;
 
-template <typename Float>
-constexpr auto has_interface(Float vof) noexcept -> bool {
-  return VOF_LOW < vof && vof < VOF_HIGH;
+template <typename Float, Index NX, Index NY>
+constexpr auto has_interface(const Matrix<Float, NX, NY>& vof, Index i, Index j) noexcept -> bool {
+  return VOF_LOW < vof[i, j] && vof[i, j] < VOF_HIGH;
 }
 
 template <Index NX, Index NY>
@@ -145,7 +145,7 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
   for (Index i = 1; i < vof.extent(0) - 1; ++i) {
     for (Index j = 1; j < vof.extent(1) - 1; ++j) {
       // Calculate the interface; skip if does not contain an interface
-      if (!has_interface(vof[i, j])) { continue; }
+      if (!has_interface(vof, i, j)) { continue; }
 
       IRL::ELVIRANeighborhood neighborhood{};
       neighborhood.resize(NEIGHBORHOOD_SIZE);

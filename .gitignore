@@ -6,6 +6,8 @@ IncompSolver
 IncompSolver.dSYM
 VOF
 VOF.dSYM
+Curvature
+Curvature.dSYM
 
 *.env
 run.slurm

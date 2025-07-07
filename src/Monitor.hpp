@@ -58,6 +58,7 @@ class Monitor {
   }
 
   void write() {
+    if (m_names.empty()) { return; }
     if (!m_wrote_header) { write_header(); }
 
     m_out << "| ";

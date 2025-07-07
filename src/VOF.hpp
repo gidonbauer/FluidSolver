@@ -35,6 +35,42 @@ struct InterfaceReconstruction {
   Matrix<IRL::PlanarLocalizer, NX, NY> cell_localizer;
 };
 
+static constexpr std::array CUBOID_OFFSETS{
+    std::array<Index, 3>{1, 0, 0},  // 0
+    std::array<Index, 3>{1, 1, 0},  // 1
+    std::array<Index, 3>{1, 1, 1},  // 2
+    std::array<Index, 3>{1, 0, 1},  // 3
+    std::array<Index, 3>{0, 0, 0},  // 4
+    std::array<Index, 3>{0, 1, 0},  // 5
+    std::array<Index, 3>{0, 1, 1},  // 6
+    std::array<Index, 3>{0, 0, 1},  // 7
+};
+
+static constexpr std::array FACE_VERTICES{
+    std::array<IRL::UnsignedIndex_t, 4>{0, 1, 2, 3},  // 8
+    std::array<IRL::UnsignedIndex_t, 4>{4, 5, 1, 0},  // 9
+    std::array<IRL::UnsignedIndex_t, 4>{5, 6, 2, 1},  // 10
+    std::array<IRL::UnsignedIndex_t, 4>{6, 7, 3, 2},  // 11
+    std::array<IRL::UnsignedIndex_t, 4>{0, 3, 7, 4},  // 12
+    std::array<IRL::UnsignedIndex_t, 4>{5, 4, 7, 6},  // 13
+};
+
+enum Dir : std::uint8_t { XM, XP, YM, YP, ZM, ZP };
+
+static constexpr std::array FACE_DIRECTION{
+    Dir::XP,  // 8
+    Dir::ZM,  // 9
+    Dir::YP,  // 10
+    Dir::ZP,  // 11
+    Dir::YM,  // 12
+    Dir::XM,  // 13
+};
+static_assert(FACE_VERTICES.size() == FACE_DIRECTION.size());
+static_assert(CUBOID_OFFSETS.size() + FACE_VERTICES.size() ==
+                  14 /*IRL::Polyhedron24{}.getNumberOfVertices()*/,
+              "Expected CUBOID_OFFSETS.size() + FACE_VERTICES.size() == "
+              "IRL::Polyhedron24::getNumberOfVertices()");
+
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 constexpr auto advect_point(const IRL::Pt& pt,
@@ -128,7 +164,7 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
       }
       ir.interface[i, j] = IRL::reconstructionWithELVIRA2D(neighborhood);
       IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
-                  "({}, {}): Expected one planar but got {}",
+                  "({}, {}): Expected one plane but got {}",
                   i,
                   j,
                   (ir.interface[i, j].getNumberOfPlanes()));
@@ -138,10 +174,7 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-void advect_cells(const Vector<Float, NX + 1>& x,
-                  const Vector<Float, NY + 1>& y,
-                  const Vector<Float, NX>& xm,
-                  const Vector<Float, NY>& ym,
+void advect_cells(const FS<Float, NX, NY>& fs,
                   const Matrix<Float, NX, NY>& vof,
                   const Matrix<Float, NX, NY>& Ui,
                   const Matrix<Float, NX, NY>& Vi,
@@ -173,27 +206,79 @@ void advect_cells(const Vector<Float, NX + 1>& x,
         }
       }
 
-      // TODO: Use IRL::Polyhedron24 with correction to conserve vof in linear velocity fields
+#ifndef VOF_NO_CORRECTION
+      IRL::Polyhedron24 advected_cell{};
+#else
       IRL::Dodecahedron advected_cell{};
+#endif
 
-      constexpr std::array offsets{
-          std::array<Index, 3>{1, 0, 0},
-          std::array<Index, 3>{1, 1, 0},
-          std::array<Index, 3>{1, 1, 1},
-          std::array<Index, 3>{1, 0, 1},
-          std::array<Index, 3>{0, 0, 0},
-          std::array<Index, 3>{0, 1, 0},
-          std::array<Index, 3>{0, 1, 1},
-          std::array<Index, 3>{0, 0, 1},
+      auto offset_to_pt = [i, j, &fs](Index di, Index dj, Index dk) {
+        return IRL::Pt{fs.x[i + di], fs.y[j + dj], dk == 1 ? 0.5 : -0.5};
       };
-      for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < advected_cell.getNumberOfVertices();
-           ++cell_idx) {
-        const auto [di, dj, dk] = offsets[cell_idx];
-        const IRL::Pt pt{x[i + di], y[j + dj], dk == 1 ? 0.5 : -0.5};
-        advected_cell[cell_idx] = advect_point(pt, xm, ym, Ui, Vi, dt);
+
+      // = Set cuboid vertices =====================================================================
+      for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < CUBOID_OFFSETS.size(); ++cell_idx) {
+        const auto [di, dj, dk] = CUBOID_OFFSETS[cell_idx];
+        advected_cell[cell_idx] = advect_point(offset_to_pt(di, dj, dk), fs.xm, fs.ym, Ui, Vi, dt);
       }
 
-      const auto original_cell_vol = (x[i + 1] - x[i]) * (y[j + 1] - y[j]);
+#ifndef VOF_NO_CORRECTION
+      // = Set other vertices to barycenter ========================================================
+      for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < FACE_VERTICES.size(); ++cell_idx) {
+        const auto& vertices = FACE_VERTICES[cell_idx];
+        IRL::Pt barycenter   = IRL::Pt::fromScalarConstant(0.0);
+        for (auto idx : vertices) {
+          barycenter += advected_cell[idx];
+        }
+        barycenter /= 4.0;
+        advected_cell[cell_idx + CUBOID_OFFSETS.size()] = barycenter;
+      }
+#endif  // VOF_NO_CORRECTION
+
+      const auto original_cell_vol = (fs.x[i + 1] - fs.x[i]) * (fs.y[j + 1] - fs.y[j]);
+
+#ifndef VOF_NO_CORRECTION
+      // = Adjust other vertices to have correct cell volume =======================================
+      for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < FACE_VERTICES.size(); ++cell_idx) {
+        const auto& vertices = FACE_VERTICES[cell_idx];
+        // We have a two dimensional problem, therefore we do not adjust the vertices in z-direction
+        if (FACE_DIRECTION[cell_idx] == Dir::ZM || FACE_DIRECTION[cell_idx] == Dir::ZP) {
+          continue;
+        }
+
+        const Float correct_flux_vol = [&] {
+          switch (FACE_DIRECTION[cell_idx]) {
+            case Dir::XM: return -fs.U[i, j] * fs.dy[j] * dt;
+            case Dir::XP: return fs.U[i + 1, j] * fs.dy[j] * dt;
+            case Dir::YM: return -fs.V[i, j] * fs.dx[i] * dt;
+            case Dir::YP: return fs.V[i, j + 1] * fs.dx[i] * dt;
+            case Dir::ZM:
+            case Dir::ZP: Igor::Panic("Unreachable"); std::unreachable();
+          }
+        }();
+
+        IRL::CappedDodecahedron advected_face{};
+        IRL::UnsignedIndex_t counter = 0;
+        for (auto idx : vertices) {
+          // Vertices 0-3 are the ones of the original eulerian cell
+          const auto [di, dj, dk] = CUBOID_OFFSETS[idx];
+          advected_face[counter]  = offset_to_pt(di, dj, dk);
+
+          // Vertices 4-7 are the advected vertices of the face
+          const auto o               = advected_face.getNumberOfVertices() / 2;
+          advected_face[counter + o] = advected_cell[idx];
+
+          counter += 1;
+        }
+        constexpr IRL::UnsignedIndex_t ADJUSTED_VERTEX = 8;
+        // Barycenter of advected vertices is initial guess for vertex 8
+        advected_face[ADJUSTED_VERTEX] = advected_cell[cell_idx + CUBOID_OFFSETS.size()];
+
+        advected_face.adjustCapToMatchVolume(correct_flux_vol);
+        advected_cell[cell_idx + CUBOID_OFFSETS.size()] = advected_face[ADJUSTED_VERTEX];
+      }
+#endif  // VOF_NO_CORRECTION
+
       local_max_volume_error =
           std::max(local_max_volume_error,
                    std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()));

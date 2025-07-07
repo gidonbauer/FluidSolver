@@ -30,10 +30,10 @@ Float INIT_VOF_INT = 0.0;  // NOLINT
 
 constexpr Float DT_MAX   = 1e-2;
 constexpr Float CFL_MAX  = 0.5;
-constexpr Float T_END    = 10.0;
+constexpr Float T_END    = 5.0;
 constexpr Float DT_WRITE = 5e-2;
 
-constexpr auto OUTPUT_DIR = "output/VOF";
+constexpr auto OUTPUT_DIR = "test/output/TaylorGreenVortexVOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -90,6 +90,32 @@ void get_vof_stats(const Matrix<Float, NX, NY>& vof,
   integral = std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
   loss     = INIT_VOF_INT - integral;
   loss_prct = 100.0 * loss / INIT_VOF_INT;
+}
+
+// -------------------------------------------------------------------------------------------------
+auto check_vof(Float vof_min, Float vof_max, Float vof_integral, Float max_volume_error) -> bool {
+  if (std::abs(vof_min) > 1e-14) {
+    Igor::Warn("Expected minimum VOF value to be 0 but is {:.6e}", vof_min);
+    return false;
+  }
+
+  if (std::abs(vof_max - 1.0) > 1e-14) {
+    Igor::Warn("Expected maximum VOF value to be 1 but is {:.6e}", vof_max);
+    return false;
+  }
+
+  if (std::abs(vof_integral - INIT_VOF_INT) > 1e-10) {
+    Igor::Warn("Expected integral of vof to be {:.6e} but is {:.6e}: error = {:.6e}",
+               INIT_VOF_INT,
+               vof_integral,
+               std::abs(vof_integral - INIT_VOF_INT));
+    return false;
+  }
+  if (max_volume_error > 1e-15) {
+    Igor::Warn("Exceeded max. allowed volume error ({:.6e})", max_volume_error);
+    return false;
+  }
+  return true;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -209,9 +235,10 @@ auto main() -> int {
   monitor.add_variable(&max_div, "max(div)");
 
   get_vof_stats(vof, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
+  if (!check_vof(vof_min, vof_max, vof_integral, max_volume_error)) { return 1; }
 
   Index counter = 0;
-  Igor::ScopeTimer timer("Geometric VOF-transport");
+  Igor::ScopeTimer timer("TaylorGreenVortexVOF");
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
@@ -261,6 +288,7 @@ auto main() -> int {
       counter += 1;
     }
     get_vof_stats(vof, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
+    if (!check_vof(vof_min, vof_max, vof_integral, max_volume_error)) { return 1; }
     monitor.write();
   }
 }

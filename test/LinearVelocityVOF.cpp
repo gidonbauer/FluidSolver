@@ -6,8 +6,10 @@
 #include <Igor/Timer.hpp>
 
 #include "Container.hpp"
+#include "FS.hpp"
 #include "IO.hpp"
 #include "Operators.hpp"
+#include "Quadrature.hpp"
 #include "VOF.hpp"
 
 // = Config ========================================================================================
@@ -21,8 +23,7 @@ constexpr Float Y_MAX = 1.0;
 constexpr auto DX     = (X_MAX - X_MIN) / static_cast<Float>(NX);
 constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-constexpr Index VOF_NSAMPLE = 10;
-Float INIT_VOF_INT          = 0.0;  // NOLINT
+Float INIT_VOF_INT = 0.0;  // NOLINT
 
 constexpr Float DT    = 5e-3;
 constexpr Index NITER = 120;
@@ -104,38 +105,28 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  Matrix<Float, NX + 1, NY> U{};
-  Matrix<Float, NX, NY + 1> V{};
+  FS<Float, NX, NY> fs{};
+
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
 
   Matrix<Float, NX, NY> vof{};
   Matrix<Float, NX, NY> vof_next{};
 
-  Vector<Float, NX + 1> x{};
-  Vector<Float, NY + 1> y{};
-  Vector<Float, NX> xm{};
-  Vector<Float, NY> ym{};
-
   InterfaceReconstruction<NX, NY> ir{};
   // = Allocate memory =============================================================================
 
   // = Setup grid and cell localizers ==============================================================
-  for (Index i = 0; i < x.extent(0); ++i) {
-    x[i] = X_MIN + static_cast<Float>(i) * DX;
+  for (Index i = 0; i < fs.x.extent(0); ++i) {
+    fs.x[i] = X_MIN + static_cast<Float>(i) * DX;
   }
-  for (Index i = 0; i < xm.extent(0); ++i) {
-    xm[i] = (x[i] + x[i + 1]) / 2.0;
+  for (Index j = 0; j < fs.y.extent(0); ++j) {
+    fs.y[j] = Y_MIN + static_cast<Float>(j) * DY;
   }
-  for (Index j = 0; j < y.extent(0); ++j) {
-    y[j] = Y_MIN + static_cast<Float>(j) * DY;
-  }
-  for (Index j = 0; j < ym.extent(0); ++j) {
-    ym[j] = (y[j] + y[j + 1]) / 2.0;
-  }
+  init_mid_and_delta(fs);
 
   // Localize the cells
-  localize_cells(x, y, ir);
+  localize_cells(fs.x, fs.y, ir);
   // = Setup grid and cell localizers ==============================================================
 
   // = Setup velocity and vof field ================================================================
@@ -145,34 +136,31 @@ auto main() -> int {
         return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
       };
 
-      vof[i, j] = 0.0;
-      for (Index ii = 1; ii <= VOF_NSAMPLE; ++ii) {
-        for (Index jj = 1; jj <= VOF_NSAMPLE; ++jj) {
-          const auto xi = x[i] + static_cast<Float>(ii) / static_cast<Float>(VOF_NSAMPLE + 1) * DX;
-          const auto yj = y[j] + static_cast<Float>(jj) / static_cast<Float>(VOF_NSAMPLE + 1) * DY;
-          vof[i, j] += is_in(xi, yj);
-        }
-      }
-      vof[i, j] /= Igor::sqr(VOF_NSAMPLE);
+      vof[i, j] = quadrature<16>(is_in,
+                                 std::array{std::array{fs.x[i], fs.y[j]},
+                                            std::array{fs.x[i + 1], fs.y[j]},
+                                            std::array{fs.x[i + 1], fs.y[j + 1]},
+                                            std::array{fs.x[i], fs.y[j + 1]}}) /
+                  (fs.dx[i] * fs.dy[j]);
     }
   }
 
-  for (Index i = 0; i < U.extent(0); ++i) {
-    for (Index j = 0; j < U.extent(1); ++j) {
-      U[i, j] = ym[j];
+  for (Index i = 0; i < fs.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.U.extent(1); ++j) {
+      fs.U[i, j] = fs.ym[j];
     }
   }
 
-  for (Index i = 0; i < V.extent(0); ++i) {
-    for (Index j = 0; j < V.extent(1); ++j) {
-      V[i, j] = xm[i];
+  for (Index i = 0; i < fs.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.V.extent(1); ++j) {
+      fs.V[i, j] = fs.xm[i];
     }
   }
 
-  interpolate_U(U, Ui);
-  interpolate_V(V, Vi);
+  interpolate_U(fs.U, Ui);
+  interpolate_V(fs.V, Vi);
   if (!save_vof_state(
-          Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), x, y, vof, Ui, Vi)) {
+          Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), fs.x, fs.y, vof, Ui, Vi)) {
     return 1;
   }
   INIT_VOF_INT =
@@ -183,23 +171,27 @@ auto main() -> int {
   Float max_volume_error = 0.0;
   for (Index iter = 0; iter < NITER; ++iter) {
     // = Reconstruct the interface =================================================================
-    reconstruct_interface(x, y, vof, ir);
+    reconstruct_interface(fs.x, fs.y, vof, ir);
     if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, iter),
-                        x,
-                        y,
+                        fs.x,
+                        fs.y,
                         ir.interface)) {
       return 1;
     }
 
     // = Advect cells ==============================================================================
-    advect_cells(x, y, xm, ym, vof, Ui, Vi, DT, ir, vof_next, &max_volume_error);
+    advect_cells(fs, vof, Ui, Vi, DT, ir, vof_next, &max_volume_error);
     std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
 
     // Don't save last state because we don't have a reconstruction for that and it messes with the
     // visualization
     if (iter < NITER - 1) {
-      if (!save_vof_state(
-              Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, iter + 1), x, y, vof, Ui, Vi)) {
+      if (!save_vof_state(Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, iter + 1),
+                          fs.x,
+                          fs.y,
+                          vof,
+                          Ui,
+                          Vi)) {
         return 1;
       }
     }

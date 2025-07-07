@@ -14,8 +14,8 @@
 
 // = Config ========================================================================================
 using Float           = double;
-constexpr Index NX    = 128;
-constexpr Index NY    = 128;
+constexpr Index NX    = 2 * 128;
+constexpr Index NY    = 2 * 128;
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 2.0 * std::numbers::pi_v<Float>;
 constexpr Float Y_MIN = 0.0;
@@ -23,14 +23,25 @@ constexpr Float Y_MAX = 2.0 * std::numbers::pi_v<Float>;
 constexpr auto DX     = (X_MAX - X_MIN) / static_cast<Float>(NX);
 constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-constexpr Float VISC = 1e-1;
+constexpr Float VISC = 1e-3;
 constexpr Float RHO  = 0.9;
 
+constexpr auto is_in(Float x, Float y) -> Float {
+  return static_cast<Float>(
+      Igor::sqr(x - 0.75 * std::numbers::pi) + Igor::sqr(y - 0.5 * std::numbers::pi) <=
+          Igor::sqr(0.25) ||
+      Igor::sqr(x - 1.75 * std::numbers::pi) + Igor::sqr(y - 0.5 * std::numbers::pi) <=
+          Igor::sqr(0.25) ||
+      Igor::sqr(x - 0.75 * std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
+          Igor::sqr(0.25) ||
+      Igor::sqr(x - 1.75 * std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
+          Igor::sqr(0.25));
+};
 Float INIT_VOF_INT = 0.0;  // NOLINT
 
 constexpr Float DT_MAX   = 1e-2;
 constexpr Float CFL_MAX  = 0.5;
-constexpr Float T_END    = 10.0;
+constexpr Float T_END    = 30.0;
 constexpr Float DT_WRITE = 5e-2;
 
 constexpr auto OUTPUT_DIR = "output/VOF";
@@ -156,11 +167,6 @@ auto main() -> int {
   // = Setup velocity and vof field ================================================================
   for (Index i = 0; i < vof.extent(0); ++i) {
     for (Index j = 0; j < vof.extent(1); ++j) {
-      auto is_in = [](Float x, Float y) -> Float {
-        return Igor::sqr(x - std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
-               Igor::sqr(0.5);
-      };
-
       vof[i, j] = quadrature<16>(is_in,
                                  std::array{std::array{fs.x[i], fs.y[j]},
                                             std::array{fs.x[i + 1], fs.y[j]},

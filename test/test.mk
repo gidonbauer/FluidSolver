@@ -1,6 +1,6 @@
 TESTS = LaminarChannel Couette TaylorGreenVortex \
 				ConstantVelocityVOF LinearVelocityVOF TaylorGreenVortexVOF \
-				EvalFlowFieldAt
+				Operators
 
 test: ${addprefix test/, ${TESTS}} ${addprefix test-, ${TESTS}}
 

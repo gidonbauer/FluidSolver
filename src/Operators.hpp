@@ -102,4 +102,37 @@ template <typename Float, Index NX, Index NY>
   return {interpolate_bilinear(Ui), interpolate_bilinear(Vi)};
 }
 
+template <typename Float, Index NX, Index NY>
+void calc_grad_of_centered_points(const Matrix<Float, NX, NY>& f,
+                                  Float dx,
+                                  Float dy,
+                                  Matrix<Float, NX, NY>& dfdx,
+                                  Matrix<Float, NX, NY>& dfdy) noexcept {
+  // TODO: This assumes an equidistant mesh
+  for (Index i = 1; i < NX - 1; ++i) {
+    for (Index j = 1; j < NY - 1; ++j) {
+      dfdx[i, j] = (f[i + 1, j] - f[i - 1, j]) / (2.0 * dx);
+      dfdy[i, j] = (f[i, j + 1] - f[i, j - 1]) / (2.0 * dy);
+    }
+  }
+
+  for (Index i = 0; i < NX; ++i) {
+    if (i > 0 && i < NX - 1) {
+      dfdx[i, 0]      = (f[i + 1, 0] - f[i - 1, 0]) / (2.0 * dx);
+      dfdx[i, NY - 1] = (f[i + 1, NY - 1] - f[i - 1, NY - 1]) / (2.0 * dx);
+    }
+    dfdy[i, 0]      = (-3.0 * f[i, 0] + 4.0 * f[i, 1] - f[i, 2]) / (2.0 * dy);
+    dfdy[i, NY - 1] = (3.0 * f[i, NY - 1] - 4.0 * f[i, NY - 2] + f[i, NY - 3]) / (2.0 * dy);
+  }
+
+  for (Index j = 0; j < NY; ++j) {
+    dfdx[0, j]      = (-3.0 * f[0, j] + 4.0 * f[1, j] - f[2, j]) / (2.0 * dx);
+    dfdx[NX - 1, j] = (3.0 * f[NX - 1, j] - 4.0 * f[NX - 2, j] + f[NX - 3, j]) / (2.0 * dx);
+    if (j > 0 && j < NY - 1) {
+      dfdy[0, j]      = (f[0, j + 1] - f[0, j - 1]) / (2.0 * dy);
+      dfdy[NX - 1, j] = (f[NX - 1, j + 1] - f[NX - 1, j - 1]) / (2.0 * dy);
+    }
+  }
+}
+
 #endif  // FLUID_SOLVER_OPERATORS_HPP_

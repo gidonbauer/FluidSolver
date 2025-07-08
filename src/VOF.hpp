@@ -17,6 +17,8 @@
 #include <irl/interface_reconstruction_methods/reconstruction_interface.h>
 #pragma clang diagnostic pop
 
+#include <Igor/StaticVector.hpp>
+
 #include "Container.hpp"
 #include "IO.hpp"
 #include "Operators.hpp"
@@ -319,44 +321,59 @@ void advect_cells(const FS<Float, NX, NY>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto save_cells(const std::string& filename,
-                              const std::vector<std::array<IRL::Pt, 4>>& cells) -> bool {
-  std::ofstream out(filename);
-  if (!out) {
-    Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
-    return false;
-  }
+template <typename Float, Index NX, Index NY>
+constexpr auto get_intersections_with_cell(Index i,
+                                           Index j,
+                                           const Vector<Float, NX + 1>& x,
+                                           const Vector<Float, NY + 1>& y,
+                                           const IRL::Plane& plane) -> std::array<IRL::Pt, 2> {
+  Igor::StaticVector<IRL::Pt, 4> trial_points{};
+  constexpr std::array offsets{
+      std::pair<Index, Index>{0, 0},
+      std::pair<Index, Index>{1, 0},
+      std::pair<Index, Index>{1, 1},
+      std::pair<Index, Index>{0, 1},
+  };
+  static_assert(offsets.size() == trial_points.max_size());
 
-  // = Write VTK header ============================================================================
-  out << "# vtk DataFile Version 2.0\n";
-  out << "Advected cells\n";
-  out << "BINARY\n";
+  constexpr Float EPS = 1e-6;
+  for (size_t idx = 0; idx < offsets.size(); ++idx) {
+    const auto [di0, dj0] = offsets[idx];
+    IRL::Pt p0(x[i + di0], y[j + dj0], 0.0);
 
-  // = Write grid ==================================================================================
-  out << "DATASET POLYDATA\n";
-  out << "POINTS " << cells.size() * 4 << " double\n";
-  for (const auto& cell : cells) {
-    for (const auto& pt : cell) {
-      static_assert(std::is_same_v<std::remove_cvref_t<decltype(pt[0])>, double>);
-      constexpr double zk = 0.0;
-      out.write(detail::interpret_as_big_endian_bytes(pt[0]).data(), sizeof(pt[0]));
-      out.write(detail::interpret_as_big_endian_bytes(pt[1]).data(), sizeof(pt[1]));
-      out.write(detail::interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
+    const auto [di1, dj1] = offsets[(idx + 1) % offsets.size()];
+    IRL::Pt p1(x[i + di1], y[j + dj1], 0.0);
+
+    const auto tp = IRL::Pt::fromEdgeIntersection(
+        p0, plane.signedDistanceToPoint(p0), p1, plane.signedDistanceToPoint(p1));
+
+    if (x[i] - EPS <= tp[0] && tp[0] <= x[i + 1] + EPS &&  //
+        y[j] - EPS <= tp[1] && tp[1] <= y[j + 1] + EPS) {
+      trial_points.push_back(tp);
     }
   }
-  out << "\n\n";
+  IGOR_ASSERT(trial_points.size() >= 2,
+              "Expected at least two trial points but got only {}.",
+              trial_points.size());
 
-  // = Write cell data =============================================================================
-  out << "LINES " << 3 << ' ' << cells.size() * 5 << '\n';
-  for (uint32_t i = 0; i < cells.size() * 4; i += 4) {
-    out.write(detail::interpret_as_big_endian_bytes(uint32_t{4}).data(), sizeof(uint32_t));
-    out.write(detail::interpret_as_big_endian_bytes(i + 0).data(), sizeof(uint32_t));
-    out.write(detail::interpret_as_big_endian_bytes(i + 1).data(), sizeof(uint32_t));
-    out.write(detail::interpret_as_big_endian_bytes(i + 2).data(), sizeof(uint32_t));
-    out.write(detail::interpret_as_big_endian_bytes(i + 3).data(), sizeof(uint32_t));
+  auto sqr_dist = [](const IRL::Pt& a, const IRL::Pt& b) {
+    return Igor::sqr(b[0] - a[0]) + Igor::sqr(b[1] - a[1]);
+  };
+  IRL::Pt to_add0 = trial_points[0];
+  IRL::Pt to_add1 = trial_points[1];
+  Float distance  = sqr_dist(to_add0, to_add1);
+  for (size_t add_idx0 = 0; add_idx0 < trial_points.size(); ++add_idx0) {
+    for (size_t add_idx1 = add_idx0; add_idx1 < trial_points.size(); ++add_idx1) {
+      const auto new_dist = sqr_dist(trial_points[add_idx0], trial_points[add_idx1]);
+      if (new_dist > distance) {
+        distance = new_dist;
+        to_add0  = trial_points[add_idx0];
+        to_add1  = trial_points[add_idx1];
+      }
+    }
   }
 
-  return out.good();
+  return {to_add0, to_add1};
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -367,28 +384,8 @@ auto save_interface(const std::string& filename,
                     const Matrix<IRL::PlanarSeparator, NX, NY>& interface) -> bool {
   // - Find intersection points of planar separator and grid =======================================
   // TODO: Implement a proper algorithm for this and handle the edge cases
-  static std::vector<std::pair<Float, Float>> points{};
+  static std::vector<IRL::Pt> points{};
   points.resize(0);
-
-  auto get_x = [](IRL::Normal normal, Float dist, Float y) -> std::optional<Float> {
-    IGOR_ASSERT(std::abs(normal[2]) < 1e-8,
-                "Expect normal to not have a z-component, but got ({}, {}, {})",
-                normal[0],
-                normal[1],
-                normal[2]);
-    if (std::abs(normal[0]) < 1e-6) { return {}; }
-    return std::optional{-normal[1] / normal[0] * y + dist / normal[0]};
-  };
-
-  auto get_y = [](IRL::Normal normal, Float dist, Float x) -> std::optional<Float> {
-    IGOR_ASSERT(std::abs(normal[2]) < 1e-8,
-                "Expect normal to not have a z-component, but got ({}, {}, {})",
-                normal[0],
-                normal[1],
-                normal[2]);
-    if (std::abs(normal[1]) < 1e-6) { return {}; }
-    return std::optional{-normal[0] / normal[1] * x + dist / normal[1]};
-  };
 
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
@@ -400,33 +397,11 @@ auto save_interface(const std::string& filename,
                     interface[i, j].getNumberOfPlanes());
         continue;
       }
-
-      const auto begin_idx = points.size();
-      for (Index idx = i; idx < i + 2; ++idx) {
-        const Float x_trial = x[idx];
-        const auto y_trial =
-            get_y(interface[i, j][0].normal(), interface[i, j][0].distance(), x_trial);
-        if (y_trial.has_value() && *y_trial > y[j] - 1e-4 && *y_trial < y[j + 1] + 1e-4) {
-          points.emplace_back(x_trial, *y_trial);
-        }
-      }
-
-      for (Index idx = j; idx < j + 2; ++idx) {
-        const Float y_trial = y[idx];
-        const auto x_trial =
-            get_x(interface[i, j][0].normal(), interface[i, j][0].distance(), y_trial);
-        if (x_trial.has_value() && *x_trial > x[i] - 1e-4 && *x_trial < x[i + 1] + 1e-4) {
-          points.emplace_back(*x_trial, y_trial);
-        }
-      }
-      // Just ignore edge cases
-      if (points.size() - begin_idx != 2) { points.resize(begin_idx); }
-      // IGOR_ASSERT(points.size() - begin_idx == 2,
-      //             "{}, {}: Expected to add exactly two points to array but added {}: {}",
-      //             i,
-      //             j,
-      //             points.size() - begin_idx,
-      //             std::span(points.data() + begin_idx, points.size() - begin_idx));
+      const IRL::Plane& plane  = interface[i, j][0];
+      const auto intersections = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
+      static_assert(intersections.size() == 2);
+      points.push_back(intersections[0]);
+      points.push_back(intersections[1]);
     }
   }
   std::ofstream out(filename);
@@ -443,7 +418,9 @@ auto save_interface(const std::string& filename,
   // = Write grid ==================================================================================
   out << "DATASET POLYDATA\n";
   out << "POINTS " << points.size() << " double\n";
-  for (const auto [xi, yj] : points) {
+  for (const auto& p : points) {
+    const auto xi       = p[0];
+    const auto yj       = p[1];
     constexpr double zk = 0.0;
     out.write(detail::interpret_as_big_endian_bytes(xi).data(), sizeof(xi));
     out.write(detail::interpret_as_big_endian_bytes(yj).data(), sizeof(yj));

@@ -78,6 +78,7 @@ auto main() -> int {
   Matrix<Float, NX, NY> vof{};
   Matrix<Float, NX, NY> vof_smooth{};
   Matrix<Float, NX, NY> curv{};
+  Matrix<Float, NX, NY> curv_interpolated{};
 
   Matrix<Float, NX, NY> dvofdx{};
   Matrix<Float, NX, NY> dvofdy{};
@@ -90,6 +91,7 @@ auto main() -> int {
   vtk_writer.add_scalar("VOF", &vof);
   vtk_writer.add_scalar("VOF_smooth", &vof_smooth);
   vtk_writer.add_scalar("curv", &curv);
+  vtk_writer.add_scalar("curv_interpolated", &curv_interpolated);
 
   vtk_writer.add_scalar("dVOFdx", &dvofdx);
   vtk_writer.add_scalar("dVOFdy", &dvofdy);
@@ -132,6 +134,8 @@ auto main() -> int {
     calc_grad_of_centered_points(dvofdy, DX, DY, dvofdxy, dvofdyy);
   }
 
+  Float min_curv  = std::numeric_limits<Float>::max();
+  Float max_curv  = -std::numeric_limits<Float>::max();
   Float mean_curv = 0.0;
   Float mse_curv  = 0.0;
   Index count     = 0;
@@ -147,9 +151,13 @@ auto main() -> int {
                2.0 * dvofdx[i, j] * dvofdy[i, j] * dvofdxy[i, j]) /
               std::pow(Igor::sqr(dvofdx[i, j]) + Igor::sqr(dvofdy[i, j]), 1.5);
 
-          mean_curv += curv[i, j];
-          mse_curv += Igor::sqr(curv[i, j] + 1.0 / R);
-          count += 1;
+          if (has_interface(vof, i, j)) {
+            min_curv = std::min(curv[i, j], min_curv);
+            max_curv = std::max(curv[i, j], max_curv);
+            mean_curv += curv[i, j];
+            mse_curv += Igor::sqr(curv[i, j] + 1.0 / R);
+            count += 1;
+          }
         }
       }
     }
@@ -159,9 +167,47 @@ auto main() -> int {
   }
   Igor::Info("NX={}, NY={}", NX, NY);
   Igor::Info("Mean curvature     = {:.6e}", mean_curv);
+  Igor::Info("Min. curvature     = {:.6e}", min_curv);
+  Igor::Info("Max. curvature     = {:.6e}", max_curv);
   Igor::Info("Expected curvature = {:.6e}", -1.0 / R);
   Igor::Info("MSE curvature      = {:.6e}", mse_curv);
   // = Calculate curvature =========================================================================
+
+  // = Interpolate curvature to interface center ===================================================
+  std::fill_n(curv_interpolated.get_data(),
+              curv_interpolated.size(),
+              std::numeric_limits<Float>::quiet_NaN());
+
+  min_curv  = std::numeric_limits<Float>::max();
+  max_curv  = -std::numeric_limits<Float>::max();
+  mean_curv = 0.0;
+  mse_curv  = 0.0;
+  count     = 0;
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      if (has_interface(vof, i, j)) {
+        const auto intersect =
+            get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]);
+        const auto center       = (intersect[0] + intersect[1]) / 2.0;
+        curv_interpolated[i, j] = bilinear_interpolate(fs.xm, fs.ym, curv, center[0], center[1]);
+
+        min_curv = std::min(curv[i, j], min_curv);
+        max_curv = std::max(curv[i, j], max_curv);
+        mean_curv += curv_interpolated[i, j];
+        mse_curv += Igor::sqr(curv_interpolated[i, j] + 1.0 / R);
+        count += 1;
+      }
+    }
+  }
+  mean_curv /= static_cast<Float>(count);
+  mse_curv /= static_cast<Float>(count);
+  Igor::Info("Mean curvature (interpolated)     = {:.6e}", mean_curv);
+  Igor::Info("Min. curvature (interpolated)     = {:.6e}", min_curv);
+  Igor::Info("Max. curvature (interpolated)     = {:.6e}", max_curv);
+  Igor::Info("Expected curvature (interpolated) = {:.6e}", -1.0 / R);
+  Igor::Info("MSE curvature (interpolated)      = {:.6e}", mse_curv);
+
+  // = Interpolate curvature to interface center ===================================================
 
   IGOR_TIME_SCOPE("Writing") {
     if (!vtk_writer.write()) { return 1; }

@@ -29,6 +29,19 @@ constexpr auto has_interface(const Matrix<Float, NX, NY>& vof, Index i, Index j)
   return VOF_LOW < vof[i, j] && vof[i, j] < VOF_HIGH;
 }
 
+template <typename Float, Index NX, Index NY>
+constexpr auto has_interface_in_neighborhood(const Matrix<Float, NX, NY>& vof,
+                                             Index i,
+                                             Index j,
+                                             Index neighborhood_size) noexcept -> bool {
+  for (Index di = -neighborhood_size; di <= neighborhood_size; ++di) {
+    for (Index dj = -neighborhood_size; dj <= neighborhood_size; ++dj) {
+      if (vof.is_valid_index(i + di, j + dj) && has_interface(vof, i + di, j + dj)) { return true; }
+    }
+  }
+  return false;
+}
+
 template <Index NX, Index NY>
 struct InterfaceReconstruction {
   Matrix<IRL::PlanarSeparator, NX, NY> interface;

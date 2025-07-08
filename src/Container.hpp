@@ -52,6 +52,10 @@ class Vector {
 
   [[nodiscard]] constexpr auto begin() noexcept -> Contained* { return m_data->data(); }
   [[nodiscard]] constexpr auto end() noexcept -> Contained* { return m_data->data() + size(); }
+
+  [[nodiscard]] constexpr auto is_valid_index(Index i) const noexcept -> bool {
+    return 0 <= i && i < N;
+  }
 };
 
 // =================================================================================================
@@ -113,6 +117,10 @@ class Matrix {
   [[nodiscard]] constexpr auto extent(Index r) const noexcept -> Index {
     IGOR_ASSERT(r >= 0 && r < 2, "Dimension {} is out of bounds for Vector", r);
     return r == 0 ? M : N;
+  }
+
+  [[nodiscard]] constexpr auto is_valid_index(Index i, Index j) const noexcept -> bool {
+    return 0 <= i && i < M && 0 <= j && j < N;
   }
 };
 

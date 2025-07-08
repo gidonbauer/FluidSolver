@@ -304,7 +304,7 @@ void advect_cells(const FS<Float, NX, NY>& fs,
              jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
              ++jj) {
           if (vof[ii, jj] > VOF_LOW) {
-            overlap_vol += IRL::getVolumeMoments<IRL::Volume>(
+            overlap_vol += IRL::getVolumeMoments<IRL::Volume, IRL::RecursiveSimplexCutting>(
                 advected_cell,
                 IRL::LocalizedSeparator(&ir.cell_localizer[ii, jj], &ir.interface[ii, jj]));
           }

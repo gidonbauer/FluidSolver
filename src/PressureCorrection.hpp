@@ -349,7 +349,7 @@ class PS {
     Float mean_rhs = 0.0;
     for (Index i = 0; i < resP.extent(0); ++i) {
       for (Index j = 0; j < resP.extent(1); ++j) {
-        rhs_values[i, j] = -vol * fs.rho * div[i, j] / dt;
+        rhs_values[i, j] = -vol * fs.rho[i, j] * div[i, j] / dt;
         mean_rhs += rhs_values[i, j];
       }
     }
@@ -360,12 +360,6 @@ class PS {
       }
     }
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
-    // for (Index i = 0; i < resP.extent(0); ++i) {
-    //   for (Index j = 0; j < resP.extent(1); ++j) {
-    //     std::array<HYPRE_Int, NDIMS> index{static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
-    //     HYPRE_StructVectorSetValues(m_rhs, index.data(), rhs_values[i, j]);
-    //   }
-    // }
 
     // = Solve the system ==========================================================================
     Float final_residual = -1.0;

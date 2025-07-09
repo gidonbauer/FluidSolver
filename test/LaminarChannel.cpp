@@ -56,7 +56,10 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{.visc = VISC, .rho = RHO};
+  FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
+  std::fill_n(fs.visc.get_data(), fs.visc.size(), VISC);
+  std::fill_n(fs.rho.get_data(), fs.rho.size(), RHO);
+
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
   PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);

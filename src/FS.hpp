@@ -11,8 +11,13 @@
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 struct FS {
-  Float visc{};
-  Float rho{};
+  Float visc_gas{};
+  Float visc_liquid{};
+  Float rho_gas{};
+  Float rho_liquid{};
+
+  Matrix<Float, NX, NY> visc{};
+  Matrix<Float, NX, NY> rho{};
 
   Vector<Float, NX + 1> x{};
   Vector<Float, NX> xm{};
@@ -29,9 +34,6 @@ struct FS {
   Matrix<Float, NX, NY + 1> V_old{};
 
   Matrix<Float, NX, NY> p{};
-
-  // Matrix<Float, NX, NY> vof{};
-  // Matrix<Float, NX, NY> vof_old{};
 };
 
 // TODO: Clipped Neumann?
@@ -57,8 +59,8 @@ auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Floa
     for (Index j = 0; j < NY; ++j) {
       CFLc_x = std::max(CFLc_x, (fs.U[i, j] + fs.U[i + 1, j]) / 2 / fs.dx[i]);
       CFLc_y = std::max(CFLc_y, (fs.V[i, j] + fs.V[i, j + 1]) / 2 / fs.dy[j]);
-      CFLv_x = std::max(CFLv_x, 4.0 * fs.visc / (Igor::sqr(fs.dx[i]) * fs.rho));
-      CFLv_y = std::max(CFLv_y, 4.0 * fs.visc / (Igor::sqr(fs.dy[j]) * fs.rho));
+      CFLv_x = std::max(CFLv_x, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dx[i]) * fs.rho[i, j]));
+      CFLv_y = std::max(CFLv_y, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dy[j]) * fs.rho[i, j]));
     }
   }
 
@@ -85,20 +87,20 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
     for (Index j = 0; j < FX.extent(1); ++j) {
       // FX = -rho*U*U + mu*(dUdx + dUdx - 2/3*(dUdx + dVdy)) - p
       //    = -rho*U^2 + mu*(2*dUdx -2/3*(dUdx + dVdy)) - p
-      FX[i, j] = -fs.rho * Igor::sqr((fs.U[i, j] + fs.U[i + 1, j]) / 2) +
-                 fs.visc * (2.0 * (fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] -
-                            2.0 / 3.0 *
-                                ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
-                                 (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
+      FX[i, j] = -fs.rho[i, j] * Igor::sqr((fs.U[i, j] + fs.U[i + 1, j]) / 2) +
+                 fs.visc[i, j] * (2.0 * (fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] -
+                                  2.0 / 3.0 *
+                                      ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
+                                       (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
                  fs.p[i, j];
 
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
         // FY = -rho*U*V + mu*(dUdy + dVdx)
-        FY[i, j] = -fs.rho *                                                //
+        FY[i, j] = -fs.rho[i, j] *                                          //
                        (fs.U[i, j] + fs.U[i, j + 1]) / 2 *                  //
                        (fs.V[i - 1, j + 1] + fs.V[i, j + 1]) / 2 +          //
-                   fs.visc *                                                //
+                   fs.visc[i, j] *                                          //
                        ((fs.U[i, j + 1] - fs.U[i, j]) / fs.dy[j] +          //
                         (fs.V[i, j + 1] - fs.V[i - 1, j + 1]) / fs.dx[i]);  //
       } else {
@@ -122,10 +124,10 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
         // FX = -rho*U*V + mu*(dVdx + dUdy)
-        FX[i, j] = -fs.rho *                                                //
+        FX[i, j] = -fs.rho[i, j] *                                          //
                        (fs.U[i, j] + fs.U[i, j + 1]) / 2 *                  //
                        (fs.V[i - 1, j + 1] + fs.V[i, j + 1]) / 2 +          //
-                   fs.visc *                                                //
+                   fs.visc[i, j] *                                          //
                        ((fs.U[i, j + 1] - fs.U[i, j]) / fs.dy[j] +          //
                         (fs.V[i, j + 1] - fs.V[i - 1, j + 1]) / fs.dx[i]);  //
       } else {
@@ -135,11 +137,11 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
 
       // FY = -rho*V*V + mu*(dVdy + dVdy - 2/3*(dUdx + dVdy)) - p
       //    = -rho*V^2 + mu*(2*dVdy - 2/3*(dUdx + dVdy)) - p
-      FY[i, j] = -fs.rho * Igor::sqr((fs.V[i, j] + fs.V[i, j + 1]) / 2) +
-                 fs.visc * (2.0 * (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j] -
-                            2.0 / 3.0 *
-                                ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
-                                 (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
+      FY[i, j] = -fs.rho[i, j] * Igor::sqr((fs.V[i, j] + fs.V[i, j + 1]) / 2) +
+                 fs.visc[i, j] * (2.0 * (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j] -
+                                  2.0 / 3.0 *
+                                      ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
+                                       (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
                  fs.p[i, j];
     }
   }
@@ -227,6 +229,17 @@ constexpr void init_mid_and_delta(FS<Float, NX, NY>& fs) noexcept {
   for (Index j = 0; j < NY; ++j) {
     fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
     fs.dy[j] = fs.y[j + 1] - fs.y[j];
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vof, FS<Float, NX, NY>& fs) noexcept {
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      fs.rho[i, j]  = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
+      fs.visc[i, j] = vof[i, j] * fs.visc_liquid + (1.0 - vof[i, j]) * fs.visc_gas;
+    }
   }
 }
 

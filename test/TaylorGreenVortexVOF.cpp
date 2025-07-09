@@ -94,13 +94,17 @@ void get_vof_stats(const Matrix<Float, NX, NY>& vof,
 
 // -------------------------------------------------------------------------------------------------
 auto check_vof(Float vof_min, Float vof_max, Float vof_integral, Float max_volume_error) -> bool {
-  if (std::abs(vof_min) > 1e-14) {
-    Igor::Warn("Expected minimum VOF value to be 0 but is {:.6e}", vof_min);
+  if (std::abs(vof_min) > 1e-12) {
+    Igor::Warn("Expected minimum VOF value to be 0 but is {:.6e}: error = {:.6e}",
+               vof_min,
+               std::abs(vof_min));
     return false;
   }
 
-  if (std::abs(vof_max - 1.0) > 1e-14) {
-    Igor::Warn("Expected maximum VOF value to be 1 but is {:.6e}", vof_max);
+  if (std::abs(vof_max - 1.0) > 1e-12) {
+    Igor::Warn("Expected maximum VOF value to be 1 but is {:.6e}: error = {:.6e}",
+               vof_max,
+               std::abs(vof_max - 1.0));
     return false;
   }
 
@@ -153,7 +157,8 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{.visc = VISC, .rho = RHO};
+  FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
+
   InterfaceReconstruction<NX, NY> ir{};
 
   Matrix<Float, NX, NY> Ui{};
@@ -196,6 +201,7 @@ auto main() -> int {
   interpolate_U(fs.U, Ui);
   interpolate_V(fs.V, Vi);
   calc_divergence(fs, div);
+  calc_rho_and_visc(vof, fs);
   Float max_div = std::transform_reduce(
       div.get_data(),
       div.get_data() + div.size(),

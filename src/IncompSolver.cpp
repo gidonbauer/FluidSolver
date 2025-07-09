@@ -1,5 +1,5 @@
 #include <cstddef>
-#include <filesystem>
+#include <numeric>
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
@@ -11,8 +11,10 @@
 
 #include "FS.hpp"
 #include "IO.hpp"
+#include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+#include "VTKWriter.hpp"
 
 // = Config ========================================================================================
 using Float = double;
@@ -59,13 +61,42 @@ constexpr FlowBConds<Float> bconds{
 constexpr auto OUTPUT_DIR = "output/IncompSolver/";
 // = Config ========================================================================================
 
+void calc_velocity_stats(const Matrix<Float, NX + 1, NY>& U,
+                         const Matrix<Float, NX, NY + 1>& V,
+                         const Matrix<Float, NX, NY>& div,
+                         Float& U_max,
+                         Float& V_max,
+                         Float& div_max) {
+  U_max = std::transform_reduce(
+      U.get_data(),
+      U.get_data() + U.size(),
+      Float{0.0},
+      [](Float a, Float b) { return std::max(a, b); },
+      [](Float x) { return std::abs(x); });
+
+  V_max = std::transform_reduce(
+      V.get_data(),
+      V.get_data() + V.size(),
+      Float{0.0},
+      [](Float a, Float b) { return std::max(a, b); },
+      [](Float x) { return std::abs(x); });
+
+  div_max = std::transform_reduce(
+      div.get_data(),
+      div.get_data() + div.size(),
+      Float{0.0},
+      [](Float a, Float b) { return std::max(a, b); },
+      [](Float x) { return std::abs(x); });
+}
+
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{.visc = VISC, .rho = RHO};
+  FS<Float, NX, NY> fs{
+      .visc_gas = VISC, .visc_liquid = 2.0 * VISC, .rho_gas = RHO, .rho_liquid = 10.0 * RHO};
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
   PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);
@@ -74,13 +105,35 @@ auto main() -> int {
   Matrix<Float, NX, NY> Vi{};
   Matrix<Float, NX, NY> div{};
 
+  Matrix<Float, NX, NY> vof{};
+
   Matrix<Float, NX + 1, NY> drhoUdt{};
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
 
-  Float t  = 0.0;
-  Float dt = DT_MAX;
+  Float t       = 0.0;
+  Float dt      = DT_MAX;
+  Float U_max   = 0.0;
+  Float V_max   = 0.0;
+  Float div_max = 0.0;
   // = Allocate memory =============================================================================
+
+  // = Output ======================================================================================
+  VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  vtk_writer.add_scalar("density", &fs.rho);
+  vtk_writer.add_scalar("viscosity", &fs.visc);
+  vtk_writer.add_scalar("pressure", &fs.p);
+  vtk_writer.add_scalar("divergence", &div);
+  vtk_writer.add_scalar("VOF", &vof);
+  vtk_writer.add_vector("velocity", &Ui, &Vi);
+
+  Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
+  monitor.add_variable(&t, "time");
+  monitor.add_variable(&dt, "dt");
+  monitor.add_variable(&U_max, "max(U)");
+  monitor.add_variable(&V_max, "max(V)");
+  monitor.add_variable(&div_max, "max(div)");
+  // = Output ======================================================================================
 
   // = Initialize grid =============================================================================
   for (Index i = 0; i < fs.x.extent(0); ++i) {
@@ -108,10 +161,14 @@ auto main() -> int {
 
   apply_velocity_bconds(fs, bconds);
 
+  calc_rho_and_visc(vof, fs);
+
   interpolate_U(fs.U, Ui);
   interpolate_V(fs.V, Vi);
   calc_divergence(fs, div);
-  if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
+  calc_velocity_stats(fs.U, fs.V, div, U_max, V_max, div_max);
+  if (!vtk_writer.write(t)) { return 1; }
+  monitor.write();
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
@@ -178,8 +235,10 @@ auto main() -> int {
     interpolate_U(fs.U, Ui);
     interpolate_V(fs.V, Vi);
     calc_divergence(fs, div);
+    calc_velocity_stats(fs.U, fs.V, div, U_max, V_max, div_max);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
+      if (!vtk_writer.write(t)) { return 1; }
+      monitor.write();
     }
     pbar.update(dt);
   }

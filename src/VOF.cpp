@@ -138,7 +138,7 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{.visc = VISC, .rho = RHO};
+  FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
   InterfaceReconstruction<NX, NY> ir{};
 
   Matrix<Float, NX, NY> Ui{};
@@ -176,6 +176,7 @@ auto main() -> int {
   interpolate_U(fs.U, Ui);
   interpolate_V(fs.V, Vi);
   calc_divergence(fs, div);
+  calc_rho_and_visc(vof, fs);
   Float max_div = std::transform_reduce(
       div.get_data(),
       div.get_data() + div.size(),

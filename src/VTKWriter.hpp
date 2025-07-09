@@ -105,7 +105,7 @@ class VTKWriter {
     IGOR_ASSERT(x_value != nullptr, "x_value cannot be a nullptr.");
     IGOR_ASSERT(y_value != nullptr, "y_value cannot be a nullptr.");
     m_vector_names.emplace_back(std::move(name));
-    m_vector_values.emplace_back({x_value, y_value});
+    m_vector_values.push_back({x_value, y_value});
   }
 
   constexpr auto write(Float t = -1.0) -> bool {

@@ -90,6 +90,7 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
   std::fill_n(FX.get_data(), FX.size(), 0.0);
   std::fill_n(FY.get_data(), FY.size(), 0.0);
 
+  // = Hybrid interpolation scheme for high density jumps ==========================================
   const auto rho_eps = 1e-3 * std::min(fs.rho_gas, fs.rho_liquid);
   auto use_upwind    = [rho_eps](Float rho_minus, Float rho_plus) {
     return std::abs(rho_plus - rho_minus) > rho_eps;
@@ -107,6 +108,7 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
     if (velo_plus + velo_minus >= 0.0) { return {rho_minus, velo_minus}; }
     return {rho_plus, velo_plus};
   };
+  // = Hybrid interpolation scheme for high density jumps ==========================================
 
   // = Calculate dmomUdt ===========================================================================
   for (Index i = 0; i < FX.extent(0); ++i) {

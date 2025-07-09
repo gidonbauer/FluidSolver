@@ -16,8 +16,8 @@
 
 // = Config ========================================================================================
 using Float           = double;
-constexpr Index NX    = 512;
-constexpr Index NY    = 512;
+constexpr Index NX    = 32;
+constexpr Index NY    = 32;
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 1.0;
 constexpr Float Y_MIN = 0.0;

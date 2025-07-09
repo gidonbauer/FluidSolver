@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <numeric>
 
 #include <Igor/Logging.hpp>
 
@@ -123,5 +124,31 @@ class Matrix {
     return 0 <= i && i < M && 0 <= j && j < N;
   }
 };
+
+// -------------------------------------------------------------------------------------------------
+template <typename CT>
+[[nodiscard]] constexpr auto max(const CT& c) noexcept {
+  using Float = std::remove_cvref_t<decltype(*c.get_data())>;
+  static_assert(std::is_floating_point_v<Float>, "Contained must be a floating point type.");
+  return std::transform_reduce(
+      c.get_data(),
+      c.get_data() + c.size(),
+      -std::numeric_limits<Float>::max(),
+      [](Float a, Float b) { return std::max(a, b); },
+      [](Float x) { return std::abs(x); });
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename CT>
+[[nodiscard]] constexpr auto min(const CT& c) noexcept {
+  using Float = std::remove_cvref_t<decltype(*c.get_data())>;
+  static_assert(std::is_floating_point_v<Float>, "Contained must be a floating point type.");
+  return std::transform_reduce(
+      c.get_data(),
+      c.get_data() + c.size(),
+      std::numeric_limits<Float>::max(),
+      [](Float a, Float b) { return std::min(a, b); },
+      [](Float x) { return std::abs(x); });
+}
 
 #endif  // FLUID_SOLVER_CONTAINER_HPP_

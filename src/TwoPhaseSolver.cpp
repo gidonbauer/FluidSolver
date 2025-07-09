@@ -14,28 +14,32 @@
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+#include "Quadrature.hpp"
+#include "VOF.hpp"
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
 using Float = double;
 
-constexpr Index NX = 640;
+constexpr Index NX = 5 * 64;
 constexpr Index NY = 64;
 
 constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 100.0;  // 10.0;
+constexpr Float X_MAX = 5.0;
 constexpr Float Y_MIN = 0.0;
 constexpr Float Y_MAX = 1.0;
 
-constexpr Float T_END    = 60.0;  // 10.0;
+constexpr Float T_END    = 5.0;
 constexpr Float DT_MAX   = 1e-1;
 constexpr Float CFL_MAX  = 0.9;
-constexpr Float DT_WRITE = 0.5;
+constexpr Float DT_WRITE = 1e-2;
 
 constexpr Float U_BCOND = 1.0;
-constexpr Float U_0     = 1.0;   // 0.0;
-constexpr Float VISC    = 1e-3;  // 1e-1;
-constexpr Float RHO     = 0.9;
+constexpr Float U_0     = 1.0;
+constexpr Float VISC_G  = 1e-3;
+constexpr Float RHO_G   = 0.9;
+constexpr Float VISC_L  = 1e-1;
+constexpr Float RHO_L   = 1.0;
 
 constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -58,35 +62,25 @@ constexpr FlowBConds<Float> bconds{
 //     .V     = {0.0, 0.0, 0.0, 0.0},
 // };
 
-constexpr auto OUTPUT_DIR = "output/IncompSolver/";
+constexpr auto OUTPUT_DIR = "output/TwoPhaseSolver/";
 // = Config ========================================================================================
 
-void calc_velocity_stats(const Matrix<Float, NX + 1, NY>& U,
-                         const Matrix<Float, NX, NY + 1>& V,
-                         const Matrix<Float, NX, NY>& div,
-                         Float& U_max,
-                         Float& V_max,
-                         Float& div_max) {
-  U_max = std::transform_reduce(
-      U.get_data(),
-      U.get_data() + U.size(),
-      Float{0.0},
-      [](Float a, Float b) { return std::max(a, b); },
-      [](Float x) { return std::abs(x); });
+// -------------------------------------------------------------------------------------------------
+void calc_vof_stats(const FS<Float, NX, NY>& fs,
+                    const Matrix<Float, NX, NY>& vof,
+                    const Float init_vof_integral,
+                    Float& min,
+                    Float& max,
+                    Float& integral,
+                    Float& loss,
+                    Float& loss_prct) noexcept {
+  const auto [min_it, max_it] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
 
-  V_max = std::transform_reduce(
-      V.get_data(),
-      V.get_data() + V.size(),
-      Float{0.0},
-      [](Float a, Float b) { return std::max(a, b); },
-      [](Float x) { return std::abs(x); });
-
-  div_max = std::transform_reduce(
-      div.get_data(),
-      div.get_data() + div.size(),
-      Float{0.0},
-      [](Float a, Float b) { return std::max(a, b); },
-      [](Float x) { return std::abs(x); });
+  min       = *min_it;
+  max       = *max_it;
+  integral  = integrate(fs.dx, fs.dy, vof);
+  loss      = init_vof_integral - integral;
+  loss_prct = 100.0 * loss / init_vof_integral;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -95,35 +89,45 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
+  FS<Float, NX, NY> fs{
+      .visc_gas = VISC_G, .visc_liquid = VISC_L, .rho_gas = RHO_G, .rho_liquid = RHO_L};
+
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
   PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);
+
+  InterfaceReconstruction<NX, NY> ir{};
 
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
   Matrix<Float, NX, NY> div{};
 
+  Matrix<Float, NX, NY> vof{};
+
   Matrix<Float, NX + 1, NY> drhoUdt{};
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
 
-  Float t       = 0.0;
-  Float dt      = DT_MAX;
-  Float U_max   = 0.0;
-  Float V_max   = 0.0;
-  Float div_max = 0.0;
+  Float t  = 0.0;
+  Float dt = DT_MAX;
+
+  Float U_max         = 0.0;
+  Float V_max         = 0.0;
+  Float div_max       = 0.0;
+  Float vof_min       = 0.0;
+  Float vof_max       = 0.0;
+  Float vof_integral  = 0.0;
+  Float vof_loss      = 0.0;
+  Float vof_loss_prct = 0.0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
   VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  std::fill_n(fs.rho.get_data(), fs.rho.size(), RHO);
-  std::fill_n(fs.visc.get_data(), fs.visc.size(), VISC);
-
   vtk_writer.add_scalar("density", &fs.rho);
   vtk_writer.add_scalar("viscosity", &fs.visc);
   vtk_writer.add_scalar("pressure", &fs.p);
   vtk_writer.add_scalar("divergence", &div);
+  vtk_writer.add_scalar("VOF", &vof);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
@@ -132,6 +136,11 @@ auto main() -> int {
   monitor.add_variable(&U_max, "max(U)");
   monitor.add_variable(&V_max, "max(V)");
   monitor.add_variable(&div_max, "max(div)");
+  monitor.add_variable(&vof_min, "min(vof)");
+  monitor.add_variable(&vof_max, "max(vof)");
+  monitor.add_variable(&vof_integral, "int(vof)");
+  monitor.add_variable(&vof_loss, "loss(vof)");
+  monitor.add_variable(&vof_loss_prct, "loss(vof) [%]");
   // = Output ======================================================================================
 
   // = Initialize grid =============================================================================
@@ -143,6 +152,20 @@ auto main() -> int {
   }
   init_mid_and_delta(fs);
   // = Initialize grid =============================================================================
+
+  // = Initialize VOF field ========================================================================
+  auto vof0 = [](Float x, Float y) {
+    return static_cast<Float>(Igor::sqr(x - 1.0) + Igor::sqr(y - 0.5) <= Igor::sqr(0.25));
+  };
+  for (Index i = 0; i < vof.extent(0); ++i) {
+    for (Index j = 0; j < vof.extent(1); ++j) {
+      vof[i, j] =
+          quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx[i] * fs.dy[j]);
+    }
+  }
+  const Float init_vof_integral = integrate(fs.dx, fs.dy, vof);
+  localize_cells(fs.x, fs.y, ir);
+  // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
   std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
@@ -160,10 +183,16 @@ auto main() -> int {
 
   apply_velocity_bconds(fs, bconds);
 
+  calc_rho_and_visc(vof, fs);
+
   interpolate_U(fs.U, Ui);
   interpolate_V(fs.V, Vi);
   calc_divergence(fs, div);
-  calc_velocity_stats(fs.U, fs.V, div, U_max, V_max, div_max);
+  U_max   = max(fs.U);
+  V_max   = max(fs.V);
+  div_max = max(div);
+  calc_vof_stats(
+      fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -186,16 +215,16 @@ auto main() -> int {
       // = Update flow field =======================================================================
       // TODO: Handle density and interfaces
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 0; i < fs.U.extent(0); ++i) {
-        for (Index j = 0; j < fs.U.extent(1); ++j) {
-          // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.U[i, j] = fs.U_old[i, j] + dt * drhoUdt[i, j] / RHO;
+      for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
+          const auto rho = (fs.rho[i, j] + fs.rho[i - 1, j]) / 2.0;
+          fs.U[i, j]     = fs.U_old[i, j] + dt * drhoUdt[i, j] / rho;
         }
       }
-      for (Index i = 0; i < fs.V.extent(0); ++i) {
-        for (Index j = 0; j < fs.V.extent(1); ++j) {
-          // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.V[i, j] = fs.V_old[i, j] + dt * drhoVdt[i, j] / RHO;
+      for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
+          const auto rho = (fs.rho[i, j] + fs.rho[i, j - 1]) / 2.0;
+          fs.V[i, j]     = fs.V_old[i, j] + dt * drhoVdt[i, j] / rho;
         }
       }
 
@@ -209,6 +238,12 @@ auto main() -> int {
         failed = true;
       }
 
+      if (std::any_of(delta_p.get_data(), delta_p.get_data() + delta_p.size(), [](Float x) {
+            return std::isnan(x);
+          })) {
+        Igor::Panic("NaN value in delta_p.");
+      }
+
       shift_pressure_to_zero(fs, delta_p);
       for (Index i = 0; i < fs.p.extent(0); ++i) {
         for (Index j = 0; j < fs.p.extent(1); ++j) {
@@ -218,12 +253,14 @@ auto main() -> int {
 
       for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
-          fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
+          const auto rho = (fs.rho[i, j] + fs.rho[i - 1, j]) / 2.0;
+          fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / rho;
         }
       }
       for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
-          fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
+          const auto rho = (fs.rho[i, j] + fs.rho[i, j - 1]) / 2.0;
+          fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / rho;
         }
       }
     }
@@ -232,11 +269,16 @@ auto main() -> int {
     interpolate_U(fs.U, Ui);
     interpolate_V(fs.V, Vi);
     calc_divergence(fs, div);
-    calc_velocity_stats(fs.U, fs.V, div, U_max, V_max, div_max);
+    U_max   = max(fs.U);
+    V_max   = max(fs.V);
+    div_max = max(div);
+    calc_vof_stats(
+        fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
+    // Igor::Todo("Find out why the pressure correction fails.");
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
-      monitor.write();
     }
+    monitor.write();
     pbar.update(dt);
   }
   std::cout << '\n';

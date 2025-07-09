@@ -169,4 +169,18 @@ void calc_grad_of_centered_points(const Matrix<Float, NX, NY>& f,
   }
 }
 
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+constexpr auto integrate(const Vector<Float, NX>& dx,
+                         const Vector<Float, NY>& dy,
+                         const Matrix<Float, NX, NY>& field) noexcept -> Float {
+  Float integral = 0.0;
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      integral += field[i, j] * dx[i] * dy[j];
+    }
+  }
+  return integral;
+}
+
 #endif  // FLUID_SOLVER_OPERATORS_HPP_

@@ -8,6 +8,8 @@ VOF
 VOF.dSYM
 Curvature
 Curvature.dSYM
+TwoPhaseSolver
+TwoPhaseSolver.dSYM
 
 *.env
 run.slurm

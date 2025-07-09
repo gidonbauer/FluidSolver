@@ -57,8 +57,7 @@ auto main() -> int {
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
-  std::fill_n(fs.visc.get_data(), fs.visc.size(), VISC);
-  std::fill_n(fs.rho.get_data(), fs.rho.size(), RHO);
+  calc_rho_and_visc(Matrix<Float, NX, NY>{}, fs);
 
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);

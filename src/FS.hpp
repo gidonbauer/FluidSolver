@@ -17,7 +17,13 @@ struct FS {
   Float rho_liquid{};
 
   Matrix<Float, NX, NY> visc{};
+  // TODO: visc must be Interpolated onto the corners
+  // // Matrix<Float, NX + 1, NY> visc_u_stag{};
+  // Matrix<Float, NX, NY + 1> visc_v_stag{};
+
   Matrix<Float, NX, NY> rho{};
+  Matrix<Float, NX + 1, NY> rho_u_stag{};
+  Matrix<Float, NX, NY + 1> rho_v_stag{};
 
   Vector<Float, NX + 1> x{};
   Vector<Float, NX> xm{};
@@ -84,23 +90,49 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
   std::fill_n(FX.get_data(), FX.size(), 0.0);
   std::fill_n(FY.get_data(), FY.size(), 0.0);
 
+  const auto rho_eps = 1e-3 * std::min(fs.rho_gas, fs.rho_liquid);
+  auto use_upwind    = [rho_eps](Float rho_minus, Float rho_plus) {
+    return std::abs(rho_plus - rho_minus) > rho_eps;
+  };
+  auto hybrid_interp = [use_upwind](Float rho_minus,
+                                    Float rho_plus,
+                                    Float velo_minus,
+                                    Float velo_plus) -> std::array<Float, 2> {
+    if (!use_upwind(rho_minus, rho_plus)) {
+      return {
+          (rho_plus + rho_minus) / 2.0,
+          (velo_plus + velo_minus) / 2.0,
+      };
+    }
+    if (velo_plus + velo_minus >= 0.0) { return {rho_minus, velo_minus}; }
+    return {rho_plus, velo_plus};
+  };
+
   // = Calculate dmomUdt ===========================================================================
   for (Index i = 0; i < FX.extent(0); ++i) {
     for (Index j = 0; j < FX.extent(1); ++j) {
       // FX = -rho*U*U + mu*(dUdx + dUdx - 2/3*(dUdx + dVdy)) - p
       //    = -rho*U^2 + mu*(2*dUdx -2/3*(dUdx + dVdy)) - p
-      FX[i, j] = -fs.rho[i, j] * Igor::sqr((fs.U[i, j] + fs.U[i + 1, j]) / 2) +
-                 fs.visc[i, j] * (2.0 * (fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] -
-                                  2.0 / 3.0 *
-                                      ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
-                                       (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
-                 fs.p[i, j];
+      {
+        const auto [rho_hybrid, U_hybrid] =
+            hybrid_interp(fs.rho_u_stag[i, j], fs.rho_u_stag[i + 1, j], fs.U[i, j], fs.U[i + 1, j]);
+
+        FX[i, j] = -rho_hybrid * U_hybrid * ((fs.U[i + 1, j] + fs.U[i, j]) / 2) +
+                   fs.visc[i, j] * (2.0 * (fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] -
+                                    2.0 / 3.0 *
+                                        ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
+                                         (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
+                   fs.p[i, j];
+      }
 
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
         // FY = -rho*U*V + mu*(dUdy + dVdx)
-        FY[i, j] = -fs.rho[i, j] *                                          //
-                       (fs.U[i, j] + fs.U[i, j + 1]) / 2 *                  //
+        const auto [rho_hybrid, U_hybrid] =
+            hybrid_interp(fs.rho_u_stag[i, j], fs.rho_u_stag[i, j + 1], fs.U[i, j], fs.U[i, j + 1]);
+
+        FY[i, j] = -rho_hybrid *                                            //
+                       U_hybrid *                                           //
                        (fs.V[i - 1, j + 1] + fs.V[i, j + 1]) / 2 +          //
                    fs.visc[i, j] *                                          //
                        ((fs.U[i, j + 1] - fs.U[i, j]) / fs.dy[j] +          //
@@ -126,9 +158,14 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
         // FX = -rho*U*V + mu*(dVdx + dUdy)
-        FX[i, j] = -fs.rho[i, j] *                                          //
+        const auto [rho_hybrid, V_hybrid] = hybrid_interp(fs.rho_v_stag[i - 1, j + 1],
+                                                          fs.rho_v_stag[i, j + 1],
+                                                          fs.V[i - 1, j + 1],
+                                                          fs.V[i, j + 1]);
+
+        FX[i, j] = -rho_hybrid *                                            //
                        (fs.U[i, j] + fs.U[i, j + 1]) / 2 *                  //
-                       (fs.V[i - 1, j + 1] + fs.V[i, j + 1]) / 2 +          //
+                       V_hybrid +                                           //
                    fs.visc[i, j] *                                          //
                        ((fs.U[i, j + 1] - fs.U[i, j]) / fs.dy[j] +          //
                         (fs.V[i, j + 1] - fs.V[i - 1, j + 1]) / fs.dx[i]);  //
@@ -139,12 +176,17 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
 
       // FY = -rho*V*V + mu*(dVdy + dVdy - 2/3*(dUdx + dVdy)) - p
       //    = -rho*V^2 + mu*(2*dVdy - 2/3*(dUdx + dVdy)) - p
-      FY[i, j] = -fs.rho[i, j] * Igor::sqr((fs.V[i, j] + fs.V[i, j + 1]) / 2) +
-                 fs.visc[i, j] * (2.0 * (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j] -
-                                  2.0 / 3.0 *
-                                      ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
-                                       (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
-                 fs.p[i, j];
+      {
+        const auto [rho_hybrid, V_hybrid] =
+            hybrid_interp(fs.rho_v_stag[i, j], fs.rho_v_stag[i, j + 1], fs.V[i, j], fs.V[i, j + 1]);
+
+        FY[i, j] = -rho_hybrid * V_hybrid * ((fs.V[i, j] + fs.V[i, j + 1]) / 2) +
+                   fs.visc[i, j] * (2.0 * (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j] -
+                                    2.0 / 3.0 *
+                                        ((fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +
+                                         (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j])) -
+                   fs.p[i, j];
+      }
     }
   }
   for (Index i = 1; i < dmomVdt.extent(0) - 1; ++i) {
@@ -242,6 +284,32 @@ constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vof, FS<Float, NX,
       fs.rho[i, j]  = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
       fs.visc[i, j] = vof[i, j] * fs.visc_liquid + (1.0 - vof[i, j]) * fs.visc_gas;
     }
+  }
+
+  for (Index i = 1; i < NX + 1 - 1; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      fs.rho_u_stag[i, j] = (fs.rho[i, j] + fs.rho[i - 1, j]) / 2.0;
+      // fs.visc_u_stag[i, j] = (fs.visc[i, j] + fs.visc[i - 1, j]) / 2.0;
+    }
+  }
+  for (Index j = 0; j < NY; ++j) {
+    fs.rho_u_stag[0, j]  = fs.rho[0, j];
+    fs.rho_u_stag[NX, j] = fs.rho[NX - 1, j];
+    // fs.visc_u_stag[0, j]  = fs.visc[0, j];
+    // fs.visc_u_stag[NX, j] = fs.visc[NX - 1, j];
+  }
+
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 1; j < NY + 1 - 1; ++j) {
+      fs.rho_v_stag[i, j] = (fs.rho[i, j] + fs.rho[i, j - 1]) / 2.0;
+      // fs.visc_v_stag[i, j] = (fs.visc[i, j] + fs.visc[i, j - 1]) / 2.0;
+    }
+  }
+  for (Index i = 0; i < NX; ++i) {
+    fs.rho_v_stag[i, 0]  = fs.rho[i, 0];
+    fs.rho_v_stag[i, NY] = fs.rho[i, NY - 1];
+    // fs.visc_v_stag[i, 0]  = fs.visc[i, 0];
+    // fs.visc_v_stag[i, NY] = fs.visc[i, NY - 1];
   }
 }
 

@@ -115,6 +115,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
     for (Index j = 0; j < FX.extent(1); ++j) {
       // FX = -rho*U*U + mu*(dUdx + dUdx - 2/3*(dUdx + dVdy)) - p
       //    = -rho*U^2 + mu*(2*dUdx -2/3*(dUdx + dVdy)) - p
+
+      // = On center mesh ========================
       {
         const auto [rho_hybrid, U_hybrid] =
             hybrid_interp(fs.rho_u_stag[i, j], fs.rho_u_stag[i + 1, j], fs.U[i, j], fs.U[i + 1, j]);
@@ -130,13 +132,17 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
         // FY = -rho*U*V + mu*(dUdy + dVdx)
+
+        // = On corner mesh ======================
         const auto [rho_hybrid, U_hybrid] =
             hybrid_interp(fs.rho_u_stag[i, j], fs.rho_u_stag[i, j + 1], fs.U[i, j], fs.U[i, j + 1]);
+        const auto visc_corner =
+            (fs.visc[i - 1, j] + fs.visc[i, j] + fs.visc[i - 1, j + 1] + fs.visc[i, j + 1]) / 4.0;
 
         FY[i, j] = -rho_hybrid *                                            //
                        U_hybrid *                                           //
                        (fs.V[i - 1, j + 1] + fs.V[i, j + 1]) / 2 +          //
-                   fs.visc[i, j] *                                          //
+                   visc_corner *                                            //
                        ((fs.U[i, j + 1] - fs.U[i, j]) / fs.dy[j] +          //
                         (fs.V[i, j + 1] - fs.V[i - 1, j + 1]) / fs.dx[i]);  //
       } else {
@@ -160,15 +166,19 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
         // FX = -rho*U*V + mu*(dVdx + dUdy)
+
+        // = On corner mesh ======================
         const auto [rho_hybrid, V_hybrid] = hybrid_interp(fs.rho_v_stag[i - 1, j + 1],
                                                           fs.rho_v_stag[i, j + 1],
                                                           fs.V[i - 1, j + 1],
                                                           fs.V[i, j + 1]);
+        const auto visc_corner =
+            (fs.visc[i - 1, j] + fs.visc[i, j] + fs.visc[i - 1, j + 1] + fs.visc[i, j + 1]) / 4.0;
 
         FX[i, j] = -rho_hybrid *                                            //
                        (fs.U[i, j] + fs.U[i, j + 1]) / 2 *                  //
                        V_hybrid +                                           //
-                   fs.visc[i, j] *                                          //
+                   visc_corner *                                            //
                        ((fs.U[i, j + 1] - fs.U[i, j]) / fs.dy[j] +          //
                         (fs.V[i, j + 1] - fs.V[i - 1, j + 1]) / fs.dx[i]);  //
       } else {
@@ -178,6 +188,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
 
       // FY = -rho*V*V + mu*(dVdy + dVdy - 2/3*(dUdx + dVdy)) - p
       //    = -rho*V^2 + mu*(2*dVdy - 2/3*(dUdx + dVdy)) - p
+
+      // = On center mesh ========================
       {
         const auto [rho_hybrid, V_hybrid] =
             hybrid_interp(fs.rho_v_stag[i, j], fs.rho_v_stag[i, j + 1], fs.V[i, j], fs.V[i, j + 1]);

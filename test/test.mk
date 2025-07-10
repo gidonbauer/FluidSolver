@@ -11,6 +11,9 @@ test-%: test/%
 test/%: test/%.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} -o $@ $< ${HYPRE_LIB}
 
+# test/LaminarChannel: test/LaminarChannel.cpp ${HEADERS}
+# 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} -I${HOME}/opt/PoisFFT/src -o $@ $< -L${HOME}/opt/PoisFFT/lib/gcc -lpoisfft
+
 test/ConstantVelocityVOF: test/ConstantVelocityVOF.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 

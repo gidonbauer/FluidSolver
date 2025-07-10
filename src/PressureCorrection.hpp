@@ -329,7 +329,9 @@ class PS {
   [[nodiscard]] auto solve(const FS<Float, NX, NY>& fs,
                            const Matrix<Float, NX, NY>& div,
                            Float dt,
-                           Matrix<Float, NX, NY>& resP) -> bool {
+                           Matrix<Float, NX, NY>& resP,
+                           Float* pressure_residual = nullptr,
+                           Index* num_iter          = nullptr) -> bool {
     static std::array<char, 1024UZ> buffer{};
     HYPRE_Int ierr = 0;
     bool res       = true;
@@ -362,11 +364,11 @@ class PS {
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Solve the system ==========================================================================
-    Float final_residual = -1.0;
-    HYPRE_Int num_iter   = -1;
-    ierr                 = HYPRE_StructGMRESSolve(m_solver, m_matrix, m_rhs, m_sol);
+    Float final_residual     = -1.0;
+    HYPRE_Int local_num_iter = -1;
+    ierr                     = HYPRE_StructGMRESSolve(m_solver, m_matrix, m_rhs, m_sol);
     HYPRE_StructGMRESGetFinalRelativeResidualNorm(m_solver, &final_residual);
-    HYPRE_StructGMRESGetNumIterations(m_solver, &num_iter);
+    HYPRE_StructGMRESGetNumIterations(m_solver, &local_num_iter);
 
     for (Index i = 0; i < resP.extent(0); ++i) {
       for (Index j = 0; j < resP.extent(1); ++j) {
@@ -383,9 +385,11 @@ class PS {
       }
 
       Igor::Warn("Residual pressure correction = {}", final_residual);
-      Igor::Warn("Num. iterations pressure correction = {}", num_iter);
+      Igor::Warn("Num. iterations pressure correction = {}", local_num_iter);
       res = false;
     }
+    if (pressure_residual != nullptr) { *pressure_residual = final_residual; }
+    if (num_iter != nullptr) { *num_iter = local_num_iter; }
 
     return res;
   }

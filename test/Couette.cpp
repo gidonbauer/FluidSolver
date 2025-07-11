@@ -61,7 +61,6 @@ auto main() -> int {
 
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
-  PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
@@ -83,6 +82,7 @@ auto main() -> int {
     fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
   }
   init_mid_and_delta(fs);
+  PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
   // = Initialize grid =============================================================================
 
   // = Initialize flow field =======================================================================

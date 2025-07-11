@@ -29,19 +29,19 @@ constexpr Float X_MAX = 5.0;
 constexpr Float Y_MIN = 0.0;
 constexpr Float Y_MAX = 1.0;
 
-constexpr Float T_END    = 0.5;  // 5.0;
-constexpr Float DT_MAX   = 1e-4;
+constexpr Float T_END    = 0.1;
+constexpr Float DT_MAX   = 1e-2;
 constexpr Float CFL_MAX  = 0.5;
-constexpr Float DT_WRITE = 1e-2;
+constexpr Float DT_WRITE = 1e-3;
 
-constexpr Float U_BCOND = 1.0;
-constexpr Float U_0     = 0.0;
-constexpr Float VISC_G  = 1e-3;
-constexpr Float RHO_G   = 1.0;
-constexpr Float VISC_L  = 1e-1;
-constexpr Float RHO_L   = 10.0;
+constexpr Float U_BCOND              = 1.0;
+[[maybe_unused]] constexpr Float U_0 = 0.0;
+constexpr Float VISC_G               = 1e-3;
+constexpr Float RHO_G                = 1.0;
+constexpr Float VISC_L               = 1e-1;
+constexpr Float RHO_L                = 10.0;
 
-constexpr Float SURFACE_TENSION = 1.0 / 20.0;  // sigma
+constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
 constexpr Float CX              = 1.0;
 constexpr Float CY              = 0.5;
 constexpr Float R0              = 0.25;
@@ -102,7 +102,6 @@ auto main() -> int {
 
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
-  PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   InterfaceReconstruction<NX, NY> ir{};
   Matrix<Float, NX, NY> vof_old{};
@@ -178,6 +177,7 @@ auto main() -> int {
     fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
   }
   init_mid_and_delta(fs);
+  PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
   // = Initialize grid =============================================================================
 
   // = Initialize VOF field ========================================================================
@@ -197,12 +197,15 @@ auto main() -> int {
   for (Index i = 0; i < fs.U.extent(0); ++i) {
     for (Index j = 0; j < fs.U.extent(1); ++j) {
       // fs.U[i, j] = U_0;
-      if (i == 0 || i == fs.U.extent(0) - 1) {
-        fs.U[i, j] = fs.ym[j];
-      } else {
-        const auto v = (vof[i, j] + vof[i - 1, j]) / 2.0;
-        fs.U[i, j]   = fs.ym[j] * (1.0 - v);
-      }
+
+      fs.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
+
+      // if (i == 0 || i == fs.U.extent(0) - 1) {
+      //   fs.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
+      // } else {
+      //   const auto v = (vof[i, j] + vof[i - 1, j]) / 2.0;
+      //   fs.U[i, j]   = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j] * (1.0 - v);
+      // }
     }
   }
   for (Index i = 0; i < fs.V.extent(0); ++i) {
@@ -292,8 +295,8 @@ auto main() -> int {
       for (Index i = 0; i < NX; ++i) {
         for (Index j = 0; j < NY; ++j) {
           if (has_interface(vof_old, i, j)) {
-            const auto dkappadx = (curv[i + 1, j] - curv[i - 1, j]) / (2.0 * fs.dx[i]);
-            const auto dkappady = (curv[i, j + 1] - curv[i, j - 1]) / (2.0 * fs.dy[j]);
+            const auto dkappadx = (-curv[i + 1, j] - -curv[i - 1, j]) / (2.0 * fs.dx[i]);
+            const auto dkappady = (-curv[i, j + 1] - -curv[i, j - 1]) / (2.0 * fs.dy[j]);
 
             IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
                         "Expected exactly one plane but got {}",
@@ -317,22 +320,26 @@ auto main() -> int {
       pressure_iter += local_pressure_iter;
 
       shift_pressure_to_zero(fs, delta_p);
+      // Correct pressure
       for (Index i = 0; i < fs.p.extent(0); ++i) {
         for (Index j = 0; j < fs.p.extent(1); ++j) {
           fs.p[i, j] += delta_p[i, j];
         }
       }
 
+      // Correct velocity
       for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
-          const auto rho = (fs.rho[i, j] + fs.rho[i - 1, j]) / 2.0;
-          fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / rho;
+          const auto dpdx = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i];
+          const auto rho  = fs.rho_u_stag[i, j];
+          fs.U[i, j] -= dpdx * dt / rho;
         }
       }
       for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
-          const auto rho = (fs.rho[i, j] + fs.rho[i, j - 1]) / 2.0;
-          fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / rho;
+          const auto dpdy = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j];
+          const auto rho  = fs.rho_v_stag[i, j];
+          fs.V[i, j] -= dpdy * dt / rho;
         }
       }
     }

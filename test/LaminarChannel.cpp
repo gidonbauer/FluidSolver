@@ -32,7 +32,7 @@ constexpr Float DT_WRITE = 1.0;
 constexpr Float U_IN   = 1.0;
 constexpr Float U_INIT = 1.0;
 constexpr Float VISC   = 1e-3;
-constexpr Float RHO    = 0.9;
+constexpr Float RHO    = 0.5;
 
 constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -61,7 +61,6 @@ auto main() -> int {
 
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
-  PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
@@ -83,6 +82,8 @@ auto main() -> int {
     fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
   }
   init_mid_and_delta(fs);
+
+  PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
   // = Initialize grid =============================================================================
 
   // = Initialize flow field =======================================================================
@@ -206,13 +207,13 @@ auto main() -> int {
     for (Index i = i_above_60 + 1; i < fs.p.extent(0); ++i) {
       const auto dpdx = (fs.p[i, NY / 2] - fs.p[i - 1, NY / 2]) / fs.dx[i];
       if (std::abs(ref_dpdx - dpdx) > TOL) {
-        Igor::Warn(
-            "Non constant dpdx after x=60: Reference dpdx(x={})={}, dpdx(x={})={} => error = {}",
-            fs.x[i_above_60 + 1],
-            ref_dpdx,
-            fs.x[i],
-            dpdx,
-            std::abs(ref_dpdx - dpdx));
+        Igor::Warn("Non constant dpdx after x=60: Reference dpdx(x={})={:.6e}, dpdx(x={})={:.6e} "
+                   "=> error = {:.6e}",
+                   fs.x[i_above_60 + 1],
+                   ref_dpdx,
+                   fs.x[i],
+                   dpdx,
+                   std::abs(ref_dpdx - dpdx));
       }
     }
   }
@@ -243,10 +244,10 @@ auto main() -> int {
     for (size_t i : i_check) {
       const auto err = L1_errors[counter++];
       if (err > TOL) {
-        Igor::Warn(
-            "U-velocity profile at x={} does not align with analytical solution: L1-error is {}",
-            fs.x[static_cast<Index>(i)],
-            err);
+        Igor::Warn("U-velocity profile at x={} does not align with analytical solution: L1-error "
+                   "is {:.6e}",
+                   fs.x[static_cast<Index>(i)],
+                   err);
         any_test_failed = true;
       }
     }

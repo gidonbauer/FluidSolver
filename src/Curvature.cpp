@@ -6,6 +6,7 @@
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
 
+#include "Curvature.hpp"
 #include "FS.hpp"
 #include "IO.hpp"
 #include "Monitor.hpp"
@@ -32,41 +33,6 @@ constexpr auto vof0(Float x, Float y) {
 
 constexpr auto OUTPUT_DIR = "output/Curvature";
 // = Config ========================================================================================
-
-// -------------------------------------------------------------------------------------------------
-void smooth_vof_field(const Vector<Float, NX>& xm,
-                      const Vector<Float, NY>& ym,
-                      const Matrix<Float, NX, NY>& vof,
-                      Matrix<Float, NX, NY>& vof_smooth) noexcept {
-  // They used 4 in the paper but 16 seems to work better for me
-  constexpr Index NUM_SMOOTHING_CELLS = 16;
-  constexpr Float SMOOTHING_LENGTH    = NUM_SMOOTHING_CELLS * std::max(DX, DY);
-  constexpr auto smoothing_kernel     = [](Float distance) {
-    IGOR_ASSERT(distance >= 0.0, "Distance must be positive but is {}", distance);
-    distance /= SMOOTHING_LENGTH;
-    if (distance >= 1.0) { return 0.0; }
-    return std::pow(1.0 - Igor::sqr(distance), 4.0);
-  };
-
-  constexpr auto distance = [](Float x1, Float y1, Float x2, Float y2) {
-    return std::sqrt(Igor::sqr(x2 - x1) + Igor::sqr(y2 - y1));
-  };
-
-#pragma omp parallel for collapse(2)
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      vof_smooth[i, j] = 0.0;
-      for (Index di = -NUM_SMOOTHING_CELLS; di <= NUM_SMOOTHING_CELLS; ++di) {
-        for (Index dj = -NUM_SMOOTHING_CELLS; dj <= NUM_SMOOTHING_CELLS; ++dj) {
-          if (vof.is_valid_index(i + di, j + dj)) {
-            vof_smooth[i, j] += vof[i + di, j + dj] *
-                                smoothing_kernel(distance(xm[i], ym[j], xm[i + di], ym[j + dj]));
-          }
-        }
-      }
-    }
-  }
-}
 
 auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }

@@ -1,5 +1,4 @@
 #include <cstddef>
-#include <numeric>
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
@@ -9,6 +8,7 @@
 
 // #define FS_HYPRE_VERBOSE
 
+#include "Curvature.hpp"
 #include "FS.hpp"
 #include "IO.hpp"
 #include "Monitor.hpp"
@@ -29,7 +29,7 @@ constexpr Float X_MAX = 5.0;
 constexpr Float Y_MIN = 0.0;
 constexpr Float Y_MAX = 1.0;
 
-constexpr Float T_END    = 5.0;
+constexpr Float T_END    = 0.5;  // 5.0;
 constexpr Float DT_MAX   = 1e-4;
 constexpr Float CFL_MAX  = 0.5;
 constexpr Float DT_WRITE = 1e-2;
@@ -52,23 +52,23 @@ constexpr auto vof0             = [](Float x, Float y) {
 constexpr int PRESSURE_MAX_ITER = 10;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr Index NUM_SUBITER = 5;
+constexpr Index NUM_SUBITER = 2;  // 5;
 
 // Channel flow
-constexpr FlowBConds<Float> bconds{
-    //        LEFT              RIGHT           BOTTOM            TOP
-    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {U_BCOND, 0.0, 0.0, 0.0},
-    .V     = {0.0, 0.0, 0.0, 0.0},
-};
-
-// // Couette flow
 // constexpr FlowBConds<Float> bconds{
-//     //        LEFT            RIGHT           BOTTOM            TOP
-//     .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-//     .U     = {0.0, 0.0, 0.0, U_BCOND},
+//     //        LEFT              RIGHT           BOTTOM            TOP
+//     .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+//     .U     = {U_BCOND, 0.0, 0.0, 0.0},
 //     .V     = {0.0, 0.0, 0.0, 0.0},
 // };
+
+// Couette flow
+constexpr FlowBConds<Float> bconds{
+    //        LEFT            RIGHT           BOTTOM            TOP
+    .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+    .U     = {0.0, 0.0, 0.0, U_BCOND},
+    .V     = {0.0, 0.0, 0.0, 0.0},
+};
 
 constexpr auto OUTPUT_DIR = "output/TwoPhaseSolver/";
 // = Config ========================================================================================
@@ -105,13 +105,14 @@ auto main() -> int {
   PS<Float, NX, NY> ps(dx, dy, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   InterfaceReconstruction<NX, NY> ir{};
+  Matrix<Float, NX, NY> vof_old{};
+  Matrix<Float, NX, NY> vof{};
+  Matrix<Float, NX, NY> vof_smooth{};
+  Matrix<Float, NX, NY> curv{};
 
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
   Matrix<Float, NX, NY> div{};
-
-  Matrix<Float, NX, NY> vof_old{};
-  Matrix<Float, NX, NY> vof{};
 
   Matrix<Float, NX + 1, NY> drhoUdt{};
   Matrix<Float, NX, NY + 1> drhoVdt{};
@@ -146,6 +147,7 @@ auto main() -> int {
   vtk_writer.add_scalar("divergence", &div);
   vtk_writer.add_scalar("VOF", &vof);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
+  vtk_writer.add_scalar("curvature", &curv);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -194,7 +196,13 @@ auto main() -> int {
 
   for (Index i = 0; i < fs.U.extent(0); ++i) {
     for (Index j = 0; j < fs.U.extent(1); ++j) {
-      fs.U[i, j] = U_0;
+      // fs.U[i, j] = U_0;
+      if (i == 0 || i == fs.U.extent(0) - 1) {
+        fs.U[i, j] = fs.ym[j];
+      } else {
+        const auto v = (vof[i, j] + vof[i - 1, j]) / 2.0;
+        fs.U[i, j]   = fs.ym[j] * (1.0 - v);
+      }
     }
   }
   for (Index i = 0; i < fs.V.extent(0); ++i) {
@@ -235,11 +243,12 @@ auto main() -> int {
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs.x, fs.y, vof_old, ir);
 
-    // interpolate_U(fs.U, Ui);
-    // interpolate_V(fs.V, Vi);
-    // advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
-    calc_rho_and_visc(vof, fs);
+    interpolate_U(fs.U, Ui);
+    interpolate_V(fs.V, Vi);
+    advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
+    calc_rho_and_visc(vof_old, fs);
 
+    pressure_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.U, fs.U_old);
       calc_mid_time(fs.V, fs.V_old);
@@ -264,39 +273,48 @@ auto main() -> int {
 
       calc_divergence(fs, div);
       // TODO: Add capillary forces here.
+#ifdef ANALYTIC_CURVATURE
       {
         auto get_curvature = [](Float x, Float y) {
           return 1.0 / std::sqrt(Igor::sqr(x - CX) + Igor::sqr(y - CY));
         };
         for (Index i = 0; i < NX; ++i) {
           for (Index j = 0; j < NY; ++j) {
-            if (has_interface(vof, i, j)) {
-              const auto dkappadx =
-                  (get_curvature(fs.xm[i + 1], fs.ym[j]) - get_curvature(fs.xm[i - 1], fs.ym[j])) /
-                  (2.0 * fs.dx[i]);
-              const auto dkappady =
-                  (get_curvature(fs.xm[i], fs.ym[j + 1]) - get_curvature(fs.xm[i], fs.ym[j - 1])) /
-                  (2.0 * fs.dy[j]);
+            curv[i, j] = get_curvature(fs.xm[i], fs.ym[j]);
+          }
+        }
+      }
+#else
+      smooth_vof_field(fs.xm, fs.ym, vof_old, vof_smooth);
+      calc_curvature(dx, dy, vof_old, vof_smooth, curv);
+#endif
 
-              IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
-                          "Expected exactly one plane but got {}",
-                          ir.interface[i, j].getNumberOfPlanes());
+      for (Index i = 0; i < NX; ++i) {
+        for (Index j = 0; j < NY; ++j) {
+          if (has_interface(vof_old, i, j)) {
+            const auto dkappadx = (curv[i + 1, j] - curv[i - 1, j]) / (2.0 * fs.dx[i]);
+            const auto dkappady = (curv[i, j + 1] - curv[i, j - 1]) / (2.0 * fs.dy[j]);
 
-              const IRL::Normal n = ir.interface[i, j][0].normal();
-              IGOR_ASSERT(std::abs(n[2]) < 1e-12,
-                          "Expected z-component of normal to be 0 but is {:.6e}",
-                          n[2]);
+            IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
+                        "Expected exactly one plane but got {}",
+                        ir.interface[i, j].getNumberOfPlanes());
 
-              div[i, j] += dt * 2.0 * SURFACE_TENSION * (n[0] * dkappadx + n[1] * dkappady);
-            }
+            const IRL::Normal n = ir.interface[i, j][0].normal();
+            IGOR_ASSERT(std::abs(n[2]) < 1e-12,
+                        "Expected z-component of normal to be 0 but is {:.6e}",
+                        n[2]);
+
+            div[i, j] += dt * 2.0 * SURFACE_TENSION * (n[0] * dkappadx + n[1] * dkappady);
           }
         }
       }
 
-      if (!ps.solve(fs, div, dt, delta_p, &pressure_res, &pressure_iter)) {
+      Index local_pressure_iter = 0;
+      if (!ps.solve(fs, div, dt, delta_p, &pressure_res, &local_pressure_iter)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
         failed = true;
       }
+      pressure_iter += local_pressure_iter;
 
       shift_pressure_to_zero(fs, delta_p);
       for (Index i = 0; i < fs.p.extent(0); ++i) {

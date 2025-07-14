@@ -31,7 +31,11 @@ AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 PackConstructorInitializers: Never
 BreakConstructorInitializers: BeforeColon
 
-AlignConsecutiveAssignments: true
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: false
+  AlignCompound: true
 
 BinPackArguments: false
 BinPackParameters: false

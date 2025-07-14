@@ -14,30 +14,30 @@
 #include "Common.hpp"
 
 // = Config ========================================================================================
-using Float = double;
+using Float                     = double;
 
-constexpr Index NX = 500;
-constexpr Index NY = 51;
+constexpr Index NX              = 500;
+constexpr Index NY              = 51;
 
-constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 100.0;
-constexpr Float Y_MIN = 0.0;
-constexpr Float Y_MAX = 1.0;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 100.0;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END    = 60.0;
-constexpr Float DT_MAX   = 1e-1;
-constexpr Float CFL_MAX  = 0.9;
-constexpr Float DT_WRITE = 1.0;
+constexpr Float T_END           = 60.0;
+constexpr Float DT_MAX          = 1e-1;
+constexpr Float CFL_MAX         = 0.9;
+constexpr Float DT_WRITE        = 1.0;
 
-constexpr Float U_IN   = 1.0;
-constexpr Float U_INIT = 1.0;
-constexpr Float VISC   = 1e-3;
-constexpr Float RHO    = 0.5;
+constexpr Float U_IN            = 1.0;
+constexpr Float U_INIT          = 1.0;
+constexpr Float VISC            = 1e-3;
+constexpr Float RHO             = 0.5;
 
 constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr Index NUM_SUBITER = 5;
+constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -148,6 +148,15 @@ auto main() -> int {
         failed = true;
       }
 
+      {
+        if (std::any_of(delta_p.get_data(), delta_p.get_data() + delta_p.size(), [](Float x) {
+              return std::isnan(x);
+            })) {
+          Igor::Warn("Encountered NaN value in pressure correction.");
+          return 1;
+        }
+      }
+
       shift_pressure_to_zero(fs, delta_p);
       for (Index i = 0; i < fs.p.extent(0); ++i) {
         for (Index j = 0; j < fs.p.extent(1); ++j) {
@@ -182,7 +191,7 @@ auto main() -> int {
   }
 
   // = Perform tests ===============================================================================
-  bool any_test_failed = false;
+  bool any_test_failed  = false;
 
   const auto i_above_60 = static_cast<Index>(std::find_if(fs.x.get_data(),
                                                           fs.x.get_data() + fs.x.size(),
@@ -220,7 +229,7 @@ auto main() -> int {
 
   // Test U profile
   {
-    constexpr Float TOL = 1e-2;
+    constexpr Float TOL = 2e-3;
     auto u_analytical   = [](Float y, Float dpdx) -> Float {
       return dpdx / (2 * VISC) * (y * y - y);
     };

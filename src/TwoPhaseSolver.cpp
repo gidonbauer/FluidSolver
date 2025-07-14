@@ -19,56 +19,56 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float = double;
+using Float                          = double;
 
-constexpr Index NX = 5 * 128;
-constexpr Index NY = 128;
+constexpr Index NX                   = 5 * 128;
+constexpr Index NY                   = 128;
 
-constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 5.0;
-constexpr Float Y_MIN = 0.0;
-constexpr Float Y_MAX = 1.0;
+constexpr Float X_MIN                = 0.0;
+constexpr Float X_MAX                = 5.0;
+constexpr Float Y_MIN                = 0.0;
+constexpr Float Y_MAX                = 1.0;
 
-constexpr Float T_END    = 0.1;
-constexpr Float DT_MAX   = 1e-2;
-constexpr Float CFL_MAX  = 0.5;
-constexpr Float DT_WRITE = 1e-3;
+constexpr Float T_END                = 1.0;
+constexpr Float DT_MAX               = 1e-2;
+constexpr Float CFL_MAX              = 0.5;
+constexpr Float DT_WRITE             = 1e-3;
 
 constexpr Float U_BCOND              = 1.0;
-[[maybe_unused]] constexpr Float U_0 = 0.0;
+[[maybe_unused]] constexpr Float U_0 = 1.0;
 constexpr Float VISC_G               = 1e-3;
 constexpr Float RHO_G                = 1.0;
-constexpr Float VISC_L               = 1e-1;
-constexpr Float RHO_L                = 10.0;
+constexpr Float VISC_L               = VISC_G;  // 1e-1;
+constexpr Float RHO_L                = 10.0;    // RHO_G;
 
-constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
-constexpr Float CX              = 1.0;
-constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.25;
-constexpr auto vof0             = [](Float x, Float y) {
+constexpr Float SURFACE_TENSION      = 0.0;  // 1.0 / 20.0;  // sigma
+constexpr Float CX                   = 1.0;
+constexpr Float CY                   = 0.5;
+constexpr Float R0                   = 0.25;
+constexpr auto vof0                  = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
 
 constexpr int PRESSURE_MAX_ITER = 10;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr Index NUM_SUBITER = 2;  // 5;
+constexpr Index NUM_SUBITER     = 2;  // 5;
 
 // Channel flow
-// constexpr FlowBConds<Float> bconds{
-//     //        LEFT              RIGHT           BOTTOM            TOP
-//     .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-//     .U     = {U_BCOND, 0.0, 0.0, 0.0},
-//     .V     = {0.0, 0.0, 0.0, 0.0},
-// };
-
-// Couette flow
 constexpr FlowBConds<Float> bconds{
-    //        LEFT            RIGHT           BOTTOM            TOP
-    .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {0.0, 0.0, 0.0, U_BCOND},
+    //        LEFT              RIGHT           BOTTOM            TOP
+    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+    .U     = {U_BCOND, 0.0, 0.0, 0.0},
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
+
+// Couette flow
+// constexpr FlowBConds<Float> bconds{
+//     //        LEFT            RIGHT           BOTTOM            TOP
+//     .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+//     .U     = {0.0, 0.0, 0.0, U_BCOND},
+//     .V     = {0.0, 0.0, 0.0, 0.0},
+// };
 
 constexpr auto OUTPUT_DIR = "output/TwoPhaseSolver/";
 // = Config ========================================================================================
@@ -84,11 +84,11 @@ void calc_vof_stats(const FS<Float, NX, NY>& fs,
                     Float& loss_prct) noexcept {
   const auto [min_it, max_it] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
 
-  min       = *min_it;
-  max       = *max_it;
-  integral  = integrate(fs.dx, fs.dy, vof);
-  loss      = init_vof_integral - integral;
-  loss_prct = 100.0 * loss / init_vof_integral;
+  min                         = *min_it;
+  max                         = *max_it;
+  integral                    = integrate(fs.dx, fs.dy, vof);
+  loss                        = init_vof_integral - integral;
+  loss_prct                   = 100.0 * loss / init_vof_integral;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -118,14 +118,14 @@ auto main() -> int {
   Matrix<Float, NX, NY> delta_p{};
 
   // Observation variables
-  Float t  = 0.0;
-  Float dt = DT_MAX;
+  Float t             = 0.0;
+  Float dt            = DT_MAX;
 
-  Float U_max = 0.0;
-  Float V_max = 0.0;
+  Float U_max         = 0.0;
+  Float V_max         = 0.0;
 
-  Float div_max = 0.0;
-  Float div_L1  = 0.0;
+  Float div_max       = 0.0;
+  Float div_L1        = 0.0;
 
   Float vof_min       = 0.0;
   Float vof_max       = 0.0;
@@ -196,9 +196,9 @@ auto main() -> int {
 
   for (Index i = 0; i < fs.U.extent(0); ++i) {
     for (Index j = 0; j < fs.U.extent(1); ++j) {
-      // fs.U[i, j] = U_0;
+      fs.U[i, j] = U_0;
 
-      fs.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
+      // fs.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
 
       // if (i == 0 || i == fs.U.extent(0) - 1) {
       //   fs.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
@@ -250,6 +250,7 @@ auto main() -> int {
     interpolate_V(fs.V, Vi);
     advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
     calc_rho_and_visc(vof_old, fs);
+    ps.setup(fs);
 
     pressure_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
@@ -260,14 +261,12 @@ auto main() -> int {
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
-          const auto rho = (fs.rho[i, j] + fs.rho[i - 1, j]) / 2.0;
-          fs.U[i, j]     = fs.U_old[i, j] + dt * drhoUdt[i, j] / rho;
+          fs.U[i, j] = fs.U_old[i, j] + dt * drhoUdt[i, j] / fs.rho_u_stag[i, j];
         }
       }
       for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
-          const auto rho = (fs.rho[i, j] + fs.rho[i, j - 1]) / 2.0;
-          fs.V[i, j]     = fs.V_old[i, j] + dt * drhoVdt[i, j] / rho;
+          fs.V[i, j] = fs.V_old[i, j] + dt * drhoVdt[i, j] / fs.rho_v_stag[i, j];
         }
       }
 
@@ -318,6 +317,14 @@ auto main() -> int {
         failed = true;
       }
       pressure_iter += local_pressure_iter;
+      {
+        if (std::isnan(pressure_res) || std::any_of(delta_p.get_data(),
+                                                    delta_p.get_data() + delta_p.size(),
+                                                    [](Float x) { return std::isnan(x); })) {
+          Igor::Warn("t={}, subiter={}: NaN value in pressure correction.", t, sub_iter);
+          return 1;
+        }
+      }
 
       shift_pressure_to_zero(fs, delta_p);
       // Correct pressure
@@ -330,16 +337,16 @@ auto main() -> int {
       // Correct velocity
       for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
-          const auto dpdx = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i];
-          const auto rho  = fs.rho_u_stag[i, j];
-          fs.U[i, j] -= dpdx * dt / rho;
+          const auto dpdx  = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i];
+          const auto rho   = fs.rho_u_stag[i, j];
+          fs.U[i, j]      -= dpdx * dt / rho;
         }
       }
       for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
-          const auto dpdy = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j];
-          const auto rho  = fs.rho_v_stag[i, j];
-          fs.V[i, j] -= dpdy * dt / rho;
+          const auto dpdy  = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j];
+          const auto rho   = fs.rho_v_stag[i, j];
+          fs.V[i, j]      -= dpdy * dt / rho;
         }
       }
     }

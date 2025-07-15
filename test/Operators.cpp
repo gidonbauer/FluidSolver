@@ -10,11 +10,11 @@ constexpr Float X_MAX = 4.0;
 constexpr Float Y_MIN = -1.0;
 constexpr Float Y_MAX = 3.0;
 
-constexpr Index NX = 200;
-constexpr Index NY = 300;
+constexpr Index NX    = 200;
+constexpr Index NY    = 300;
 
-constexpr auto DX = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+constexpr auto DX     = (X_MAX - X_MIN) / static_cast<Float>(NX);
+constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
 // -------------------------------------------------------------------------------------------------
 auto test_eval_grid_at() noexcept -> bool {
@@ -48,19 +48,19 @@ auto test_eval_grid_at() noexcept -> bool {
   auto u = [](Float x, Float y) { return 12.0 * x + y; };
   auto v = [](Float x, Float y) { return x * y - 27.31415; };
 
-  for (Index i = 0; i < fs.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.U.extent(1); ++j) {
-      fs.U[i, j] = u(fs.x[i], fs.ym[j]);
+  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
+      fs.curr.U[i, j] = u(fs.x[i], fs.ym[j]);
     }
   }
-  for (Index i = 0; i < fs.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.V.extent(1); ++j) {
-      fs.V[i, j] = v(fs.xm[i], fs.y[j]);
+  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
+      fs.curr.V[i, j] = v(fs.xm[i], fs.y[j]);
     }
   }
 
-  interpolate_U(fs.U, Ui);
-  interpolate_V(fs.V, Vi);
+  interpolate_U(fs.curr.U, Ui);
+  interpolate_V(fs.curr.V, Vi);
 
   const Index N = 50;
   for (Index i = 0; i < N; ++i) {
@@ -69,7 +69,7 @@ auto test_eval_grid_at() noexcept -> bool {
           (fs.xm[NX - 1] - fs.xm[0]) / static_cast<Float>(N - 1) * static_cast<Float>(i) + fs.xm[0];
       const auto y =
           (fs.ym[NY - 1] - fs.ym[0]) / static_cast<Float>(N - 1) * static_cast<Float>(j) + fs.ym[0];
-      const auto [U, V] = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, x, y);
+      const auto [U, V]  = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, x, y);
 
       constexpr auto EPS = 100.0 * std::numeric_limits<Float>::epsilon();
       if (std::abs(U - u(x, y)) > EPS) {
@@ -142,7 +142,7 @@ auto test_gradient_centered_points() noexcept -> bool {
       const Float dfdxy_expected = 1.0;
       const Float dfdyx_expected = 1.0;
 
-      constexpr Float EPS = 2e-10;
+      constexpr Float EPS        = 2e-10;
 
       if (std::abs(dfdx[i, j] - dfdx_expected) > EPS) {
         Igor::Warn(

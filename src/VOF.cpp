@@ -23,8 +23,8 @@ constexpr Float Y_MAX = 2.0 * std::numbers::pi_v<Float>;
 constexpr auto DX     = (X_MAX - X_MIN) / static_cast<Float>(NX);
 constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-constexpr Float VISC = 1e-3;
-constexpr Float RHO  = 0.9;
+constexpr Float VISC  = 1e-3;
+constexpr Float RHO   = 0.9;
 
 constexpr auto is_in(Float x, Float y) -> Float {
   return static_cast<Float>(
@@ -37,12 +37,12 @@ constexpr auto is_in(Float x, Float y) -> Float {
       Igor::sqr(x - 1.75 * std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
           Igor::sqr(0.25));
 };
-Float INIT_VOF_INT = 0.0;  // NOLINT
+Float INIT_VOF_INT        = 0.0;  // NOLINT
 
-constexpr Float DT_MAX   = 1e-2;
-constexpr Float CFL_MAX  = 0.5;
-constexpr Float T_END    = 30.0;
-constexpr Float DT_WRITE = 5e-2;
+constexpr Float DT_MAX    = 1e-2;
+constexpr Float CFL_MAX   = 0.5;
+constexpr Float T_END     = 30.0;
+constexpr Float DT_WRITE  = 5e-2;
 
 constexpr auto OUTPUT_DIR = "output/VOF";
 // = Config ========================================================================================
@@ -96,8 +96,8 @@ void get_vof_stats(const Matrix<Float, NX, NY>& vof,
                    Float& loss_prct) noexcept {
   const auto [min_it, max_it] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
 
-  min      = *min_it;
-  max      = *max_it;
+  min                         = *min_it;
+  max                         = *max_it;
   integral = std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
   loss     = INIT_VOF_INT - integral;
   loss_prct = 100.0 * loss / INIT_VOF_INT;
@@ -172,9 +172,9 @@ auto main() -> int {
     }
   }
 
-  set_velocity(fs.x, fs.y, fs.xm, fs.ym, 0.0, fs.U, fs.V);
-  interpolate_U(fs.U, Ui);
-  interpolate_V(fs.V, Vi);
+  set_velocity(fs.x, fs.y, fs.xm, fs.ym, 0.0, fs.curr.U, fs.curr.V);
+  interpolate_U(fs.curr.U, Ui);
+  interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs, div);
   calc_rho_and_visc(vof, fs);
   Float max_div = std::transform_reduce(
@@ -236,9 +236,9 @@ auto main() -> int {
 
     // = Update velocity field according to analytical solution ====================================
     t += dt;
-    set_velocity(fs.x, fs.y, fs.xm, fs.ym, t, fs.U, fs.V);
-    interpolate_U(fs.U, Ui);
-    interpolate_V(fs.V, Vi);
+    set_velocity(fs.x, fs.y, fs.xm, fs.ym, t, fs.curr.U, fs.curr.V);
+    interpolate_U(fs.curr.U, Ui);
+    interpolate_V(fs.curr.V, Vi);
     calc_divergence(fs, div);
     max_div = std::transform_reduce(
         div.get_data(),

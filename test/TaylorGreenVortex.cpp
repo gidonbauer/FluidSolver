@@ -13,30 +13,30 @@
 #include "PressureCorrection.hpp"
 
 // = Config ========================================================================================
-using Float = double;
+using Float                     = double;
 
-constexpr Index NX = 128;
-constexpr Index NY = 128;
+constexpr Index NX              = 128;
+constexpr Index NY              = 128;
 
-constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 2.0 * std::numbers::pi_v<Float>;
-constexpr Float Y_MIN = 0.0;
-constexpr Float Y_MAX = 2.0 * std::numbers::pi_v<Float>;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 2.0 * std::numbers::pi_v<Float>;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 2.0 * std::numbers::pi_v<Float>;
 
-constexpr Float T_END    = 5.0;
-constexpr Float DT_MAX   = 1e-2;
-constexpr Float CFL_MAX  = 0.5;
-constexpr Float DT_WRITE = 1e-2;
+constexpr Float T_END           = 5.0;
+constexpr Float DT_MAX          = 1e-2;
+constexpr Float CFL_MAX         = 0.5;
+constexpr Float DT_WRITE        = 1e-2;
 
-constexpr Float VISC = 1e-1;
-constexpr Float RHO  = 0.9;
+constexpr Float VISC            = 1e-1;
+constexpr Float RHO             = 0.9;
 
 constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr Index NUM_SUBITER = 2;
+constexpr Index NUM_SUBITER     = 2;
 
-constexpr auto OUTPUT_DIR = "test/output/TaylorGreenVortex/";
+constexpr auto OUTPUT_DIR       = "test/output/TaylorGreenVortex/";
 // = Config ========================================================================================
 
 auto F(Float t) -> Float { return std::exp(-2.0 * VISC / RHO * t); }
@@ -81,21 +81,21 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
   std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
 
-  for (Index i = 0; i < fs.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.U.extent(1); ++j) {
-      fs.U[i, j] = u_analytical(fs.x[i], fs.ym[j], 0.0);
+  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
+      fs.curr.U[i, j] = u_analytical(fs.x[i], fs.ym[j], 0.0);
     }
   }
-  for (Index i = 0; i < fs.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.V.extent(1); ++j) {
-      fs.V[i, j] = v_analytical(fs.xm[i], fs.y[j], 0.0);
+  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
+      fs.curr.V[i, j] = v_analytical(fs.xm[i], fs.y[j], 0.0);
     }
   }
 
   // apply_velocity_bconds(fs, bconds);
 
-  interpolate_U(fs.U, Ui);
-  interpolate_V(fs.V, Vi);
+  interpolate_U(fs.curr.U, Ui);
+  interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs, div);
   if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
   // = Initialize flow field =======================================================================
@@ -107,26 +107,25 @@ auto main() -> int {
     dt = std::min(dt, T_END - t);
 
     // Save previous state
-    std::copy_n(fs.U.get_data(), fs.U.size(), fs.U_old.get_data());
-    std::copy_n(fs.V.get_data(), fs.V.size(), fs.V_old.get_data());
+    save_old_state(fs.curr, fs.old);
 
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
-      calc_mid_time(fs.U, fs.U_old);
-      calc_mid_time(fs.V, fs.V_old);
+      calc_mid_time(fs.curr.U, fs.old.U);
+      calc_mid_time(fs.curr.V, fs.old.V);
 
       // = Update flow field =======================================================================
       // TODO: Handle density and interfaces
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 0; i < fs.U.extent(0); ++i) {
-        for (Index j = 0; j < fs.U.extent(1); ++j) {
+      for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+        for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.U[i, j] = fs.U_old[i, j] + dt * drhoUdt[i, j] / RHO;
+          fs.curr.U[i, j] = fs.old.U[i, j] + dt * drhoUdt[i, j] / RHO;
         }
       }
-      for (Index i = 0; i < fs.V.extent(0); ++i) {
-        for (Index j = 0; j < fs.V.extent(1); ++j) {
+      for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+        for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.V[i, j] = fs.V_old[i, j] + dt * drhoVdt[i, j] / RHO;
+          fs.curr.V[i, j] = fs.old.V[i, j] + dt * drhoVdt[i, j] / RHO;
         }
       }
 
@@ -134,32 +133,36 @@ auto main() -> int {
       // apply_velocity_bconds(fs, bconds);
       // Use custom Dirichlet boundary conditions
       {
-        for (Index j = 0; j < fs.U.extent(1); ++j) {
+        for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
           // LEFT
-          fs.U[0, j] = u_analytical(fs.x[0], fs.ym[j], t);
+          fs.curr.U[0, j] = u_analytical(fs.x[0], fs.ym[j], t);
           // RIGHT
-          fs.U[fs.U.extent(0) - 1, j] = u_analytical(fs.x[fs.U.extent(0) - 1], fs.ym[j], t);
+          fs.curr.U[fs.curr.U.extent(0) - 1, j] =
+              u_analytical(fs.x[fs.curr.U.extent(0) - 1], fs.ym[j], t);
         }
 
-        for (Index i = 0; i < fs.U.extent(0); ++i) {
+        for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
           // BOTTOM
-          fs.U[i, 0] = u_analytical(fs.x[i], fs.ym[0], t);
+          fs.curr.U[i, 0] = u_analytical(fs.x[i], fs.ym[0], t);
           // TOP
-          fs.U[i, fs.U.extent(1) - 1] = u_analytical(fs.x[i], fs.ym[fs.U.extent(1) - 1], t);
+          fs.curr.U[i, fs.curr.U.extent(1) - 1] =
+              u_analytical(fs.x[i], fs.ym[fs.curr.U.extent(1) - 1], t);
         }
 
-        for (Index j = 0; j < fs.V.extent(1); ++j) {
+        for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
           // LEFT
-          fs.V[0, j] = v_analytical(fs.xm[0], fs.y[j], t);
+          fs.curr.V[0, j] = v_analytical(fs.xm[0], fs.y[j], t);
           // RIGHT
-          fs.V[fs.V.extent(0) - 1, j] = v_analytical(fs.xm[fs.V.extent(0) - 1], fs.y[j], t);
+          fs.curr.V[fs.curr.V.extent(0) - 1, j] =
+              v_analytical(fs.xm[fs.curr.V.extent(0) - 1], fs.y[j], t);
         }
 
-        for (Index i = 0; i < fs.V.extent(0); ++i) {
+        for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
           // BOTTOM
-          fs.V[i, 0] = v_analytical(fs.xm[i], fs.y[0], t);
+          fs.curr.V[i, 0] = v_analytical(fs.xm[i], fs.y[0], t);
           // TOP
-          fs.V[i, fs.V.extent(1) - 1] = v_analytical(fs.xm[i], fs.y[fs.V.extent(1) - 1], t);
+          fs.curr.V[i, fs.curr.V.extent(1) - 1] =
+              v_analytical(fs.xm[i], fs.y[fs.curr.V.extent(1) - 1], t);
         }
       }
 
@@ -177,21 +180,21 @@ auto main() -> int {
         }
       }
 
-      for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
-          fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
+      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
+          fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
         }
       }
-      for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
-          fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
+      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
+          fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
         }
       }
     }
 
     t += dt;
-    interpolate_U(fs.U, Ui);
-    interpolate_V(fs.V, Vi);
+    interpolate_U(fs.curr.U, Ui);
+    interpolate_V(fs.curr.V, Vi);
     calc_divergence(fs, div);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
@@ -212,9 +215,9 @@ auto main() -> int {
 
   // Test U
   Float L1_error_U = 0.0;
-  for (Index i = 0; i < fs.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.U.extent(1); ++j) {
-      L1_error_U += std::abs(fs.U[i, j] - u_analytical(fs.x[i], fs.ym[j], T_END)) * vol;
+  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
+      L1_error_U += std::abs(fs.curr.U[i, j] - u_analytical(fs.x[i], fs.ym[j], T_END)) * vol;
     }
   }
   if (L1_error_U > TOL) {
@@ -224,9 +227,9 @@ auto main() -> int {
 
   // Test V
   Float L1_error_V = 0.0;
-  for (Index i = 0; i < fs.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.V.extent(1); ++j) {
-      L1_error_V += std::abs(fs.V[i, j] - v_analytical(fs.xm[i], fs.y[j], T_END)) * vol;
+  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
+      L1_error_V += std::abs(fs.curr.V[i, j] - v_analytical(fs.xm[i], fs.y[j], T_END)) * vol;
     }
   }
   if (L1_error_V > TOL) {

@@ -13,23 +13,23 @@
 #include "VOF.hpp"
 
 // = Config ========================================================================================
-using Float           = double;
-constexpr Index NX    = 128;
-constexpr Index NY    = 128;
-constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 1.0;
-constexpr Float Y_MIN = 0.0;
-constexpr Float Y_MAX = 1.0;
-constexpr auto DX     = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+using Float               = double;
+constexpr Index NX        = 128;
+constexpr Index NY        = 128;
+constexpr Float X_MIN     = 0.0;
+constexpr Float X_MAX     = 1.0;
+constexpr Float Y_MIN     = 0.0;
+constexpr Float Y_MAX     = 1.0;
+constexpr auto DX         = (X_MAX - X_MIN) / static_cast<Float>(NX);
+constexpr auto DY         = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-constexpr Float U0 = 1.0;
-constexpr Float V0 = 0.5;
+constexpr Float U0        = 1.0;
+constexpr Float V0        = 0.5;
 
-Float INIT_VOF_INT = 0.0;  // NOLINT
+Float INIT_VOF_INT        = 0.0;  // NOLINT
 
-constexpr Float DT    = 5e-3;
-constexpr Index NITER = 120;
+constexpr Float DT        = 5e-3;
+constexpr Index NITER     = 120;
 
 constexpr auto OUTPUT_DIR = "test/output/ConstantVelocityVOF";
 // = Config ========================================================================================
@@ -164,20 +164,20 @@ auto main() -> int {
     }
   }
 
-  for (Index i = 0; i < fs.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.U.extent(1); ++j) {
-      fs.U[i, j] = U0;
+  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
+      fs.curr.U[i, j] = U0;
     }
   }
 
-  for (Index i = 0; i < fs.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.V.extent(1); ++j) {
-      fs.V[i, j] = V0;
+  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
+      fs.curr.V[i, j] = V0;
     }
   }
 
-  interpolate_U(fs.U, Ui);
-  interpolate_V(fs.V, Vi);
+  interpolate_U(fs.curr.U, Ui);
+  interpolate_V(fs.curr.V, Vi);
   if (!save_vof_state(
           Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), fs.x, fs.y, vof, Ui, Vi)) {
     return 1;

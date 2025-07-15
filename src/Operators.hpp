@@ -30,8 +30,8 @@ template <typename Float, Index NX, Index NY>
 void calc_divergence(const FS<Float, NX, NY>& fs, Matrix<Float, NX, NY>& div) {
   for (Index i = 0; i < div.extent(0); ++i) {
     for (Index j = 0; j < div.extent(1); ++j) {
-      div[i, j] = (fs.U[i + 1, j] - fs.U[i, j]) / fs.dx[i] +  //
-                  (fs.V[i, j + 1] - fs.V[i, j]) / fs.dy[j];
+      div[i, j] = (fs.curr.U[i + 1, j] - fs.curr.U[i, j]) / fs.dx[i] +  //
+                  (fs.curr.V[i, j + 1] - fs.curr.V[i, j]) / fs.dy[j];
     }
   }
 }

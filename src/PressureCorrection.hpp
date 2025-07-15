@@ -149,39 +149,39 @@ class PS {
         // = x-components ==========================================================================
         if (i == 0) {
           // On left
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.rho_u_stag[i + 1, j]);
+          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.curr.rho_u_stag[i + 1, j]);
           s[S_LEFT]   += 0.0;
-          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.rho_u_stag[i + 1, j]);
+          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.curr.rho_u_stag[i + 1, j]);
         } else if (i == NX - 1) {
           // On right
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx[i]) * fs.rho_u_stag[i, j]);
-          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx[i]) * fs.rho_u_stag[i, j]);
+          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx[i]) * fs.curr.rho_u_stag[i, j]);
+          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx[i]) * fs.curr.rho_u_stag[i, j]);
           s[S_RIGHT]  += 0.0;
         } else {
           // In interior (x)
-          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx[i]) * fs.rho_u_stag[i, j]) +
-                                 -1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.rho_u_stag[i + 1, j]));
-          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx[i]) * fs.rho_u_stag[i, j]);
-          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.rho_u_stag[i + 1, j]);
+          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx[i]) * fs.curr.rho_u_stag[i, j]) +
+                                 -1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.curr.rho_u_stag[i + 1, j]));
+          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx[i]) * fs.curr.rho_u_stag[i, j]);
+          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.curr.rho_u_stag[i + 1, j]);
         }
 
         // = y-components ==========================================================================
         if (j == 0) {
           // On bottom
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.rho_v_stag[i, j + 1]);
+          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.curr.rho_v_stag[i, j + 1]);
           s[S_BOTTOM] += 0.0;
-          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.rho_v_stag[i, j + 1]);
+          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.curr.rho_v_stag[i, j + 1]);
         } else if (j == NY - 1) {
           // On top
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy[j]) * fs.rho_v_stag[i, j]);
-          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy[j]) * fs.rho_v_stag[i, j]);
+          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy[j]) * fs.curr.rho_v_stag[i, j]);
+          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy[j]) * fs.curr.rho_v_stag[i, j]);
           s[S_TOP]    += 0.0;
         } else {
           // In interior (y)
-          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy[j]) * fs.rho_v_stag[i, j]) +
-                                 -1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.rho_v_stag[i, j + 1]));
-          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy[j]) * fs.rho_v_stag[i, j]);
-          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.rho_v_stag[i, j + 1]);
+          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy[j]) * fs.curr.rho_v_stag[i, j]) +
+                                 -1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.curr.rho_v_stag[i, j + 1]));
+          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy[j]) * fs.curr.rho_v_stag[i, j]);
+          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.curr.rho_v_stag[i, j + 1]);
         }
       }
     }

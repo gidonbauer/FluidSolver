@@ -17,30 +17,30 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float = double;
+using Float                     = double;
 
-constexpr Index NX = 640;
-constexpr Index NY = 64;
+constexpr Index NX              = 640;
+constexpr Index NY              = 64;
 
-constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 100.0;  // 10.0;
-constexpr Float Y_MIN = 0.0;
-constexpr Float Y_MAX = 1.0;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 100.0;  // 10.0;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END    = 60.0;  // 10.0;
-constexpr Float DT_MAX   = 1e-1;
-constexpr Float CFL_MAX  = 0.9;
-constexpr Float DT_WRITE = 0.5;
+constexpr Float T_END           = 60.0;  // 10.0;
+constexpr Float DT_MAX          = 1e-1;
+constexpr Float CFL_MAX         = 0.9;
+constexpr Float DT_WRITE        = 0.5;
 
-constexpr Float U_BCOND = 1.0;
-constexpr Float U_0     = 1.0;   // 0.0;
-constexpr Float VISC    = 1e-3;  // 1e-1;
-constexpr Float RHO     = 0.9;
+constexpr Float U_BCOND         = 1.0;
+constexpr Float U_0             = 1.0;   // 0.0;
+constexpr Float VISC            = 1e-3;  // 1e-1;
+constexpr Float RHO             = 0.9;
 
 constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr Index NUM_SUBITER = 5;
+constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -116,10 +116,9 @@ auto main() -> int {
 
   // = Output ======================================================================================
   VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  std::fill_n(fs.rho.get_data(), fs.rho.size(), RHO);
-  std::fill_n(fs.visc.get_data(), fs.visc.size(), VISC);
+  calc_rho_and_visc(Matrix<Float, NX, NY>{}, fs);
 
-  vtk_writer.add_scalar("density", &fs.rho);
+  vtk_writer.add_scalar("density", &fs.curr.rho);
   vtk_writer.add_scalar("viscosity", &fs.visc);
   vtk_writer.add_scalar("pressure", &fs.p);
   vtk_writer.add_scalar("divergence", &div);
@@ -147,23 +146,23 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
   std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
 
-  for (Index i = 0; i < fs.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.U.extent(1); ++j) {
-      fs.U[i, j] = U_0;
+  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
+      fs.curr.U[i, j] = U_0;
     }
   }
-  for (Index i = 0; i < fs.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.V.extent(1); ++j) {
-      fs.V[i, j] = 0.0;
+  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
+      fs.curr.V[i, j] = 0.0;
     }
   }
 
   apply_velocity_bconds(fs, bconds);
 
-  interpolate_U(fs.U, Ui);
-  interpolate_V(fs.V, Vi);
+  interpolate_U(fs.curr.U, Ui);
+  interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs, div);
-  calc_velocity_stats(fs.U, fs.V, div, U_max, V_max, div_max);
+  calc_velocity_stats(fs.curr.U, fs.curr.V, div, U_max, V_max, div_max);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -176,26 +175,25 @@ auto main() -> int {
     dt = std::min(dt, T_END - t);
 
     // Save previous state
-    std::copy_n(fs.U.get_data(), fs.U.size(), fs.U_old.get_data());
-    std::copy_n(fs.V.get_data(), fs.V.size(), fs.V_old.get_data());
+    save_old_state(fs.curr, fs.old);
 
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
-      calc_mid_time(fs.U, fs.U_old);
-      calc_mid_time(fs.V, fs.V_old);
+      calc_mid_time(fs.curr.U, fs.old.U);
+      calc_mid_time(fs.curr.V, fs.old.V);
 
       // = Update flow field =======================================================================
       // TODO: Handle density and interfaces
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 0; i < fs.U.extent(0); ++i) {
-        for (Index j = 0; j < fs.U.extent(1); ++j) {
+      for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+        for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.U[i, j] = fs.U_old[i, j] + dt * drhoUdt[i, j] / RHO;
+          fs.curr.U[i, j] = fs.old.U[i, j] + dt * drhoUdt[i, j] / RHO;
         }
       }
-      for (Index i = 0; i < fs.V.extent(0); ++i) {
-        for (Index j = 0; j < fs.V.extent(1); ++j) {
+      for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+        for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
           // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.V[i, j] = fs.V_old[i, j] + dt * drhoVdt[i, j] / RHO;
+          fs.curr.V[i, j] = fs.old.V[i, j] + dt * drhoVdt[i, j] / RHO;
         }
       }
 
@@ -216,23 +214,23 @@ auto main() -> int {
         }
       }
 
-      for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
-          fs.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
+      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
+          fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
         }
       }
-      for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
-          fs.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
+      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
+          fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
         }
       }
     }
 
     t += dt;
-    interpolate_U(fs.U, Ui);
-    interpolate_V(fs.V, Vi);
+    interpolate_U(fs.curr.U, Ui);
+    interpolate_V(fs.curr.V, Vi);
     calc_divergence(fs, div);
-    calc_velocity_stats(fs.U, fs.V, div, U_max, V_max, div_max);
+    calc_velocity_stats(fs.curr.U, fs.curr.V, div, U_max, V_max, div_max);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
       monitor.write();

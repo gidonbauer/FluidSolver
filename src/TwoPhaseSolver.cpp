@@ -143,7 +143,7 @@ auto main() -> int {
 
   // = Output ======================================================================================
   VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  vtk_writer.add_scalar("density", &fs.rho);
+  vtk_writer.add_scalar("density", &fs.curr.rho);
   vtk_writer.add_scalar("viscosity", &fs.visc);
   vtk_writer.add_scalar("pressure", &fs.p);
   vtk_writer.add_scalar("divergence", &div);
@@ -198,23 +198,23 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
   std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
 
-  for (Index i = 0; i < fs.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.U.extent(1); ++j) {
-      fs.U[i, j] = U_0;
+  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
+      fs.curr.U[i, j] = U_0;
 
-      // fs.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
+      // fs.curr.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
 
-      // if (i == 0 || i == fs.U.extent(0) - 1) {
-      //   fs.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
+      // if (i == 0 || i == fs.curr.U.extent(0) - 1) {
+      //   fs.curr.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
       // } else {
       //   const auto v = (vof[i, j] + vof[i - 1, j]) / 2.0;
-      //   fs.U[i, j]   = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j] * (1.0 - v);
+      //   fs.curr.U[i, j]   = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j] * (1.0 - v);
       // }
     }
   }
-  for (Index i = 0; i < fs.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.V.extent(1); ++j) {
-      fs.V[i, j] = 0.0;
+  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
+      fs.curr.V[i, j] = 0.0;
     }
   }
 
@@ -222,14 +222,14 @@ auto main() -> int {
 
   calc_rho_and_visc(vof, fs);
 
-  interpolate_U(fs.U, Ui);
-  interpolate_V(fs.V, Vi);
+  interpolate_U(fs.curr.U, Ui);
+  interpolate_V(fs.curr.V, Vi);
   // Save uncorrected velocity
-  interpolate_U(fs.U, Ui_uncorr);
-  interpolate_V(fs.V, Vi_uncorr);
+  interpolate_U(fs.curr.U, Ui_uncorr);
+  interpolate_V(fs.curr.V, Vi_uncorr);
   calc_divergence(fs, div);
-  U_max   = max(fs.U);
-  V_max   = max(fs.V);
+  U_max   = max(fs.curr.U);
+  V_max   = max(fs.curr.V);
   div_max = max(div);
   div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
   calc_vof_stats(
@@ -246,35 +246,39 @@ auto main() -> int {
     dt = std::min(dt, T_END - t);
 
     // Save previous state
-    std::copy_n(fs.U.get_data(), fs.U.size(), fs.U_old.get_data());
-    std::copy_n(fs.V.get_data(), fs.V.size(), fs.V_old.get_data());
+    save_old_state(fs.curr, fs.old);
     std::copy_n(vof.get_data(), vof.size(), vof_old.get_data());
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs.x, fs.y, vof_old, ir);
 
-    interpolate_U(fs.U, Ui);
-    interpolate_V(fs.V, Vi);
+    interpolate_U(fs.curr.U, Ui);
+    interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
     calc_rho_and_visc(vof_old, fs);
     ps.setup(fs);
 
     pressure_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
-      calc_mid_time(fs.U, fs.U_old);
-      calc_mid_time(fs.V, fs.V_old);
+      calc_mid_time(fs.curr.U, fs.old.U);
+      calc_mid_time(fs.curr.V, fs.old.V);
+
+      // = Update the density field to make the update consistent ==================================
+      Igor::Todo("Update the density field.");
 
       // = Update flow field =======================================================================
       // TODO: The density error is here not in the pressure correction
+      // TODO: Update the density using the continuity equation (with the hybrid scheme) and use the
+      //       consistent density here
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
-          fs.U[i, j] = fs.U_old[i, j] + dt * drhoUdt[i, j] / fs.rho_u_stag[i, j];
+      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
+          fs.curr.U[i, j] = fs.old.U[i, j] + dt * drhoUdt[i, j] / fs.curr.rho_u_stag[i, j];
         }
       }
-      for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
-          fs.V[i, j] = fs.V_old[i, j] + dt * drhoVdt[i, j] / fs.rho_v_stag[i, j];
+      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
+          fs.curr.V[i, j] = fs.old.V[i, j] + dt * drhoVdt[i, j] / fs.curr.rho_v_stag[i, j];
         }
       }
 
@@ -343,32 +347,32 @@ auto main() -> int {
       }
 
       // Save uncorrected velocity
-      interpolate_U(fs.U, Ui_uncorr);
-      interpolate_V(fs.V, Vi_uncorr);
+      interpolate_U(fs.curr.U, Ui_uncorr);
+      interpolate_V(fs.curr.V, Vi_uncorr);
 
       // Correct velocity
-      for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
+      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
           const auto dpdx  = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i];
-          const auto rho   = fs.rho_u_stag[i, j];
-          fs.U[i, j]      -= dpdx * dt / rho;
+          const auto rho   = fs.curr.rho_u_stag[i, j];
+          fs.curr.U[i, j] -= dpdx * dt / rho;
         }
       }
-      for (Index i = 1; i < fs.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.V.extent(1) - 1; ++j) {
+      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
           const auto dpdy  = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j];
-          const auto rho   = fs.rho_v_stag[i, j];
-          fs.V[i, j]      -= dpdy * dt / rho;
+          const auto rho   = fs.curr.rho_v_stag[i, j];
+          fs.curr.V[i, j] -= dpdy * dt / rho;
         }
       }
     }
 
     t += dt;
-    interpolate_U(fs.U, Ui);
-    interpolate_V(fs.V, Vi);
+    interpolate_U(fs.curr.U, Ui);
+    interpolate_V(fs.curr.V, Vi);
     calc_divergence(fs, div);
-    U_max   = max(fs.U);
-    V_max   = max(fs.V);
+    U_max   = max(fs.curr.U);
+    V_max   = max(fs.curr.V);
     div_max = max(div);
     div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     calc_vof_stats(

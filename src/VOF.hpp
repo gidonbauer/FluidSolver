@@ -190,16 +190,16 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 void advect_cells(const FS<Float, NX, NY>& fs,
-                  const Matrix<Float, NX, NY>& vof,
+                  const Matrix<Float, NX, NY>& vof_old,
                   const Matrix<Float, NX, NY>& Ui,
                   const Matrix<Float, NX, NY>& Vi,
                   Float dt,
                   const InterfaceReconstruction<NX, NY>& ir,
-                  Matrix<Float, NX, NY>& vof_next,
+                  Matrix<Float, NX, NY>& vof,
                   Float* max_volume_error = nullptr) {
   constexpr Index NEIGHBORHOOD_OFFSET = 1;
 
-  Float local_max_volume_error = 0.0;
+  Float local_max_volume_error        = 0.0;
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
       // Early exit of loop iteration if we are entirely inside or outside of liquid phase
@@ -211,12 +211,12 @@ void advect_cells(const FS<Float, NX, NY>& fs,
           for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
                jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
                ++jj) {
-            neighborhood_vof_sum += vof[ii, jj];
+            neighborhood_vof_sum += vof_old[ii, jj];
           }
         }
         if (neighborhood_vof_sum < VOF_LOW) { continue; }
         if (neighborhood_vof_sum >= Igor::sqr(2.0 * NEIGHBORHOOD_OFFSET + 1.0) * VOF_HIGH) {
-          vof_next[i, j] = 1.0;
+          vof[i, j] = 1.0;
           continue;
         }
       }
@@ -245,8 +245,8 @@ void advect_cells(const FS<Float, NX, NY>& fs,
         for (auto idx : vertices) {
           barycenter += advected_cell[idx];
         }
-        barycenter /= 4.0;
-        advected_cell[cell_idx + CUBOID_OFFSETS.size()] = barycenter;
+        barycenter                                      /= 4.0;
+        advected_cell[cell_idx + CUBOID_OFFSETS.size()]  = barycenter;
       }
 #endif  // VOF_NO_CORRECTION
 
@@ -263,10 +263,10 @@ void advect_cells(const FS<Float, NX, NY>& fs,
 
         const Float correct_flux_vol = [&] {
           switch (FACE_DIRECTION[cell_idx]) {
-            case Dir::XM: return -fs.U[i, j] * fs.dy[j] * dt;
-            case Dir::XP: return fs.U[i + 1, j] * fs.dy[j] * dt;
-            case Dir::YM: return -fs.V[i, j] * fs.dx[i] * dt;
-            case Dir::YP: return fs.V[i, j + 1] * fs.dx[i] * dt;
+            case Dir::XM: return -fs.curr.U[i, j] * fs.dy[j] * dt;
+            case Dir::XP: return fs.curr.U[i + 1, j] * fs.dy[j] * dt;
+            case Dir::YM: return -fs.curr.V[i, j] * fs.dx[i] * dt;
+            case Dir::YP: return fs.curr.V[i, j + 1] * fs.dx[i] * dt;
             case Dir::ZM:
             case Dir::ZP: Igor::Panic("Unreachable"); std::unreachable();
           }
@@ -280,10 +280,10 @@ void advect_cells(const FS<Float, NX, NY>& fs,
           advected_face[counter]  = offset_to_pt(di, dj, dk);
 
           // Vertices 4-7 are the advected vertices of the face
-          const auto o               = advected_face.getNumberOfVertices() / 2;
-          advected_face[counter + o] = advected_cell[idx];
+          const auto o                = advected_face.getNumberOfVertices() / 2;
+          advected_face[counter + o]  = advected_cell[idx];
 
-          counter += 1;
+          counter                    += 1;
         }
         constexpr IRL::UnsignedIndex_t ADJUSTED_VERTEX = 8;
         // Barycenter of advected vertices is initial guess for vertex 8
@@ -305,7 +305,7 @@ void advect_cells(const FS<Float, NX, NY>& fs,
         for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
              jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
              ++jj) {
-          if (vof[ii, jj] > VOF_LOW) {
+          if (vof_old[ii, jj] > VOF_LOW) {
             overlap_vol += IRL::getVolumeMoments<IRL::Volume, IRL::RecursiveSimplexCutting>(
                 advected_cell,
                 IRL::LocalizedSeparator(&ir.cell_localizer[ii, jj], &ir.interface[ii, jj]));
@@ -313,7 +313,7 @@ void advect_cells(const FS<Float, NX, NY>& fs,
         }
       }
 
-      vof_next[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
+      vof[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
     }
   }
 

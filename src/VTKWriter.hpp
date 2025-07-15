@@ -8,6 +8,8 @@
 #include "Container.hpp"
 #include "IO.hpp"
 
+// TODO: Save as unstructured grid in VTKHDF file format
+// (https://docs.vtk.org/en/latest/design_documents/VTKFileFormats.html)
 template <typename Float, Index NX, Index NY>
 class VTKWriter {
   std::string m_output_dir;

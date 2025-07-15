@@ -44,14 +44,25 @@ struct FS {
 };
 
 template <typename Float, Index NX, Index NY>
-constexpr void save_old_state(const State<Float, NX, NY>& curr,
-                              State<Float, NX, NY>& old) noexcept {
+constexpr void save_old_velocity(const State<Float, NX, NY>& curr,
+                                 State<Float, NX, NY>& old) noexcept {
+  std::copy_n(curr.U.get_data(), curr.U.size(), old.U.get_data());
+  std::copy_n(curr.V.get_data(), curr.V.size(), old.V.get_data());
+}
+
+template <typename Float, Index NX, Index NY>
+constexpr void save_old_density(const State<Float, NX, NY>& curr,
+                                State<Float, NX, NY>& old) noexcept {
   std::copy_n(curr.rho.get_data(), curr.rho.size(), old.rho.get_data());
   std::copy_n(curr.rho_u_stag.get_data(), curr.rho_u_stag.size(), old.rho_u_stag.get_data());
   std::copy_n(curr.rho_v_stag.get_data(), curr.rho_v_stag.size(), old.rho_v_stag.get_data());
+}
 
-  std::copy_n(curr.U.get_data(), curr.U.size(), old.U.get_data());
-  std::copy_n(curr.V.get_data(), curr.V.size(), old.V.get_data());
+template <typename Float, Index NX, Index NY>
+constexpr void save_old_state(const State<Float, NX, NY>& curr,
+                              State<Float, NX, NY>& old) noexcept {
+  save_old_density(curr, old);
+  save_old_velocity(curr, old);
 }
 
 // TODO: Clipped Neumann?
@@ -86,6 +97,29 @@ auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Floa
 }
 
 // -------------------------------------------------------------------------------------------------
+// Hybrid interpolation scheme for high density jumps
+template <typename Float>
+constexpr auto
+hybrid_interp(Float rho_eps, Float rho_minus, Float rho_plus, Float velo_minus, Float velo_plus)
+    -> std::array<Float, 2> {
+  const auto use_upwind = std::abs(rho_plus - rho_minus) > rho_eps;
+
+  if (!use_upwind) {
+    return {
+        (rho_plus + rho_minus) / 2.0,
+        (velo_plus + velo_minus) / 2.0,
+    };
+  }
+  if (velo_plus + velo_minus >= 0.0) { return {rho_minus, velo_minus}; }
+  return {rho_plus, velo_plus};
+};
+
+template <typename Float, Index NX, Index NY>
+constexpr auto calc_rho_eps(const FS<Float, NX, NY>& fs) noexcept -> Float {
+  return 1e-3 * std::min(fs.rho_gas, fs.rho_liquid);
+}
+
+// -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 void calc_dmomdt(const FS<Float, NX, NY>& fs,
                  Matrix<Float, NX + 1, NY>& dmomUdt,
@@ -98,25 +132,7 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
   std::fill_n(FX.get_data(), FX.size(), 0.0);
   std::fill_n(FY.get_data(), FY.size(), 0.0);
 
-  // = Hybrid interpolation scheme for high density jumps ==========================================
-  const auto rho_eps = 1e-3 * std::min(fs.rho_gas, fs.rho_liquid);
-  auto use_upwind    = [rho_eps](Float rho_minus, Float rho_plus) {
-    return std::abs(rho_plus - rho_minus) > rho_eps;
-  };
-  auto hybrid_interp = [use_upwind](Float rho_minus,
-                                    Float rho_plus,
-                                    Float velo_minus,
-                                    Float velo_plus) -> std::array<Float, 2> {
-    if (!use_upwind(rho_minus, rho_plus)) {
-      return {
-          (rho_plus + rho_minus) / 2.0,
-          (velo_plus + velo_minus) / 2.0,
-      };
-    }
-    if (velo_plus + velo_minus >= 0.0) { return {rho_minus, velo_minus}; }
-    return {rho_plus, velo_plus};
-  };
-  // = Hybrid interpolation scheme for high density jumps ==========================================
+  const auto rho_eps = calc_rho_eps(fs);
 
   // = Calculate dmomUdt ===========================================================================
   for (Index i = 0; i < FX.extent(0); ++i) {
@@ -127,7 +143,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
 
       // = On center mesh ========================
       {
-        const auto [rho_i_hybrid, U_i_hybrid] = hybrid_interp(fs.old.rho_u_stag[i, j],
+        const auto [rho_i_hybrid, U_i_hybrid] = hybrid_interp(rho_eps,
+                                                              fs.old.rho_u_stag[i, j],
                                                               fs.old.rho_u_stag[i + 1, j],
                                                               fs.curr.U[i, j],
                                                               fs.curr.U[i + 1, j]);
@@ -142,7 +159,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
         // FY = -rho*U*V + mu*(dUdy + dVdx)
 
         // = On corner mesh ======================
-        const auto [rho_i_hybrid, U_i_hybrid] = hybrid_interp(fs.old.rho_u_stag[i, j],
+        const auto [rho_i_hybrid, U_i_hybrid] = hybrid_interp(rho_eps,
+                                                              fs.old.rho_u_stag[i, j],
                                                               fs.old.rho_u_stag[i, j + 1],
                                                               fs.curr.U[i, j],
                                                               fs.curr.U[i, j + 1]);
@@ -177,7 +195,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
         // FX = -rho*U*V + mu*(dVdx + dUdy)
 
         // = On corner mesh ======================
-        const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(fs.old.rho_v_stag[i - 1, j + 1],
+        const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(rho_eps,
+                                                              fs.old.rho_v_stag[i - 1, j + 1],
                                                               fs.old.rho_v_stag[i, j + 1],
                                                               fs.curr.V[i - 1, j + 1],
                                                               fs.curr.V[i, j + 1]);
@@ -200,7 +219,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
 
       // = On center mesh ========================
       {
-        const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(fs.old.rho_v_stag[i, j],
+        const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(rho_eps,
+                                                              fs.old.rho_v_stag[i, j],
                                                               fs.old.rho_v_stag[i, j + 1],
                                                               fs.curr.V[i, j],
                                                               fs.curr.V[i, j + 1]);
@@ -216,6 +236,96 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
     for (Index j = 1; j < dmomVdt.extent(1) - 1; ++j) {
       dmomVdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx[i - 1] +  //
                       (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
+    }
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+void calc_drhodt(const FS<Float, NX, NY>& fs,
+                 Matrix<Float, NX + 1, NY>& drho_u_stagdt,
+                 Matrix<Float, NX, NY + 1>& drho_v_stagdt) {
+  static Matrix<Float, NX, NY> FX{};
+  static Matrix<Float, NX, NY> FY{};
+  std::fill_n(drho_u_stagdt.get_data(), drho_u_stagdt.size(), 0.0);
+  std::fill_n(drho_v_stagdt.get_data(), drho_v_stagdt.size(), 0.0);
+  std::fill_n(FX.get_data(), FX.size(), 0.0);
+  std::fill_n(FY.get_data(), FY.size(), 0.0);
+
+  const auto rho_eps = calc_rho_eps(fs);
+
+  // = Calculate drhodt for U-staggered density ====================================================
+  for (Index i = 0; i < FX.extent(0); ++i) {
+    for (Index j = 0; j < FX.extent(1); ++j) {
+      // FX = rho * U
+      {
+        const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
+                                                     fs.old.rho_u_stag[i, j],
+                                                     fs.old.rho_u_stag[i + 1, j],
+                                                     fs.curr.U[i, j],
+                                                     fs.curr.U[i + 1, j]);
+        const auto U_i               = (fs.curr.U[i, j] + fs.curr.U[i + 1, j]) / 2.0;
+        FX[i, j]                     = -rho_i_hybrid * U_i;
+      }
+
+      if (i > 0 && j < FX.extent(1) - 1) {
+        // FY = rho * V
+        const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
+                                                     fs.old.rho_u_stag[i, j],
+                                                     fs.old.rho_u_stag[i, j + 1],
+                                                     fs.curr.V[i - 1, j + 1],
+                                                     fs.curr.V[i, j + 1]);
+        const auto V_i               = (fs.curr.V[i - 1, j + 1] + fs.curr.V[i, j + 1]) / 2;
+        FY[i, j]                     = -rho_i_hybrid * V_i;
+      } else {
+        // TODO: For debugging purposes, remove later.
+        FY[i, j] = std::numeric_limits<Float>::quiet_NaN();
+      }
+    }
+  }
+  for (Index i = 1; i < drho_u_stagdt.extent(0) - 1; ++i) {
+    for (Index j = 1; j < drho_u_stagdt.extent(1) - 1; ++j) {
+      drho_u_stagdt[i, j] = (FX[i, j] - FX[i - 1, j]) / fs.dx[i - 1] +  //
+                            (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
+    }
+  }
+
+  // = Calculate drhodt for V-staggered density ====================================================
+  for (Index i = 0; i < FX.extent(0); ++i) {
+    for (Index j = 0; j < FX.extent(1); ++j) {
+
+      // Prevent accessing U and V out of bounds
+      if (i > 0 && j < FX.extent(1) - 1) {
+        // FX = -rho*U*V + mu*(dVdx + dUdy)
+
+        // = On corner mesh ======================
+        const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
+                                                     fs.old.rho_v_stag[i - 1, j + 1],
+                                                     fs.old.rho_v_stag[i, j + 1],
+                                                     fs.curr.U[i, j],
+                                                     fs.curr.U[i, j + 1]);
+        const auto U_i               = (fs.curr.U[i, j] + fs.curr.U[i, j + 1]) / 2.0;
+        FX[i, j]                     = -rho_i_hybrid * U_i;
+      } else {
+        FX[i, j] = std::numeric_limits<Float>::quiet_NaN();
+      }
+
+      // = On center mesh ========================
+      {
+        const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
+                                                     fs.old.rho_v_stag[i, j],
+                                                     fs.old.rho_v_stag[i, j + 1],
+                                                     fs.curr.V[i, j],
+                                                     fs.curr.V[i, j + 1]);
+        const auto V_i               = (fs.curr.V[i, j] + fs.curr.V[i, j + 1]) / 2.0;
+        FY[i, j]                     = -rho_i_hybrid * V_i;
+      }
+    }
+  }
+  for (Index i = 1; i < drho_v_stagdt.extent(0) - 1; ++i) {
+    for (Index j = 1; j < drho_v_stagdt.extent(1) - 1; ++j) {
+      drho_v_stagdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx[i - 1] +  //
+                            (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
     }
   }
 }
@@ -297,6 +407,24 @@ void apply_velocity_bconds(FS<Float, NX, NY>& fs, const FlowBConds<Float>& bcond
         fs.curr.V[i, fs.curr.V.extent(1) - 1] = fs.curr.V[i, fs.curr.V.extent(1) - 2];
         break;
     }
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+constexpr void apply_neumann_bconds(Matrix<Float, NX, NY>& field) noexcept {
+  for (Index j = 0; j < field.extent(1); ++j) {
+    // LEFT
+    field[0, j] = field[1, j];
+    // RIGHT
+    field[field.extent(0) - 1, j] = field[field.extent(0) - 2, j];
+  }
+
+  for (Index i = 0; i < field.extent(0); ++i) {
+    // BOTTOM
+    field[i, 0] = field[i, 1];
+    // TOP
+    field[i, field.extent(1) - 1] = field[i, field.extent(1) - 2];
   }
 }
 

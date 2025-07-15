@@ -21,11 +21,11 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 5 * 128;
-constexpr Index NY              = 128;
+constexpr Index NX              = 32;  // 5 * 128;
+constexpr Index NY              = 32;  // 128;
 
 constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 5.0;
+constexpr Float X_MAX           = 1.0;  // 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
@@ -42,7 +42,7 @@ constexpr Float VISC_L          = VISC_G;  // 1e-1;
 constexpr Float RHO_L           = 10.0;    // RHO_G;
 
 constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
-constexpr Float CX              = 1.0;
+constexpr Float CX              = 0.5;  // 1.0;
 constexpr Float CY              = 0.5;
 constexpr Float R0              = 0.25;
 constexpr auto vof0             = [](Float x, Float y) {
@@ -116,6 +116,8 @@ auto main() -> int {
   Matrix<Float, NX, NY> Ui_uncorr{};
   Matrix<Float, NX, NY> Vi_uncorr{};
 
+  Matrix<Float, NX + 1, NY> drho_u_stagdt{};
+  Matrix<Float, NX, NY + 1> drho_v_stagdt{};
   Matrix<Float, NX + 1, NY> drhoUdt{};
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
@@ -240,13 +242,14 @@ auto main() -> int {
 
   Igor::ScopeTimer timer("Solver");
   bool failed = false;
-  Igor::ProgressBar<Float> pbar(T_END, 67);
+  // Igor::ProgressBar<Float> pbar(T_END, 67);
   while (t < T_END && !failed) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
+    Igor::Debug("dt = {:.6e}", dt);
 
     // Save previous state
-    save_old_state(fs.curr, fs.old);
+    save_old_velocity(fs.curr, fs.old);
     std::copy_n(vof.get_data(), vof.size(), vof_old.get_data());
 
     // = Update VOF field ==========================================================================
@@ -256,15 +259,76 @@ auto main() -> int {
     interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
     calc_rho_and_visc(vof_old, fs);
+    save_old_density(fs.curr, fs.old);
     ps.setup(fs);
 
     pressure_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
+      calc_mid_time(fs.curr.rho_u_stag, fs.old.rho_u_stag);
+      calc_mid_time(fs.curr.rho_v_stag, fs.old.rho_v_stag);
 
       // = Update the density field to make the update consistent ==================================
-      Igor::Todo("Update the density field.");
+      calc_drhodt(fs, drho_u_stagdt, drho_v_stagdt);
+      IGOR_ASSERT(std::none_of(drho_u_stagdt.get_data(),
+                               drho_u_stagdt.get_data() + drho_u_stagdt.size(),
+                               [](Float x) { return std::isnan(x); }),
+                  "NaN value in drho_u_stagdt.");
+      IGOR_ASSERT(std::none_of(drho_v_stagdt.get_data(),
+                               drho_v_stagdt.get_data() + drho_v_stagdt.size(),
+                               [](Float x) { return std::isnan(x); }),
+                  "NaN value in drho_v_stagdt.");
+
+      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      {
+        if (!to_npy(Igor::detail::format("{}/drho_u_stagdt_{}.npy", OUTPUT_DIR, sub_iter),
+                    drho_u_stagdt)) {
+          return 1;
+        }
+        if (!to_npy(Igor::detail::format("{}/drho_v_stagdt_{}.npy", OUTPUT_DIR, sub_iter),
+                    drho_v_stagdt)) {
+          return 1;
+        }
+      }
+      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+      for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.rho_u_stag.extent(1) - 1; ++j) {
+          fs.curr.rho_u_stag[i, j] = fs.old.rho_u_stag[i, j] + dt * drho_u_stagdt[i, j];
+        }
+      }
+      apply_neumann_bconds(fs.curr.rho_u_stag);
+      for (Index i = 1; i < fs.curr.rho_v_stag.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.rho_v_stag.extent(1) - 1; ++j) {
+          fs.curr.rho_v_stag[i, j] = fs.old.rho_v_stag[i, j] + dt * drho_v_stagdt[i, j];
+        }
+      }
+      apply_neumann_bconds(fs.curr.rho_v_stag);
+      interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, fs.curr.rho);
+
+      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      {
+        if (!to_npy(Igor::detail::format("{}/x.npy", OUTPUT_DIR), fs.x)) { return 1; }
+        if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), fs.xm)) { return 1; }
+        if (!to_npy(Igor::detail::format("{}/y.npy", OUTPUT_DIR), fs.y)) { return 1; }
+        if (!to_npy(Igor::detail::format("{}/ym.npy", OUTPUT_DIR), fs.ym)) { return 1; }
+        if (!to_npy(Igor::detail::format("{}/rho_u_stag_old.npy", OUTPUT_DIR), fs.old.rho_u_stag)) {
+          return 1;
+        }
+        if (!to_npy(Igor::detail::format("{}/rho_v_stag_old.npy", OUTPUT_DIR), fs.old.rho_v_stag)) {
+          return 1;
+        }
+        if (!to_npy(Igor::detail::format("{}/rho_u_stag_curr.npy", OUTPUT_DIR),
+                    fs.curr.rho_u_stag)) {
+          return 1;
+        }
+        if (!to_npy(Igor::detail::format("{}/rho_v_stag_curr.npy", OUTPUT_DIR),
+                    fs.curr.rho_v_stag)) {
+          return 1;
+        }
+      }
+      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
       // = Update flow field =======================================================================
       // TODO: The density error is here not in the pressure correction
@@ -367,6 +431,13 @@ auto main() -> int {
       }
     }
 
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    {
+      if (!to_npy(Igor::detail::format("{}/U.npy", OUTPUT_DIR), fs.curr.U)) { return 1; }
+      if (!to_npy(Igor::detail::format("{}/V.npy", OUTPUT_DIR), fs.curr.V)) { return 1; }
+    }
+    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
@@ -378,10 +449,11 @@ auto main() -> int {
     calc_vof_stats(
         fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
     // if (should_save(t, dt, DT_WRITE, T_END)) {
+    (void)DT_WRITE;
     if (!vtk_writer.write(t)) { return 1; }
     // }
     monitor.write();
-    pbar.update(dt);
+    // pbar.update(dt);
     break;
   }
   std::cout << '\n';

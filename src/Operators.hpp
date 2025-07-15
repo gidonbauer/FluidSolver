@@ -27,6 +27,18 @@ void interpolate_V(const Matrix<Float, NX, NY + 1>& V, Matrix<Float, NX, NY>& Vi
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
+void interpolate_UV_staggered_field(const Matrix<Float, NX + 1, NY>& u_stag,
+                                    const Matrix<Float, NX, NY + 1>& v_stag,
+                                    Matrix<Float, NX, NY>& interp) noexcept {
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      interp[i, j] = (u_stag[i, j] + u_stag[i + 1, j] + v_stag[i, j] + v_stag[i, j + 1]) / 4.0;
+    }
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
 void calc_divergence(const FS<Float, NX, NY>& fs, Matrix<Float, NX, NY>& div) {
   for (Index i = 0; i < div.extent(0); ++i) {
     for (Index j = 0; j < div.extent(1); ++j) {

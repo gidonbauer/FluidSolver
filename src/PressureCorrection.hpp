@@ -95,6 +95,7 @@ class PS {
     HYPRE_StructMatrixCreate(COMM, m_grid, m_stencil, &m_matrix);
     HYPRE_StructMatrixInitialize(m_matrix);
     setup_system_matrix(fs);
+    HYPRE_StructMatrixAssemble(m_matrix);
 
     // = Create right-hand side ====================================================================
     HYPRE_StructVectorCreate(COMM, m_grid, &m_rhs);
@@ -206,7 +207,6 @@ class PS {
                                    stencil_indices.data(),
                                    stencil_values.get_data()->data());
 #endif
-    HYPRE_StructMatrixAssemble(m_matrix);
   }
 
  public:

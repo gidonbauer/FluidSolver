@@ -79,10 +79,6 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
                  Matrix<Float, NX + 1, NY>& dmomUdt,
                  Matrix<Float, NX, NY + 1>& dmomVdt) {
   // TODO: Use the correct dx and dy in case of non-uniform grids (not planned at the moment)
-
-  // TODO: Interpolate onto the staggered mesh rho and visc, at the moment we assume that they are
-  //       constant and it makes no difference but for two-phase flows this is not correct anymore
-  // TODO: Use hybrid interpolation scheme: upwind in case of large density jump, centered otherwise
   static Matrix<Float, NX, NY> FX{};
   static Matrix<Float, NX, NY> FY{};
   std::fill_n(dmomUdt.get_data(), dmomUdt.size(), 0.0);

@@ -19,33 +19,33 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float                          = double;
+using Float                     = double;
 
-constexpr Index NX                   = 5 * 128;
-constexpr Index NY                   = 128;
+constexpr Index NX              = 5 * 128;
+constexpr Index NY              = 128;
 
-constexpr Float X_MIN                = 0.0;
-constexpr Float X_MAX                = 5.0;
-constexpr Float Y_MIN                = 0.0;
-constexpr Float Y_MAX                = 1.0;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 5.0;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END                = 1.0;
-constexpr Float DT_MAX               = 1e-2;
-constexpr Float CFL_MAX              = 0.5;
-constexpr Float DT_WRITE             = 1e-3;
+constexpr Float T_END           = 2e-2;  // 1.0;
+constexpr Float DT_MAX          = 1e-2;
+constexpr Float CFL_MAX         = 0.5;
+constexpr Float DT_WRITE        = 1e-3;
 
-constexpr Float U_BCOND              = 1.0;
-[[maybe_unused]] constexpr Float U_0 = 1.0;
-constexpr Float VISC_G               = 1e-3;
-constexpr Float RHO_G                = 1.0;
-constexpr Float VISC_L               = VISC_G;  // 1e-1;
-constexpr Float RHO_L                = 10.0;    // RHO_G;
+constexpr Float U_BCOND         = 1.0;
+constexpr Float U_0             = 1.0;
+constexpr Float VISC_G          = 1e-3;
+constexpr Float RHO_G           = 1.0;
+constexpr Float VISC_L          = VISC_G;  // 1e-1;
+constexpr Float RHO_L           = 10.0;    // RHO_G;
 
-constexpr Float SURFACE_TENSION      = 0.0;  // 1.0 / 20.0;  // sigma
-constexpr Float CX                   = 1.0;
-constexpr Float CY                   = 0.5;
-constexpr Float R0                   = 0.25;
-constexpr auto vof0                  = [](Float x, Float y) {
+constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
+constexpr Float CX              = 1.0;
+constexpr Float CY              = 0.5;
+constexpr Float R0              = 0.25;
+constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
 
@@ -113,6 +113,9 @@ auto main() -> int {
   Matrix<Float, NX, NY> Vi{};
   Matrix<Float, NX, NY> div{};
 
+  Matrix<Float, NX, NY> Ui_uncorr{};
+  Matrix<Float, NX, NY> Vi_uncorr{};
+
   Matrix<Float, NX + 1, NY> drhoUdt{};
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
@@ -147,6 +150,7 @@ auto main() -> int {
   vtk_writer.add_scalar("VOF", &vof);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
   vtk_writer.add_scalar("curvature", &curv);
+  vtk_writer.add_vector("velocity_uncorrected", &Ui_uncorr, &Vi_uncorr);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -220,6 +224,9 @@ auto main() -> int {
 
   interpolate_U(fs.U, Ui);
   interpolate_V(fs.V, Vi);
+  // Save uncorrected velocity
+  interpolate_U(fs.U, Ui_uncorr);
+  interpolate_V(fs.V, Vi_uncorr);
   calc_divergence(fs, div);
   U_max   = max(fs.U);
   V_max   = max(fs.V);
@@ -258,6 +265,7 @@ auto main() -> int {
       calc_mid_time(fs.V, fs.V_old);
 
       // = Update flow field =======================================================================
+      // TODO: The density error is here not in the pressure correction
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
@@ -334,6 +342,10 @@ auto main() -> int {
         }
       }
 
+      // Save uncorrected velocity
+      interpolate_U(fs.U, Ui_uncorr);
+      interpolate_V(fs.V, Vi_uncorr);
+
       // Correct velocity
       for (Index i = 1; i < fs.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.U.extent(1) - 1; ++j) {
@@ -361,11 +373,12 @@ auto main() -> int {
     div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     calc_vof_stats(
         fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
-    if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!vtk_writer.write(t)) { return 1; }
-    }
+    // if (should_save(t, dt, DT_WRITE, T_END)) {
+    if (!vtk_writer.write(t)) { return 1; }
+    // }
     monitor.write();
     pbar.update(dt);
+    break;
   }
   std::cout << '\n';
 

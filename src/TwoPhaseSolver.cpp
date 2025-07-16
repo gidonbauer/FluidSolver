@@ -19,6 +19,8 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
+// #define SAVE_INTERMEDIATES
+
 using Float                     = double;
 
 constexpr Index NX              = 5 * 32;  // 5 * 128;
@@ -35,7 +37,8 @@ constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-3;
 
 constexpr Float U_BCOND         = 1.0;
-constexpr Float U_0             = 1.0;
+// TODO: Is it unphysical to initialize the entire flow field with 1?
+constexpr Float U_0             = 0.0; 
 constexpr Float VISC_G          = 1e-3;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = VISC_G;  // 1e-1;
@@ -49,7 +52,7 @@ constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
 
-constexpr int PRESSURE_MAX_ITER = 10;
+constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 2;  // 5;
@@ -184,7 +187,6 @@ auto main() -> int {
     fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
   }
   init_mid_and_delta(fs);
-  PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
   // = Initialize grid =============================================================================
 
   // = Initialize VOF field ========================================================================
@@ -225,6 +227,7 @@ auto main() -> int {
   apply_velocity_bconds(fs, bconds);
 
   calc_rho_and_visc(ir, vof, fs);
+  PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
   interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
 
   interpolate_U(fs.curr.U, Ui);
@@ -256,20 +259,17 @@ auto main() -> int {
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs.x, fs.y, vof_old, ir);
+    calc_rho_and_visc(ir, vof_old, fs);
+    save_old_density(fs.curr, fs.old);
 
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
-    calc_rho_and_visc(ir, vof_old, fs);
-    save_old_density(fs.curr, fs.old);
-    ps.setup(fs);
 
     pressure_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
-      calc_mid_time(fs.curr.rho_u_stag, fs.old.rho_u_stag);
-      calc_mid_time(fs.curr.rho_v_stag, fs.old.rho_v_stag);
 
       // = Update the density field to make the update consistent ==================================
       calc_drhodt(fs, drho_u_stagdt, drho_v_stagdt);
@@ -283,6 +283,7 @@ auto main() -> int {
                   "NaN value in drho_v_stagdt.");
 
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#ifdef SAVE_INTERMEDIATES
       {
         if (!to_npy(Igor::detail::format("{}/drho_u_stagdt_{}.npy", OUTPUT_DIR, sub_iter),
                     drho_u_stagdt)) {
@@ -293,6 +294,7 @@ auto main() -> int {
           return 1;
         }
       }
+#endif  // SAVE_INTERMEDIATES
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
       for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
@@ -307,9 +309,11 @@ auto main() -> int {
         }
       }
       apply_neumann_bconds(fs.curr.rho_v_stag);
+      ps.setup(fs);
       interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
 
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#ifdef SAVE_INTERMEDIATES
       {
         if (!to_npy(Igor::detail::format("{}/x.npy", OUTPUT_DIR), fs.x)) { return 1; }
         if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), fs.xm)) { return 1; }
@@ -330,6 +334,7 @@ auto main() -> int {
           return 1;
         }
       }
+#endif  // SAVE_INTERMEDIATES
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
       // = Update flow field =======================================================================
@@ -347,6 +352,19 @@ auto main() -> int {
           fs.curr.V[i, j] = fs.old.V[i, j] + dt * drhoVdt[i, j] / fs.curr.rho_v_stag[i, j];
         }
       }
+
+      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#ifdef SAVE_INTERMEDIATES
+      {
+        if (!to_npy(Igor::detail::format("{}/drhoUdt_{}.npy", OUTPUT_DIR, sub_iter), drhoUdt)) {
+          return 1;
+        }
+        if (!to_npy(Igor::detail::format("{}/drhoVdt_{}.npy", OUTPUT_DIR, sub_iter), drhoVdt)) {
+          return 1;
+        }
+      }
+#endif  // SAVE_INTERMEDIATES
+      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
@@ -434,10 +452,12 @@ auto main() -> int {
     }
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#ifdef SAVE_INTERMEDIATES
     {
       if (!to_npy(Igor::detail::format("{}/U.npy", OUTPUT_DIR), fs.curr.U)) { return 1; }
       if (!to_npy(Igor::detail::format("{}/V.npy", OUTPUT_DIR), fs.curr.V)) { return 1; }
     }
+#endif  // SAVE_INTERMEDIATES
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     t += dt;
@@ -451,12 +471,13 @@ auto main() -> int {
     calc_vof_stats(
         fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      (void)DT_WRITE;
       if (!vtk_writer.write(t)) { return 1; }
     }
     monitor.write();
     // pbar.update(dt);
-    // break;
+#ifdef SAVE_INTERMEDIATES
+    break;
+#endif  // SAVE_INTERMEDIATES
   }
   std::cout << '\n';
 

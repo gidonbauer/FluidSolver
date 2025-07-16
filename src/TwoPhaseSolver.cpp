@@ -18,6 +18,9 @@
 #include "VOF.hpp"
 #include "VTKWriter.hpp"
 
+// TODO: Is it unphysical to initialize the entire flow field with 1?
+// TODO: Do we need a correction at the outlet?
+
 // = Config ========================================================================================
 // #define SAVE_INTERMEDIATES
 
@@ -37,7 +40,6 @@ constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-3;
 
 constexpr Float U_BCOND         = 1.0;
-// TODO: Is it unphysical to initialize the entire flow field with 1?
 constexpr Float U_0             = 0.0; 
 constexpr Float VISC_G          = 1e-3;
 constexpr Float RHO_G           = 1.0;

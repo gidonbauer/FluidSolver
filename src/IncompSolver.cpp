@@ -116,10 +116,8 @@ auto main() -> int {
 
   // = Output ======================================================================================
   VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  calc_rho_and_visc(Matrix<Float, NX, NY>{}, fs);
+  calc_rho_and_visc(fs);
 
-  vtk_writer.add_scalar("density", &fs.curr.rho);
-  vtk_writer.add_scalar("viscosity", &fs.visc);
   vtk_writer.add_scalar("pressure", &fs.p);
   vtk_writer.add_scalar("divergence", &div);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
@@ -161,7 +159,7 @@ auto main() -> int {
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
-  calc_divergence(fs, div);
+  calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   calc_velocity_stats(fs.curr.U, fs.curr.V, div, U_max, V_max, div_max);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
@@ -200,14 +198,14 @@ auto main() -> int {
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
-      calc_divergence(fs, div);
+      calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
       if (!ps.solve(fs, div, dt, delta_p)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
         failed = true;
       }
 
-      shift_pressure_to_zero(fs, delta_p);
+      shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       for (Index i = 0; i < fs.p.extent(0); ++i) {
         for (Index j = 0; j < fs.p.extent(1); ++j) {
           fs.p[i, j] += delta_p[i, j];
@@ -229,7 +227,7 @@ auto main() -> int {
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
-    calc_divergence(fs, div);
+    calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     calc_velocity_stats(fs.curr.U, fs.curr.V, div, U_max, V_max, div_max);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }

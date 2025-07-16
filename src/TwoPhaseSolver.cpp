@@ -21,16 +21,16 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 32;  // 5 * 128;
-constexpr Index NY              = 32;  // 128;
+constexpr Index NX              = 5 * 32;  // 5 * 128;
+constexpr Index NY              = 32;      // 128;
 
 constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 1.0;  // 5.0;
+constexpr Float X_MAX           = 5.0;  // 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 2e-2;  // 1.0;
-constexpr Float DT_MAX          = 1e-2;
+constexpr Float T_END           = 1.0;  // 2e-2;  // 1.0;
+constexpr Float DT_MAX          = 1e-3;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-3;
 
@@ -39,7 +39,7 @@ constexpr Float U_0             = 1.0;
 constexpr Float VISC_G          = 1e-3;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = VISC_G;  // 1e-1;
-constexpr Float RHO_L           = 10.0;    // RHO_G;
+constexpr Float RHO_L           = 1.0;     // RHO_G;
 
 constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
 constexpr Float CX              = 0.5;  // 1.0;
@@ -112,6 +112,7 @@ auto main() -> int {
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
   Matrix<Float, NX, NY> div{};
+  Matrix<Float, NX, NY> rhoi{};
 
   Matrix<Float, NX, NY> Ui_uncorr{};
   Matrix<Float, NX, NY> Vi_uncorr{};
@@ -145,7 +146,7 @@ auto main() -> int {
 
   // = Output ======================================================================================
   VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  vtk_writer.add_scalar("density", &fs.curr.rho);
+  vtk_writer.add_scalar("density", &rhoi);
   vtk_writer.add_scalar("viscosity", &fs.visc);
   vtk_writer.add_scalar("pressure", &fs.p);
   vtk_writer.add_scalar("divergence", &div);
@@ -195,6 +196,7 @@ auto main() -> int {
   }
   const Float init_vof_integral = integrate(fs.dx, fs.dy, vof);
   localize_cells(fs.x, fs.y, ir);
+  reconstruct_interface(fs.x, fs.y, vof, ir);
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
@@ -222,14 +224,15 @@ auto main() -> int {
 
   apply_velocity_bconds(fs, bconds);
 
-  calc_rho_and_visc(vof, fs);
+  calc_rho_and_visc(ir, vof, fs);
+  interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   // Save uncorrected velocity
   interpolate_U(fs.curr.U, Ui_uncorr);
   interpolate_V(fs.curr.V, Vi_uncorr);
-  calc_divergence(fs, div);
+  calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
   div_max = max(div);
@@ -246,7 +249,6 @@ auto main() -> int {
   while (t < T_END && !failed) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
-    Igor::Debug("dt = {:.6e}", dt);
 
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
@@ -258,7 +260,7 @@ auto main() -> int {
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
-    calc_rho_and_visc(vof_old, fs);
+    calc_rho_and_visc(ir, vof_old, fs);
     save_old_density(fs.curr, fs.old);
     ps.setup(fs);
 
@@ -305,7 +307,7 @@ auto main() -> int {
         }
       }
       apply_neumann_bconds(fs.curr.rho_v_stag);
-      interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, fs.curr.rho);
+      interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
 
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       {
@@ -349,7 +351,7 @@ auto main() -> int {
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
-      calc_divergence(fs, div);
+      calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
 #ifdef ANALYTIC_CURVATURE
       {
@@ -402,7 +404,7 @@ auto main() -> int {
         }
       }
 
-      shift_pressure_to_zero(fs, delta_p);
+      shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       // Correct pressure
       for (Index i = 0; i < fs.p.extent(0); ++i) {
         for (Index j = 0; j < fs.p.extent(1); ++j) {
@@ -441,20 +443,20 @@ auto main() -> int {
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
-    calc_divergence(fs, div);
+    calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     U_max   = max(fs.curr.U);
     V_max   = max(fs.curr.V);
     div_max = max(div);
     div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     calc_vof_stats(
         fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
-    // if (should_save(t, dt, DT_WRITE, T_END)) {
-    (void)DT_WRITE;
-    if (!vtk_writer.write(t)) { return 1; }
-    // }
+    if (should_save(t, dt, DT_WRITE, T_END)) {
+      (void)DT_WRITE;
+      if (!vtk_writer.write(t)) { return 1; }
+    }
     monitor.write();
     // pbar.update(dt);
-    break;
+    // break;
   }
   std::cout << '\n';
 

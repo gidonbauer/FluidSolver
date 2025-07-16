@@ -57,7 +57,7 @@ auto main() -> int {
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
-  calc_rho_and_visc(Matrix<Float, NX, NY>{}, fs);
+  calc_rho_and_visc(fs);
 
   constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
   constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
@@ -104,7 +104,7 @@ auto main() -> int {
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
-  calc_divergence(fs, div);
+  calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
   // = Initialize flow field =======================================================================
 
@@ -139,7 +139,7 @@ auto main() -> int {
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
-      calc_divergence(fs, div);
+      calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
       if (!ps.solve(fs, div, dt, delta_p)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
@@ -155,7 +155,7 @@ auto main() -> int {
         }
       }
 
-      shift_pressure_to_zero(fs, delta_p);
+      shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       for (Index i = 0; i < fs.p.extent(0); ++i) {
         for (Index j = 0; j < fs.p.extent(1); ++j) {
           fs.p[i, j] += delta_p[i, j];
@@ -177,7 +177,7 @@ auto main() -> int {
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
-    calc_divergence(fs, div);
+    calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
     }

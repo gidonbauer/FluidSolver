@@ -196,12 +196,13 @@ auto main() -> int {
           quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx[i] * fs.dy[j]);
     }
   }
+  reconstruct_interface(fs.x, fs.y, vof, ir);
 
   set_velocity(fs.x, fs.y, fs.xm, fs.ym, 0.0, fs.curr.U, fs.curr.V);
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
-  calc_divergence(fs, div);
-  calc_rho_and_visc(vof, fs);
+  calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+  calc_rho_and_visc(ir, vof, fs);
   Float max_div = std::transform_reduce(
       div.get_data(),
       div.get_data() + div.size(),
@@ -265,7 +266,7 @@ auto main() -> int {
     set_velocity(fs.x, fs.y, fs.xm, fs.ym, t, fs.curr.U, fs.curr.V);
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
-    calc_divergence(fs, div);
+    calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     max_div = std::transform_reduce(
         div.get_data(),
         div.get_data() + div.size(),

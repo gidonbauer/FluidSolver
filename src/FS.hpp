@@ -5,13 +5,12 @@
 
 #include <Igor/Math.hpp>
 
-// #include "Config.hpp"
 #include "Container.hpp"
+#include "IR.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 struct State {
-  Matrix<Float, NX, NY> rho{};
   Matrix<Float, NX + 1, NY> rho_u_stag{};
   Matrix<Float, NX, NY + 1> rho_v_stag{};
 
@@ -53,7 +52,6 @@ constexpr void save_old_velocity(const State<Float, NX, NY>& curr,
 template <typename Float, Index NX, Index NY>
 constexpr void save_old_density(const State<Float, NX, NY>& curr,
                                 State<Float, NX, NY>& old) noexcept {
-  std::copy_n(curr.rho.get_data(), curr.rho.size(), old.rho.get_data());
   std::copy_n(curr.rho_u_stag.get_data(), curr.rho_u_stag.size(), old.rho_u_stag.get_data());
   std::copy_n(curr.rho_v_stag.get_data(), curr.rho_v_stag.size(), old.rho_v_stag.get_data());
 }
@@ -86,10 +84,14 @@ auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Floa
 
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      CFLc_x = std::max(CFLc_x, (fs.curr.U[i, j] + fs.curr.U[i + 1, j]) / 2 / fs.dx[i]);
-      CFLc_y = std::max(CFLc_y, (fs.curr.V[i, j] + fs.curr.V[i, j + 1]) / 2 / fs.dy[j]);
-      CFLv_x = std::max(CFLv_x, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dx[i]) * fs.curr.rho[i, j]));
-      CFLv_y = std::max(CFLv_y, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dy[j]) * fs.curr.rho[i, j]));
+      CFLc_x         = std::max(CFLc_x, (fs.curr.U[i, j] + fs.curr.U[i + 1, j]) / 2 / fs.dx[i]);
+      CFLc_y         = std::max(CFLc_y, (fs.curr.V[i, j] + fs.curr.V[i, j + 1]) / 2 / fs.dy[j]);
+
+      const auto rho = (fs.curr.rho_u_stag[i, j] + fs.curr.rho_u_stag[i + 1, j] +
+                        fs.curr.rho_v_stag[i, j] + fs.curr.rho_v_stag[i, j + 1]) /
+                       4.0;
+      CFLv_x = std::max(CFLv_x, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dx[i]) * rho));
+      CFLv_y = std::max(CFLv_y, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dy[j]) * rho));
     }
   }
 
@@ -99,19 +101,23 @@ auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Floa
 // -------------------------------------------------------------------------------------------------
 // Hybrid interpolation scheme for high density jumps
 template <typename Float>
-constexpr auto
-hybrid_interp(Float rho_eps, Float rho_minus, Float rho_plus, Float velo_minus, Float velo_plus)
-    -> std::array<Float, 2> {
-  const auto use_upwind = std::abs(rho_plus - rho_minus) > rho_eps;
+constexpr auto hybrid_interp(Float rho_eps,
+                             Float interp_rho_minus,
+                             Float interp_rho_plus,
+                             Float interp_velo_minus,
+                             Float interp_velo_plus,
+                             Float transp_velo_minus,
+                             Float transp_velo_plus) -> std::array<Float, 2> {
+  const auto use_upwind = std::abs(interp_rho_plus - interp_rho_minus) > rho_eps;
 
   if (!use_upwind) {
     return {
-        (rho_plus + rho_minus) / 2.0,
-        (velo_plus + velo_minus) / 2.0,
+        (interp_rho_plus + interp_rho_minus) / 2.0,
+        (interp_velo_plus + interp_velo_minus) / 2.0,
     };
   }
-  if (velo_plus + velo_minus >= 0.0) { return {rho_minus, velo_minus}; }
-  return {rho_plus, velo_plus};
+  if (transp_velo_plus + transp_velo_minus >= 0.0) { return {interp_rho_minus, interp_velo_minus}; }
+  return {interp_rho_plus, interp_velo_plus};
 };
 
 template <typename Float, Index NX, Index NY>
@@ -147,6 +153,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
                                                               fs.old.rho_u_stag[i, j],
                                                               fs.old.rho_u_stag[i + 1, j],
                                                               fs.curr.U[i, j],
+                                                              fs.curr.U[i + 1, j],
+                                                              fs.curr.U[i, j],
                                                               fs.curr.U[i + 1, j]);
         const auto U_i                        = ((fs.curr.U[i + 1, j] + fs.curr.U[i, j]) / 2);
         const auto dUdx                       = (fs.curr.U[i + 1, j] - fs.curr.U[i, j]) / fs.dx[i];
@@ -163,7 +171,9 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
                                                               fs.old.rho_u_stag[i, j],
                                                               fs.old.rho_u_stag[i, j + 1],
                                                               fs.curr.U[i, j],
-                                                              fs.curr.U[i, j + 1]);
+                                                              fs.curr.U[i, j + 1],
+                                                              fs.curr.V[i - 1, j + 1],
+                                                              fs.curr.V[i, j + 1]);
         const auto V_i                        = (fs.curr.V[i - 1, j + 1] + fs.curr.V[i, j + 1]) / 2;
 
         const auto visc_corner =
@@ -199,7 +209,9 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
                                                               fs.old.rho_v_stag[i - 1, j + 1],
                                                               fs.old.rho_v_stag[i, j + 1],
                                                               fs.curr.V[i - 1, j + 1],
-                                                              fs.curr.V[i, j + 1]);
+                                                              fs.curr.V[i, j + 1],
+                                                              fs.curr.U[i, j],
+                                                              fs.curr.U[i, j + 1]);
         const auto U_i                        = (fs.curr.U[i, j] + fs.curr.U[i, j + 1]) / 2;
 
         const auto visc_corner =
@@ -222,6 +234,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
         const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(rho_eps,
                                                               fs.old.rho_v_stag[i, j],
                                                               fs.old.rho_v_stag[i, j + 1],
+                                                              fs.curr.V[i, j],
+                                                              fs.curr.V[i, j + 1],
                                                               fs.curr.V[i, j],
                                                               fs.curr.V[i, j + 1]);
         const auto V_i                        = (fs.curr.V[i, j] + fs.curr.V[i, j + 1]) / 2;
@@ -257,11 +271,13 @@ void calc_drhodt(const FS<Float, NX, NY>& fs,
   // = Calculate drhodt for U-staggered density ====================================================
   for (Index i = 0; i < FX.extent(0); ++i) {
     for (Index j = 0; j < FX.extent(1); ++j) {
-      // FX = rho * U
+      // FX = -rho * U
       {
         const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
                                                      fs.old.rho_u_stag[i, j],
                                                      fs.old.rho_u_stag[i + 1, j],
+                                                     0.0,
+                                                     0.0,
                                                      fs.curr.U[i, j],
                                                      fs.curr.U[i + 1, j]);
         const auto U_i               = (fs.curr.U[i, j] + fs.curr.U[i + 1, j]) / 2.0;
@@ -269,10 +285,12 @@ void calc_drhodt(const FS<Float, NX, NY>& fs,
       }
 
       if (i > 0 && j < FX.extent(1) - 1) {
-        // FY = rho * V
+        // FY = -rho * V
         const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
                                                      fs.old.rho_u_stag[i, j],
                                                      fs.old.rho_u_stag[i, j + 1],
+                                                     0.0,
+                                                     0.0,
                                                      fs.curr.V[i - 1, j + 1],
                                                      fs.curr.V[i, j + 1]);
         const auto V_i               = (fs.curr.V[i - 1, j + 1] + fs.curr.V[i, j + 1]) / 2;
@@ -296,12 +314,14 @@ void calc_drhodt(const FS<Float, NX, NY>& fs,
 
       // Prevent accessing U and V out of bounds
       if (i > 0 && j < FX.extent(1) - 1) {
-        // FX = -rho*U*V + mu*(dVdx + dUdy)
+        // FX = -rho*U
 
         // = On corner mesh ======================
         const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
                                                      fs.old.rho_v_stag[i - 1, j + 1],
                                                      fs.old.rho_v_stag[i, j + 1],
+                                                     0.0,
+                                                     0.0,
                                                      fs.curr.U[i, j],
                                                      fs.curr.U[i, j + 1]);
         const auto U_i               = (fs.curr.U[i, j] + fs.curr.U[i, j + 1]) / 2.0;
@@ -312,9 +332,12 @@ void calc_drhodt(const FS<Float, NX, NY>& fs,
 
       // = On center mesh ========================
       {
+        // FY = -rho*V
         const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
                                                      fs.old.rho_v_stag[i, j],
                                                      fs.old.rho_v_stag[i, j + 1],
+                                                     0.0,
+                                                     0.0,
                                                      fs.curr.V[i, j],
                                                      fs.curr.V[i, j + 1]);
         const auto V_i               = (fs.curr.V[i, j] + fs.curr.V[i, j + 1]) / 2.0;
@@ -443,32 +466,136 @@ constexpr void init_mid_and_delta(FS<Float, NX, NY>& fs) noexcept {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vof, FS<Float, NX, NY>& fs) noexcept {
+constexpr void calc_rho_and_visc(FS<Float, NX, NY>& fs) noexcept {
+  IGOR_ASSERT(std::abs(fs.rho_gas - fs.rho_liquid) < 1e-12,
+              "Expected constant density but rho_gas = {:.6e} and rho_liquid = {:.6e}",
+              fs.rho_gas,
+              fs.rho_liquid);
+  IGOR_ASSERT(std::abs(fs.visc_gas - fs.visc_liquid) < 1e-12,
+              "Expected constant viscosity but visc_gas = {:.6e} and visc_liquid = {:.6e}",
+              fs.visc_gas,
+              fs.visc_liquid);
+
+  std::fill_n(fs.old.rho_u_stag.get_data(), fs.old.rho_u_stag.size(), fs.rho_gas);
+  std::fill_n(fs.old.rho_v_stag.get_data(), fs.old.rho_v_stag.size(), fs.rho_gas);
+  std::fill_n(fs.curr.rho_u_stag.get_data(), fs.curr.rho_u_stag.size(), fs.rho_gas);
+  std::fill_n(fs.curr.rho_v_stag.get_data(), fs.curr.rho_v_stag.size(), fs.rho_gas);
+  std::fill_n(fs.visc.get_data(), fs.visc.size(), fs.visc_gas);
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+constexpr void calc_rho_and_visc(const InterfaceReconstruction<NX, NY>& ir,
+                                 const Matrix<Float, NX, NY>& vof,
+                                 FS<Float, NX, NY>& fs) noexcept {
+  auto get_dist = [](const IRL::PlanarSeparator& interface, const IRL::Pt& pt) -> Float {
+    IGOR_ASSERT(interface.getNumberOfPlanes() == 1,
+                "Expected one plane but got {}",
+                interface.getNumberOfPlanes());
+    const auto& plane = interface[0];
+    return plane.signedDistanceToPoint(pt);
+  };
+
+  // = Density on U-staggered mesh =================================================================
+  for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
+    for (Index j = 1; j < fs.curr.rho_u_stag.extent(1) - 1; ++j) {
+      const auto vof_i = (vof[i - 1, j] + vof[i, j]) / 2.0;
+      if (vof_i >= VOF_HIGH) {
+        fs.curr.rho_u_stag[i, j] = fs.rho_liquid;
+      } else if (vof_i <= VOF_LOW) {
+        fs.curr.rho_u_stag[i, j] = fs.rho_gas;
+      } else {
+        const auto minus_has_interface = has_interface(vof, i - 1, j);
+        const auto plus_has_interface  = has_interface(vof, i, j);
+        const IRL::Pt pt{fs.x[i], fs.ym[j], 0.0};
+
+        if (minus_has_interface && plus_has_interface) {
+          const auto dist1 = get_dist(ir.interface[i - 1, j], pt);
+          const auto dist2 = get_dist(ir.interface[i, j], pt);
+          if (dist1 > 0.0 && dist2 > 0.0) {
+            fs.curr.rho_u_stag[i, j] = fs.rho_gas;
+          } else if (dist1 <= 0.0 && dist2 <= 0.0) {
+            fs.curr.rho_u_stag[i, j] = fs.rho_liquid;
+          } else {
+            const auto rho_minus =
+                vof[i - 1, j] * fs.rho_liquid + (1.0 - vof[i - 1, j]) * fs.rho_gas;
+            const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
+            fs.curr.rho_v_stag[i, j] = (rho_minus + rho_plus) / 2.0;
+          }
+        } else if (minus_has_interface) {
+          const auto dist = get_dist(ir.interface[i - 1, j], pt);
+          if (dist > 0.0) {
+            fs.curr.rho_u_stag[i, j] = fs.rho_gas;
+          } else {
+            fs.curr.rho_u_stag[i, j] = fs.rho_liquid;
+          }
+        } else if (plus_has_interface) {
+          const auto dist = get_dist(ir.interface[i, j], pt);
+          if (dist > 0.0) {
+            fs.curr.rho_u_stag[i, j] = fs.rho_gas;
+          } else {
+            fs.curr.rho_u_stag[i, j] = fs.rho_liquid;
+          }
+        } else {
+          Igor::Panic("Unreachable: One of the neighboring cells must have an interface.");
+        }
+      }
+    }
+  }
+  apply_neumann_bconds(fs.curr.rho_u_stag);
+
+  // = Density on V-staggered mesh =================================================================
+  for (Index i = 1; i < fs.curr.rho_v_stag.extent(0) - 1; ++i) {
+    for (Index j = 1; j < fs.curr.rho_v_stag.extent(1) - 1; ++j) {
+      const auto vof_i = (vof[i, j - 1] + vof[i, j]) / 2.0;
+      if (vof_i >= VOF_HIGH) {
+        fs.curr.rho_v_stag[i, j] = fs.rho_liquid;
+      } else if (vof_i <= VOF_LOW) {
+        fs.curr.rho_v_stag[i, j] = fs.rho_gas;
+      } else {
+        const auto minus_has_interface = has_interface(vof, i, j - 1);
+        const auto plus_has_interface  = has_interface(vof, i, j);
+        const IRL::Pt pt{fs.xm[i], fs.y[j], 0.0};
+
+        if (minus_has_interface && plus_has_interface) {
+          const auto dist1 = get_dist(ir.interface[i, j - 1], pt);
+          const auto dist2 = get_dist(ir.interface[i, j], pt);
+          if (dist1 > 0.0 && dist2 > 0.0) {
+            fs.curr.rho_v_stag[i, j] = fs.rho_gas;
+          } else if (dist1 <= 0.0 && dist2 <= 0.0) {
+            fs.curr.rho_v_stag[i, j] = fs.rho_liquid;
+          } else {
+            const auto rho_minus =
+                vof[i, j - 1] * fs.rho_liquid + (1.0 - vof[i, j - 1]) * fs.rho_gas;
+            const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
+            fs.curr.rho_v_stag[i, j] = (rho_minus + rho_plus) / 2.0;
+          }
+        } else if (minus_has_interface) {
+          const auto dist = get_dist(ir.interface[i, j - 1], pt);
+          if (dist > 0.0) {
+            fs.curr.rho_v_stag[i, j] = fs.rho_gas;
+          } else {
+            fs.curr.rho_v_stag[i, j] = fs.rho_liquid;
+          }
+        } else if (plus_has_interface) {
+          const auto dist = get_dist(ir.interface[i, j], pt);
+          if (dist > 0.0) {
+            fs.curr.rho_v_stag[i, j] = fs.rho_gas;
+          } else {
+            fs.curr.rho_v_stag[i, j] = fs.rho_liquid;
+          }
+        } else {
+          Igor::Panic("Unreachable: One of the neighboring cells must have an interface.");
+        }
+      }
+    }
+  }
+  apply_neumann_bconds(fs.curr.rho_v_stag);
+
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      fs.curr.rho[i, j] = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
-      fs.visc[i, j]     = vof[i, j] * fs.visc_liquid + (1.0 - vof[i, j]) * fs.visc_gas;
+      fs.visc[i, j] = vof[i, j] * fs.visc_liquid + (1.0 - vof[i, j]) * fs.visc_gas;
     }
-  }
-
-  for (Index i = 1; i < NX + 1 - 1; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      fs.curr.rho_u_stag[i, j] = (fs.curr.rho[i, j] + fs.curr.rho[i - 1, j]) / 2.0;
-    }
-  }
-  for (Index j = 0; j < NY; ++j) {
-    fs.curr.rho_u_stag[0, j]  = fs.curr.rho[0, j];
-    fs.curr.rho_u_stag[NX, j] = fs.curr.rho[NX - 1, j];
-  }
-
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 1; j < NY + 1 - 1; ++j) {
-      fs.curr.rho_v_stag[i, j] = (fs.curr.rho[i, j] + fs.curr.rho[i, j - 1]) / 2.0;
-    }
-  }
-  for (Index i = 0; i < NX; ++i) {
-    fs.curr.rho_v_stag[i, 0]  = fs.curr.rho[i, 0];
-    fs.curr.rho_v_stag[i, NY] = fs.curr.rho[i, NY - 1];
   }
 }
 

@@ -3,7 +3,7 @@
 
 #include <Igor/Logging.hpp>
 
-#include "FS.hpp"
+#include "Container.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
@@ -39,11 +39,14 @@ void interpolate_UV_staggered_field(const Matrix<Float, NX + 1, NY>& u_stag,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-void calc_divergence(const FS<Float, NX, NY>& fs, Matrix<Float, NX, NY>& div) {
-  for (Index i = 0; i < div.extent(0); ++i) {
-    for (Index j = 0; j < div.extent(1); ++j) {
-      div[i, j] = (fs.curr.U[i + 1, j] - fs.curr.U[i, j]) / fs.dx[i] +  //
-                  (fs.curr.V[i, j + 1] - fs.curr.V[i, j]) / fs.dy[j];
+void calc_divergence(const Matrix<Float, NX + 1, NY>& U,
+                     const Matrix<Float, NX, NY + 1>& V,
+                     const Vector<Float, NX>& dx,
+                     const Vector<Float, NY>& dy,
+                     Matrix<Float, NX, NY>& div) {
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      div[i, j] = (U[i + 1, j] - U[i, j]) / dx[i] + (V[i, j + 1] - V[i, j]) / dy[j];
     }
   }
 }
@@ -60,15 +63,38 @@ void calc_mid_time(Matrix<Float, NX, NY>& current, const Matrix<Float, NX, NY>& 
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-void shift_pressure_to_zero(const FS<Float, NX, NY>& fs, Matrix<Float, NX, NY>& dp) {
-  Float vol_avg_p = 0.0;
-
-  for (Index i = 0; i < dp.extent(0); ++i) {
-    for (Index j = 0; j < dp.extent(1); ++j) {
-      vol_avg_p += dp[i, j] * fs.dx[i] * fs.dy[j];
+constexpr auto integrate(const Vector<Float, NX>& dx,
+                         const Vector<Float, NY>& dy,
+                         const Matrix<Float, NX, NY>& field) noexcept -> Float {
+  Float integral = 0.0;
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      integral += field[i, j] * dx[i] * dy[j];
     }
   }
+  return integral;
+}
 
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+constexpr auto L1_norm(const Vector<Float, NX>& dx,
+                       const Vector<Float, NY>& dy,
+                       const Matrix<Float, NX, NY>& field) noexcept -> Float {
+  Float integral = 0.0;
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      integral += std::abs(field[i, j]) * dx[i] * dy[j];
+    }
+  }
+  return integral;
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+void shift_pressure_to_zero(const Vector<Float, NX>& dx,
+                            const Vector<Float, NY>& dy,
+                            Matrix<Float, NX, NY>& dp) {
+  Float vol_avg_p = integrate(dx, dy, dp);
   for (Index i = 0; i < dp.extent(0); ++i) {
     for (Index j = 0; j < dp.extent(1); ++j) {
       dp[i, j] -= vol_avg_p;
@@ -179,34 +205,6 @@ void calc_grad_of_centered_points(const Matrix<Float, NX, NY>& f,
       dfdy[NX - 1, j] = (f[NX - 1, j + 1] - f[NX - 1, j - 1]) / (2.0 * dy);
     }
   }
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-constexpr auto integrate(const Vector<Float, NX>& dx,
-                         const Vector<Float, NY>& dy,
-                         const Matrix<Float, NX, NY>& field) noexcept -> Float {
-  Float integral = 0.0;
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      integral += field[i, j] * dx[i] * dy[j];
-    }
-  }
-  return integral;
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-constexpr auto L1_norm(const Vector<Float, NX>& dx,
-                       const Vector<Float, NY>& dy,
-                       const Matrix<Float, NX, NY>& field) noexcept -> Float {
-  Float integral = 0.0;
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      integral += std::abs(field[i, j]) * dx[i] * dy[j];
-    }
-  }
-  return integral;
 }
 
 #endif  // FLUID_SOLVER_OPERATORS_HPP_

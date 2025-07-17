@@ -192,15 +192,16 @@ requires(RANK >= 1)
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-[[nodiscard]] auto save_state(const std::string& output_dir,
-                              const Vector<Float, NX + 1>& x,
-                              const Vector<Float, NY + 1>& y,
-                              const Matrix<Float, NX, NY>& Ui,
-                              const Matrix<Float, NX, NY>& Vi,
-                              const Matrix<Float, NX, NY>& p,
-                              const Matrix<Float, NX, NY>& div,
-                              // const Matrix<Float, NX, NY>& vof,
-                              Float t) -> bool {
+[[nodiscard, deprecated("Use VTKWriter instead.")]] auto
+save_state(const std::string& output_dir,
+           const Vector<Float, NX + 1>& x,
+           const Vector<Float, NY + 1>& y,
+           const Matrix<Float, NX, NY>& Ui,
+           const Matrix<Float, NX, NY>& Vi,
+           const Matrix<Float, NX, NY>& p,
+           const Matrix<Float, NX, NY>& div,
+           // const Matrix<Float, NX, NY>& vof,
+           Float t) -> bool {
   return detail::save_state_vtk(output_dir, x, y, Ui, Vi, p, div, /*vof,*/ t);
 }
 
@@ -226,8 +227,9 @@ template <std::floating_point Float, Index N>
   }
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-  if (!out.write(reinterpret_cast<const char*>(vector.get_data()),
-                 static_cast<std::streamsize>(static_cast<size_t>(vector.size()) * sizeof(Float)))) {
+  if (!out.write(
+          reinterpret_cast<const char*>(vector.get_data()),
+          static_cast<std::streamsize>(static_cast<size_t>(vector.size()) * sizeof(Float)))) {
     Igor::Warn("Could not write data to `{}`: {}", filename, std::strerror(errno));
     return false;
   }
@@ -251,8 +253,9 @@ template <std::floating_point Float, Index M, Index N, Layout LAYOUT>
   }
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-  if (!out.write(reinterpret_cast<const char*>(matrix.get_data()),
-                 static_cast<std::streamsize>(static_cast<size_t>(matrix.size()) * sizeof(Float)))) {
+  if (!out.write(
+          reinterpret_cast<const char*>(matrix.get_data()),
+          static_cast<std::streamsize>(static_cast<size_t>(matrix.size()) * sizeof(Float)))) {
     Igor::Warn("Could not write data to `{}`: {}", filename, std::strerror(errno));
     return false;
   }

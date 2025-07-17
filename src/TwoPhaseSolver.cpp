@@ -26,25 +26,25 @@
 
 using Float                     = double;
 
-constexpr Index NX              = 5 * 32;  // 5 * 128;
-constexpr Index NY              = 32;      // 128;
+constexpr Index NX              = 5 * 128;
+constexpr Index NY              = 128;
 
 constexpr Float X_MIN           = 0.0;
 constexpr Float X_MAX           = 5.0;  // 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 1.0;  // 2e-2;  // 1.0;
-constexpr Float DT_MAX          = 1e-3;
+constexpr Float T_END           = 5.0;  // 2e-2;  // 1.0;
+constexpr Float DT_MAX          = 1e-4;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-3;
 
 constexpr Float U_BCOND         = 1.0;
-constexpr Float U_0             = 0.0; 
+constexpr Float U_0             = 0.0;
 constexpr Float VISC_G          = 1e-3;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = VISC_G;  // 1e-1;
-constexpr Float RHO_L           = 1.0;     // RHO_G;
+constexpr Float RHO_L           = 10.0;    // RHO_G;
 
 constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
 constexpr Float CX              = 0.5;  // 1.0;
@@ -57,7 +57,7 @@ constexpr auto vof0             = [](Float x, Float y) {
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr Index NUM_SUBITER     = 2;  // 5;
+constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -85,15 +85,27 @@ void calc_vof_stats(const FS<Float, NX, NY>& fs,
                     Float& min,
                     Float& max,
                     Float& integral,
-                    Float& loss,
-                    Float& loss_prct) noexcept {
+                    Float& loss) noexcept {
   const auto [min_it, max_it] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
 
   min                         = *min_it;
   max                         = *max_it;
   integral                    = integrate(fs.dx, fs.dy, vof);
   loss                        = init_vof_integral - integral;
-  loss_prct                   = 100.0 * loss / init_vof_integral;
+}
+
+// -------------------------------------------------------------------------------------------------
+void calc_inflow_outflow(const FS<Float, NX, NY>& fs,
+                         Float& inflow,
+                         Float& outflow,
+                         Float& mass_error) {
+  inflow  = 0.0;
+  outflow = 0.0;
+  for (Index j = 0; j < NY; ++j) {
+    inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
+    outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
+  }
+  mass_error = outflow - inflow;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -142,11 +154,11 @@ auto main() -> int {
   Float vof_max       = 0.0;
   Float vof_integral  = 0.0;
   Float vof_loss      = 0.0;
-  Float vof_loss_prct = 0.0;
   Float vof_vol_error = 0.0;
 
-  Float pressure_res  = 0.0;
-  Index pressure_iter = 0;
+  Float p_max         = 0.0;
+  Float p_res         = 0.0;
+  Index p_iter        = 0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -170,15 +182,15 @@ auto main() -> int {
   monitor.add_variable(&div_max, "max(div)");
   monitor.add_variable(&div_L1, "L1(div)");
 
-  monitor.add_variable(&pressure_res, "res(p)");
-  monitor.add_variable(&pressure_iter, "iter(p)");
+  monitor.add_variable(&p_max, "max(p)");
+  monitor.add_variable(&p_res, "res(p)");
+  monitor.add_variable(&p_iter, "iter(p)");
 
-  monitor.add_variable(&vof_min, "min(vof)");
-  monitor.add_variable(&vof_max, "max(vof)");
-  monitor.add_variable(&vof_integral, "int(vof)");
-  monitor.add_variable(&vof_loss, "loss(vof)");
-  // monitor.add_variable(&vof_loss_prct, "loss(vof) [%]");
-  monitor.add_variable(&vof_vol_error, "max(vol. error)");
+  // monitor.add_variable(&vof_min, "min(vof)");
+  // monitor.add_variable(&vof_max, "max(vof)");
+  // monitor.add_variable(&vof_integral, "int(vof)");
+  // monitor.add_variable(&vof_loss, "loss(vof)");
+  // monitor.add_variable(&vof_vol_error, "max(vol. error)");
   // = Output ======================================================================================
 
   // = Initialize grid =============================================================================
@@ -242,8 +254,8 @@ auto main() -> int {
   V_max   = max(fs.curr.V);
   div_max = max(div);
   div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
-  calc_vof_stats(
-      fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
+  p_max   = max(fs.p);
+  calc_vof_stats(fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -268,7 +280,7 @@ auto main() -> int {
     interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
 
-    pressure_iter = 0;
+    p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
@@ -371,6 +383,14 @@ auto main() -> int {
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
+      Float inflow     = 0.0;
+      Float outflow    = 0.0;
+      Float mass_error = 0.0;
+      calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      for (Index j = 0; j < NY; ++j) {
+        fs.curr.U[NX, j] -= mass_error / (fs.curr.rho_u_stag[NX, j] * static_cast<Float>(NY));
+      }
+
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
 #ifdef ANALYTIC_CURVATURE
@@ -409,16 +429,16 @@ auto main() -> int {
         }
       }
 
-      Index local_pressure_iter = 0;
-      if (!ps.solve(fs, div, dt, delta_p, &pressure_res, &local_pressure_iter)) {
+      Index local_p_iter = 0;
+      if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
         failed = true;
       }
-      pressure_iter += local_pressure_iter;
+      p_iter += local_p_iter;
       {
-        if (std::isnan(pressure_res) || std::any_of(delta_p.get_data(),
-                                                    delta_p.get_data() + delta_p.size(),
-                                                    [](Float x) { return std::isnan(x); })) {
+        if (std::isnan(p_res) || std::any_of(delta_p.get_data(),
+                                             delta_p.get_data() + delta_p.size(),
+                                             [](Float x) { return std::isnan(x); })) {
           Igor::Warn("t={}, subiter={}: NaN value in pressure correction.", t, sub_iter);
           return 1;
         }
@@ -470,8 +490,8 @@ auto main() -> int {
     V_max   = max(fs.curr.V);
     div_max = max(div);
     div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
-    calc_vof_stats(
-        fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
+    p_max   = max(fs.p);
+    calc_vof_stats(fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
     }

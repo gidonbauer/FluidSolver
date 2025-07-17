@@ -488,6 +488,34 @@ template <typename Float, Index NX, Index NY>
 constexpr void calc_rho_and_visc(const InterfaceReconstruction<NX, NY>& ir,
                                  const Matrix<Float, NX, NY>& vof,
                                  FS<Float, NX, NY>& fs) noexcept {
+#if 1
+  (void)ir;
+  // = Density on U-staggered mesh =================================================================
+  for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
+    for (Index j = 0; j < fs.curr.rho_u_stag.extent(1); ++j) {
+      const auto rho_minus     = vof[i - 1, j] * fs.rho_liquid + (1.0 - vof[i - 1, j]) * fs.rho_gas;
+      const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
+      fs.curr.rho_u_stag[i, j] = (rho_minus + rho_plus) / 2.0;
+    }
+  }
+  for (Index j = 0; j < fs.curr.rho_u_stag.extent(1); ++j) {
+    fs.curr.rho_u_stag[0, j]  = fs.curr.rho_u_stag[1, j];
+    fs.curr.rho_u_stag[NX, j] = fs.curr.rho_u_stag[NX - 1, j];
+  }
+
+  // = Density on V-staggered mesh =================================================================
+  for (Index i = 0; i < fs.curr.rho_v_stag.extent(0); ++i) {
+    for (Index j = 1; j < fs.curr.rho_v_stag.extent(1) - 1; ++j) {
+      const auto rho_minus     = vof[i, j - 1] * fs.rho_liquid + (1.0 - vof[i, j - 1]) * fs.rho_gas;
+      const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
+      fs.curr.rho_v_stag[i, j] = (rho_minus + rho_plus) / 2.0;
+    }
+  }
+  for (Index i = 0; i < fs.curr.rho_v_stag.extent(0); ++i) {
+    fs.curr.rho_v_stag[i, 0]  = fs.curr.rho_v_stag[i, 1];
+    fs.curr.rho_v_stag[i, NY] = fs.curr.rho_v_stag[i, NY - 1];
+  }
+#else
   auto get_dist = [](const IRL::PlanarSeparator& interface, const IRL::Pt& pt) -> Float {
     IGOR_ASSERT(interface.getNumberOfPlanes() == 1,
                 "Expected one plane but got {}",
@@ -520,7 +548,7 @@ constexpr void calc_rho_and_visc(const InterfaceReconstruction<NX, NY>& ir,
             const auto rho_minus =
                 vof[i - 1, j] * fs.rho_liquid + (1.0 - vof[i - 1, j]) * fs.rho_gas;
             const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
-            fs.curr.rho_v_stag[i, j] = (rho_minus + rho_plus) / 2.0;
+            fs.curr.rho_u_stag[i, j] = (rho_minus + rho_plus) / 2.0;
           }
         } else if (minus_has_interface) {
           const auto dist = get_dist(ir.interface[i - 1, j], pt);
@@ -591,6 +619,7 @@ constexpr void calc_rho_and_visc(const InterfaceReconstruction<NX, NY>& ir,
     }
   }
   apply_neumann_bconds(fs.curr.rho_v_stag);
+#endif
 
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {

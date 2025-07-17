@@ -278,6 +278,17 @@ class PS {
     if (pressure_residual != nullptr) { *pressure_residual = final_residual; }
     if (num_iter != nullptr) { *num_iter = local_num_iter; }
 
+    const HYPRE_Int error_flag = HYPRE_GetError();
+    if (error_flag != 0) {
+      if (HYPRE_CheckError(error_flag, HYPRE_ERROR_CONV) != 0) {
+        Igor::Warn("HYPRE did not converge.");
+        HYPRE_ClearError(HYPRE_ERROR_CONV);
+      } else {
+        HYPRE_DescribeError(error_flag, buffer.data());
+        Igor::Panic("An error occured in HYPRE: {}", buffer.data());
+      }
+    }
+
     return res;
   }
 };

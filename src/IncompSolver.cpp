@@ -230,7 +230,7 @@ auto main() -> int {
       // Correct the outflow
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
       for (Index j = 0; j < NY; ++j) {
-        fs.curr.U[NX, j] -= mass_error / (fs.curr.rho_u_stag[NX, j] * static_cast<Float>(NY - 2));
+        fs.curr.U[NX, j] -= mass_error / (fs.curr.rho_u_stag[NX, j] * static_cast<Float>(NY));
       }
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);

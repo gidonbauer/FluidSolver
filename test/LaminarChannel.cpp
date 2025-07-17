@@ -1,7 +1,8 @@
 #include <cstddef>
-#include <filesystem>
+#include <type_traits>
 
 #include <Igor/Logging.hpp>
+#include <Igor/Macros.hpp>
 #include <Igor/Timer.hpp>
 
 // #define FS_HYPRE_VERBOSE
@@ -14,23 +15,30 @@
 #include "Common.hpp"
 
 // = Config ========================================================================================
-using Float                     = double;
+using Float              = double;
 
-constexpr Index NX              = 500;
-constexpr Index NY              = 51;
+constexpr Index NX       = 500;
+constexpr Index NY       = 51;
 
-constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 100.0;
-constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 1.0;
+constexpr Float X_MIN    = 0.0;
+constexpr Float X_MAX    = 100.0;
+constexpr Float Y_MIN    = 0.0;
+constexpr Float Y_MAX    = 1.0;
 
-constexpr Float T_END           = 60.0;
-constexpr Float DT_MAX          = 1e-1;
-constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 1.0;
+constexpr Float T_END    = 60.0;
+constexpr Float DT_MAX   = 1e-1;
+constexpr Float CFL_MAX  = 0.9;
+constexpr Float DT_WRITE = 1.0;
 
-constexpr Float U_IN            = 1.0;
-constexpr Float U_INIT          = 1.0;
+constexpr Float U_IN     = 1.0;
+#ifndef LC_U_INIT
+constexpr Float U_INIT = 1.0;
+#else
+static_assert(
+    std::is_convertible_v<std::remove_cvref_t<decltype(LC_U_INIT)>, Float>,
+    "LC_U_INIT must have a value (the initital U-velocity) that must be convertible to Float.");
+constexpr Float U_INIT = LC_U_INIT;
+#endif
 constexpr Float VISC            = 1e-3;
 constexpr Float RHO             = 0.5;
 
@@ -47,12 +55,17 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
+#ifndef LC_U_INIT
 constexpr auto OUTPUT_DIR = "test/output/LaminarChannel/";
+#else
+constexpr auto OUTPUT_DIR = "test/output/LaminarChannel_" IGOR_STRINGIFY(LC_U_INIT) "/";
+#endif
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
+  IGOR_DEBUG_PRINT(OUTPUT_DIR);
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
@@ -108,8 +121,13 @@ auto main() -> int {
   if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
   // = Initialize flow field =======================================================================
 
+#ifndef LC_U_INIT
   Igor::ScopeTimer timer("LaminarChannel");
-  bool failed = false;
+#else
+  Igor::ScopeTimer timer("LaminarChannel_" IGOR_STRINGIFY(LC_U_INIT));
+#endif
+  bool failed          = false;
+  bool any_test_failed = false;
   while (t < T_END && !failed) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
@@ -173,8 +191,26 @@ auto main() -> int {
         }
       }
     }
-
     t += dt;
+
+    {
+      Float inflow  = 0.0;
+      Float outflow = 0.0;
+      for (Index j = 1; j < NY - 1; ++j) {
+        inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
+        outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
+      }
+      if (std::abs(outflow - inflow) > 1e-8) {
+        Igor::Warn("Outflow is not equal to inflow at t={:.6e}: inflow={:.6e}, outflow={:.6e}, "
+                   "error={:.6e}",
+                   t,
+                   inflow,
+                   outflow,
+                   std::abs(outflow - inflow));
+        any_test_failed = true;
+      }
+    }
+
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -189,8 +225,6 @@ auto main() -> int {
   }
 
   // = Perform tests ===============================================================================
-  bool any_test_failed  = false;
-
   const auto i_above_60 = static_cast<Index>(std::find_if(fs.x.get_data(),
                                                           fs.x.get_data() + fs.x.size(),
                                                           [](Float xi) { return xi > 60.0; }) -

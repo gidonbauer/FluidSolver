@@ -8,8 +8,10 @@
 
 #include "FS.hpp"
 #include "IO.hpp"
+#include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+#include "VTKWriter.hpp"
 
 #include "Common.hpp"
 
@@ -87,10 +89,36 @@ auto main() -> int {
   Float t          = 0.0;
   Float dt         = DT_MAX;
 
+  Float U_max      = 0.0;
+  Float V_max      = 0.0;
+  Float div_max    = 0.0;
+
+  Float p_res      = 0.0;
+  Index p_iter     = 0;
+
   Float inflow     = 0;
   Float outflow    = 0;
   Float mass_error = 0;
   // = Allocate memory =============================================================================
+
+  // = Output ======================================================================================
+  Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
+  monitor.add_variable(&t, "time");
+  monitor.add_variable(&dt, "dt");
+  monitor.add_variable(&U_max, "max(U)");
+  monitor.add_variable(&V_max, "max(V)");
+  monitor.add_variable(&div_max, "max(div)");
+  monitor.add_variable(&p_res, "res(p)");
+  monitor.add_variable(&p_iter, "iter(p)");
+  monitor.add_variable(&inflow, "inflow");
+  monitor.add_variable(&outflow, "outflow");
+  monitor.add_variable(&mass_error, "mass error");
+
+  VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  vtk_writer.add_scalar("pressure", &fs.p);
+  vtk_writer.add_scalar("divergence", &div);
+  vtk_writer.add_vector("velocity", &Ui, &Vi);
+  // = Output ======================================================================================
 
   // = Initialize grid =============================================================================
   for (Index i = 0; i < fs.x.extent(0); ++i) {
@@ -122,7 +150,11 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
+  U_max   = max(fs.curr.U);
+  V_max   = max(fs.curr.V);
+  div_max = max(div);
+  if (!vtk_writer.write(t)) { return 1; }
+  monitor.write();
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Couette");
@@ -135,6 +167,7 @@ auto main() -> int {
     // Save previous state
     save_old_state(fs.curr, fs.old);
 
+    p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
@@ -160,10 +193,12 @@ auto main() -> int {
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
-      if (!ps.solve(fs, div, dt, delta_p)) {
+      Index local_p_iter = 0;
+      if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
         solver_failed = true;
       }
+      p_iter += local_p_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       for (Index i = 0; i < fs.p.extent(0); ++i) {
@@ -204,9 +239,13 @@ auto main() -> int {
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+    U_max   = max(fs.curr.U);
+    V_max   = max(fs.curr.V);
+    div_max = max(div);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!save_state(OUTPUT_DIR, fs.x, fs.y, Ui, Vi, fs.p, div, /*fs.vof,*/ t)) { return 1; }
+      if (!vtk_writer.write(t)) { return 1; }
     }
+    monitor.write();
   }
 
   if (solver_failed) {

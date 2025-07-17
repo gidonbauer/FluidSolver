@@ -63,9 +63,22 @@ constexpr auto OUTPUT_DIR = "test/output/LaminarChannel_" IGOR_STRINGIFY(LC_U_IN
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
+void calc_inflow_outflow(const FS<Float, NX, NY>& fs,
+                         Float& inflow,
+                         Float& outflow,
+                         Float& mass_error) {
+  inflow  = 0;
+  outflow = 0;
+  for (Index j = 0; j < NY; ++j) {
+    inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
+    outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
+  }
+  mass_error = outflow - inflow;
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
-  IGOR_DEBUG_PRINT(OUTPUT_DIR);
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
@@ -83,8 +96,12 @@ auto main() -> int {
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
 
-  Float t  = 0.0;
-  Float dt = DT_MAX;
+  Float t          = 0.0;
+  Float dt         = DT_MAX;
+
+  Float inflow     = 0;
+  Float outflow    = 0;
+  Float mass_error = 0;
   // = Allocate memory =============================================================================
 
   // = Initialize grid =============================================================================
@@ -156,6 +173,10 @@ auto main() -> int {
 
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
+      calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      for (Index j = 0; j < NY; ++j) {
+        fs.curr.U[NX, j] -= mass_error / (fs.curr.rho_u_stag[NX, j] * static_cast<Float>(NY));
+      }
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
@@ -194,13 +215,8 @@ auto main() -> int {
     t += dt;
 
     {
-      Float inflow  = 0.0;
-      Float outflow = 0.0;
-      for (Index j = 1; j < NY - 1; ++j) {
-        inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
-        outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
-      }
-      if (std::abs(outflow - inflow) > 1e-8) {
+      calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      if (std::abs(mass_error) > 1e-8) {
         Igor::Warn("Outflow is not equal to inflow at t={:.6e}: inflow={:.6e}, outflow={:.6e}, "
                    "error={:.6e}",
                    t,
@@ -233,13 +249,15 @@ auto main() -> int {
   // Test pressure
   {
     constexpr Float TOL = 1e-4;
-    for (Index i = i_above_60; i < fs.p.extent(0); ++i) {
+    for (Index i = i_above_60; i < NX; ++i) {
       const auto ref_pressure = fs.p[i, 0];
+      bool constant_pressure  = true;
       for (Index j = 0; j < fs.p.extent(1); ++j) {
-        if (std::abs(fs.p[i, j] - ref_pressure) > TOL) {
-          Igor::Warn("Non constant pressure along y-axis for x={}.", fs.xm[i]);
-          any_test_failed = true;
-        }
+        if (std::abs(fs.p[i, j] - ref_pressure) > TOL) { constant_pressure = false; }
+      }
+      if (!constant_pressure) {
+        Igor::Warn("Non constant pressure along y-axis for x={}.", fs.xm[i]);
+        any_test_failed = true;
       }
     }
 
@@ -248,13 +266,15 @@ auto main() -> int {
     for (Index i = i_above_60 + 1; i < fs.p.extent(0); ++i) {
       const auto dpdx = (fs.p[i, NY / 2] - fs.p[i - 1, NY / 2]) / fs.dx[i];
       if (std::abs(ref_dpdx - dpdx) > TOL) {
-        Igor::Warn("Non constant dpdx after x=60: Reference dpdx(x={})={:.6e}, dpdx(x={})={:.6e} "
-                   "=> error = {:.6e}",
-                   fs.x[i_above_60 + 1],
-                   ref_dpdx,
-                   fs.x[i],
-                   dpdx,
-                   std::abs(ref_dpdx - dpdx));
+        Igor::Warn(
+            "Non constant dpdx after x=60: Reference dpdx(x={:.6e})={:.6e}, dpdx(x={:.6e})={:.6e} "
+            "=> error = {:.6e}",
+            fs.x[i_above_60 + 1],
+            ref_dpdx,
+            fs.x[i],
+            dpdx,
+            std::abs(ref_dpdx - dpdx));
+        any_test_failed = true;
       }
     }
   }
@@ -267,28 +287,24 @@ auto main() -> int {
     };
     Vector<Float, NY> diff{};
 
-    constexpr size_t N_CHECKS                      = 3;
-    constexpr std::array<size_t, N_CHECKS> i_check = {3 * NX / 4, 7 * NX / 8, NX - 1};
-    std::array<Float, N_CHECKS> L1_errors{};
+    static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
+    constexpr Float TEST_X_BEGIN = 60.0;
+    constexpr Float TEST_X_STEP  = 10.0;
+    constexpr auto N_CHECKS      = static_cast<size_t>((X_MAX - TEST_X_BEGIN) / TEST_X_STEP);
+    for (size_t i_check = 0; i_check < N_CHECKS; ++i_check) {
+      const Float x_target = TEST_X_BEGIN + static_cast<Float>(i_check) * TEST_X_STEP;
+      const auto i         = static_cast<Index>(x_target / X_MAX * static_cast<Float>(NX + 1));
 
-    size_t counter = 0;
-    for (size_t i : i_check) {
-      for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-        const auto dpdx = (fs.p[static_cast<Index>(i), j] - fs.p[static_cast<Index>(i - 1), j]) /
-                          fs.dx[static_cast<Index>(i)];
+      for (Index j = 0; j < NY; ++j) {
+        const auto dpdx = (fs.p[i, j] - fs.p[i - 1, j]) / fs.dx[i];
         diff[j] = std::abs(fs.curr.U[static_cast<Index>(i), j] - u_analytical(fs.ym[j], dpdx));
       }
-      L1_errors[counter++] = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
-    }
-
-    counter = 0;
-    for (size_t i : i_check) {
-      const auto err = L1_errors[counter++];
-      if (err > TOL) {
+      const auto L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
+      if (L1_error > TOL) {
         Igor::Warn("U-velocity profile at x={} does not align with analytical solution: L1-error "
                    "is {:.6e}",
-                   fs.x[static_cast<Index>(i)],
-                   err);
+                   fs.x[i],
+                   L1_error);
         any_test_failed = true;
       }
     }

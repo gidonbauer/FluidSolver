@@ -51,6 +51,20 @@ constexpr auto OUTPUT_DIR = "test/output/Couette/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
+void calc_inflow_outflow(const FS<Float, NX, NY>& fs,
+                         Float& inflow,
+                         Float& outflow,
+                         Float& mass_error) {
+  inflow  = 0;
+  outflow = 0;
+  for (Index j = 0; j < NY; ++j) {
+    inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
+    outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
+  }
+  mass_error = outflow - inflow;
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
@@ -70,8 +84,12 @@ auto main() -> int {
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
 
-  Float t  = 0.0;
-  Float dt = DT_MAX;
+  Float t          = 0.0;
+  Float dt         = DT_MAX;
+
+  Float inflow     = 0;
+  Float outflow    = 0;
+  Float mass_error = 0;
   // = Allocate memory =============================================================================
 
   // = Initialize grid =============================================================================
@@ -108,8 +126,9 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Couette");
-  bool failed = false;
-  while (t < T_END && !failed) {
+  bool solver_failed   = false;
+  bool any_test_failed = false;
+  while (t < T_END && !solver_failed) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
 
@@ -143,7 +162,7 @@ auto main() -> int {
       // TODO: Add capillary forces here.
       if (!ps.solve(fs, div, dt, delta_p)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
-        failed = true;
+        solver_failed = true;
       }
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
@@ -166,6 +185,22 @@ auto main() -> int {
     }
 
     t += dt;
+
+    {
+      calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      if (std::abs(mass_error) > 1e-8) {
+        if (!any_test_failed) {
+          Igor::Warn("Outflow is not equal to inflow at t={:.6e}: inflow={:.6e}, outflow={:.6e}, "
+                     "error={:.6e}",
+                     t,
+                     inflow,
+                     outflow,
+                     std::abs(outflow - inflow));
+        }
+        any_test_failed = true;
+      }
+    }
+
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -174,13 +209,12 @@ auto main() -> int {
     }
   }
 
-  if (failed) {
+  if (solver_failed) {
     Igor::Warn("Couette failed.");
     return 1;
   }
 
   // = Perform tests ===============================================================================
-  bool any_test_failed = false;
   {
     auto u_analytical = [](Float y) -> Float { return U_TOP * y; };
     Vector<Float, NY> diff{};

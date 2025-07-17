@@ -23,7 +23,7 @@ constexpr Index NX              = 640;
 constexpr Index NY              = 64;
 
 constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 100.0;  // 10.0;
+constexpr Float X_MAX           = 10.0;  // 10.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
@@ -33,7 +33,7 @@ constexpr Float CFL_MAX         = 0.9;
 constexpr Float DT_WRITE        = 0.5;
 
 constexpr Float U_BCOND         = 1.0;
-constexpr Float U_0             = 1.0;   // 0.0;
+constexpr Float U_0             = 0.0;
 constexpr Float VISC            = 1e-3;  // 1e-1;
 constexpr Float RHO             = 0.9;
 
@@ -61,6 +61,7 @@ constexpr FlowBConds<Float> bconds{
 constexpr auto OUTPUT_DIR = "output/IncompSolver/";
 // = Config ========================================================================================
 
+// -------------------------------------------------------------------------------------------------
 void calc_velocity_stats(const Matrix<Float, NX + 1, NY>& U,
                          const Matrix<Float, NX, NY + 1>& V,
                          const Matrix<Float, NX, NY>& div,
@@ -90,6 +91,20 @@ void calc_velocity_stats(const Matrix<Float, NX + 1, NY>& U,
 }
 
 // -------------------------------------------------------------------------------------------------
+void calc_inflow_outflow(const FS<Float, NX, NY>& fs,
+                         Float& inflow,
+                         Float& outflow,
+                         Float& mass_error) {
+  inflow  = 0.0;
+  outflow = 0.0;
+  for (Index j = 0; j < NY; ++j) {
+    inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
+    outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
+  }
+  mass_error = outflow - inflow;
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
@@ -107,11 +122,19 @@ auto main() -> int {
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
 
-  Float t       = 0.0;
-  Float dt      = DT_MAX;
-  Float U_max   = 0.0;
-  Float V_max   = 0.0;
-  Float div_max = 0.0;
+  Float t             = 0.0;
+  Float dt            = DT_MAX;
+
+  Float U_max         = 0.0;
+  Float V_max         = 0.0;
+  Float div_max       = 0.0;
+
+  Float inflow        = 0.0;
+  Float outflow       = 0.0;
+  Float mass_error    = 0.0;
+
+  Float pressure_res  = 0.0;
+  Index pressure_iter = 0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -128,6 +151,11 @@ auto main() -> int {
   monitor.add_variable(&U_max, "max(U)");
   monitor.add_variable(&V_max, "max(V)");
   monitor.add_variable(&div_max, "max(div)");
+  monitor.add_variable(&pressure_res, "res(p)");
+  monitor.add_variable(&pressure_iter, "iter(p)");
+  monitor.add_variable(&inflow, "inflow");
+  monitor.add_variable(&outflow, "outflow");
+  monitor.add_variable(&mass_error, "mass error");
   // = Output ======================================================================================
 
   // = Initialize grid =============================================================================
@@ -154,8 +182,8 @@ auto main() -> int {
       fs.curr.V[i, j] = 0.0;
     }
   }
-
   apply_velocity_bconds(fs, bconds);
+  calc_inflow_outflow(fs, inflow, outflow, mass_error);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
@@ -175,6 +203,7 @@ auto main() -> int {
     // Save previous state
     save_old_state(fs.curr, fs.old);
 
+    pressure_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
@@ -198,12 +227,20 @@ auto main() -> int {
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
+      // Correct the outflow
+      calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      for (Index j = 0; j < NY; ++j) {
+        fs.curr.U[NX, j] -= mass_error / (fs.curr.rho_u_stag[NX, j] * static_cast<Float>(NY - 2));
+      }
+
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
-      if (!ps.solve(fs, div, dt, delta_p)) {
+      Index local_pressure_iter = 0;
+      if (!ps.solve(fs, div, dt, delta_p, &pressure_res, &local_pressure_iter)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
         failed = true;
       }
+      pressure_iter += local_pressure_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       for (Index i = 0; i < fs.p.extent(0); ++i) {
@@ -223,6 +260,7 @@ auto main() -> int {
         }
       }
     }
+    calc_inflow_outflow(fs, inflow, outflow, mass_error);
 
     t += dt;
     interpolate_U(fs.curr.U, Ui);
@@ -231,8 +269,8 @@ auto main() -> int {
     calc_velocity_stats(fs.curr.U, fs.curr.V, div, U_max, V_max, div_max);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
-      monitor.write();
     }
+    monitor.write();
     pbar.update(dt);
   }
   std::cout << '\n';

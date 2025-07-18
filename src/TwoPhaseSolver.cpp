@@ -18,36 +18,31 @@
 #include "VOF.hpp"
 #include "VTKWriter.hpp"
 
-// TODO: Is it unphysical to initialize the entire flow field with 1?
-// TODO: Do we need a correction at the outlet?
-
 // = Config ========================================================================================
-// #define SAVE_INTERMEDIATES
-
 using Float                     = double;
 
-constexpr Index NX              = 5 * 128;
-constexpr Index NY              = 128;
+constexpr Index NX              = 5 * 64;
+constexpr Index NY              = 64;
 
 constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 5.0;  // 5.0;
+constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 5.0;  // 2e-2;  // 1.0;
-constexpr Float DT_MAX          = 2e-4;
+constexpr Float T_END           = 2.0;
+constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.5;
-constexpr Float DT_WRITE        = 1e-3;
+constexpr Float DT_WRITE        = 2e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
 constexpr Float VISC_G          = 1e-3;
 constexpr Float RHO_G           = 1.0;
-constexpr Float VISC_L          = VISC_G;  // 1e-1;
-constexpr Float RHO_L           = 10.0;    // RHO_G;
+constexpr Float VISC_L          = VISC_G;
+constexpr Float RHO_L           = 10.0;
 
 constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
-constexpr Float CX              = 0.5;  // 1.0;
+constexpr Float CX              = 1.0;
 constexpr Float CY              = 0.5;
 constexpr Float R0              = 0.25;
 constexpr auto vof0             = [](Float x, Float y) {
@@ -131,9 +126,6 @@ auto main() -> int {
   Matrix<Float, NX, NY> div{};
   Matrix<Float, NX, NY> rhoi{};
 
-  Matrix<Float, NX, NY> Ui_uncorr{};
-  Matrix<Float, NX, NY> Vi_uncorr{};
-
   Matrix<Float, NX + 1, NY> drho_u_stagdt{};
   Matrix<Float, NX, NY + 1> drho_v_stagdt{};
   Matrix<Float, NX + 1, NY> drhoUdt{};
@@ -170,7 +162,6 @@ auto main() -> int {
   vtk_writer.add_scalar("VOF", &vof);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
   vtk_writer.add_scalar("curvature", &curv);
-  vtk_writer.add_vector("velocity_uncorrected", &Ui_uncorr, &Vi_uncorr);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -221,15 +212,6 @@ auto main() -> int {
   for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
     for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
       fs.curr.U[i, j] = U_0;
-
-      // fs.curr.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
-
-      // if (i == 0 || i == fs.curr.U.extent(0) - 1) {
-      //   fs.curr.U[i, j] = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j];
-      // } else {
-      //   const auto v = (vof[i, j] + vof[i - 1, j]) / 2.0;
-      //   fs.curr.U[i, j]   = U_BCOND / (Y_MAX - Y_MIN) * fs.ym[j] * (1.0 - v);
-      // }
     }
   }
   for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
@@ -247,8 +229,6 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   // Save uncorrected velocity
-  interpolate_U(fs.curr.U, Ui_uncorr);
-  interpolate_V(fs.curr.V, Vi_uncorr);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
@@ -261,9 +241,8 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
-  bool failed = false;
   // Igor::ProgressBar<Float> pbar(T_END, 67);
-  while (t < T_END && !failed) {
+  while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
 
@@ -296,21 +275,6 @@ auto main() -> int {
                                [](Float x) { return std::isnan(x); }),
                   "NaN value in drho_v_stagdt.");
 
-      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#ifdef SAVE_INTERMEDIATES
-      {
-        if (!to_npy(Igor::detail::format("{}/drho_u_stagdt_{}.npy", OUTPUT_DIR, sub_iter),
-                    drho_u_stagdt)) {
-          return 1;
-        }
-        if (!to_npy(Igor::detail::format("{}/drho_v_stagdt_{}.npy", OUTPUT_DIR, sub_iter),
-                    drho_v_stagdt)) {
-          return 1;
-        }
-      }
-#endif  // SAVE_INTERMEDIATES
-      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
       for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.rho_u_stag.extent(1) - 1; ++j) {
           fs.curr.rho_u_stag[i, j] = fs.old.rho_u_stag[i, j] + dt * drho_u_stagdt[i, j];
@@ -326,100 +290,26 @@ auto main() -> int {
       ps.setup(fs);
       interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
 
-      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#ifdef SAVE_INTERMEDIATES
-      {
-        if (!to_npy(Igor::detail::format("{}/x.npy", OUTPUT_DIR), fs.x)) { return 1; }
-        if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), fs.xm)) { return 1; }
-        if (!to_npy(Igor::detail::format("{}/y.npy", OUTPUT_DIR), fs.y)) { return 1; }
-        if (!to_npy(Igor::detail::format("{}/ym.npy", OUTPUT_DIR), fs.ym)) { return 1; }
-        if (!to_npy(Igor::detail::format("{}/rho_u_stag_old.npy", OUTPUT_DIR), fs.old.rho_u_stag)) {
-          return 1;
-        }
-        if (!to_npy(Igor::detail::format("{}/rho_v_stag_old.npy", OUTPUT_DIR), fs.old.rho_v_stag)) {
-          return 1;
-        }
-        if (!to_npy(Igor::detail::format("{}/rho_u_stag_curr.npy", OUTPUT_DIR),
-                    fs.curr.rho_u_stag)) {
-          return 1;
-        }
-        if (!to_npy(Igor::detail::format("{}/rho_v_stag_curr.npy", OUTPUT_DIR),
-                    fs.curr.rho_v_stag)) {
-          return 1;
-        }
-      }
-#endif  // SAVE_INTERMEDIATES
-      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
       // = Update flow field =======================================================================
-      // TODO: The density error is here not in the pressure correction
-      // TODO: Update the density using the continuity equation (with the hybrid scheme) and use the
-      //       consistent density here
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-
-      // ! Calculate residual
-      // resU = time%dt * resU - 2.0_WP * fs%rho_U * fs%U + (fs%rho_U + fs%rho_Uold) * fs%Uold
-      // resV = time%dt * resV - 2.0_WP * fs%rho_V * fs%V + (fs%rho_V + fs%rho_Vold) * fs%Vold
-      // resW = time%dt * resW - 2.0_WP * fs%rho_W * fs%W + (fs%rho_W + fs%rho_Wold) * fs%Wold
-      // call fs%solve_implicit(dt=time%dt, resU=resU, resV=resV, resW=resW)
-      for (Index i = 0; i < drhoUdt.extent(0); ++i) {
-        for (Index j = 0; j < drhoUdt.extent(1); ++j) {
-          drhoUdt[i, j] = dt * drhoUdt[i, j] - 2.0 * fs.curr.rho_u_stag[i, j] * fs.curr.U[i, j] +
-                          (fs.curr.rho_u_stag[i, j] + fs.old.rho_u_stag[i, j]) * fs.old.U[i, j];
-          drhoUdt[i, j] /= fs.curr.rho_u_stag[i, j];
+      // NOTE: Added scaling factor (rho_old / rho_curr) to old velocity
+      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
+          fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] / fs.curr.rho_u_stag[i, j]) * fs.old.U[i, j] +
+                            dt * drhoUdt[i, j] / fs.curr.rho_u_stag[i, j];
         }
       }
-      for (Index i = 0; i < drhoVdt.extent(0); ++i) {
-        for (Index j = 0; j < drhoVdt.extent(1); ++j) {
-          drhoVdt[i, j] = dt * drhoVdt[i, j] - 2.0 * fs.curr.rho_v_stag[i, j] * fs.curr.V[i, j] +
-                          (fs.curr.rho_v_stag[i, j] + fs.old.rho_v_stag[i, j]) * fs.old.V[i, j];
-          drhoVdt[i, j] /= fs.curr.rho_v_stag[i, j];
+      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
+        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
+          fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] / fs.curr.rho_v_stag[i, j]) * fs.old.V[i, j] +
+                            dt * drhoVdt[i, j] / fs.curr.rho_v_stag[i, j];
         }
       }
-
-      // ! Update velocity
-      // fs%U = resU + 2.0_WP * fs%U - fs%Uold
-      // fs%V = resV + 2.0_WP * fs%V - fs%Vold
-      // fs%W = resW + 2.0_WP * fs%W - fs%Wold
-      for (Index i = 0; i < drhoUdt.extent(0); ++i) {
-        for (Index j = 0; j < drhoUdt.extent(1); ++j) {
-          fs.curr.U[i, j] = drhoUdt[i, j] + 2.0 * fs.curr.U[i, j] - fs.old.U[i, j];
-        }
-      }
-      for (Index i = 0; i < drhoVdt.extent(0); ++i) {
-        for (Index j = 0; j < drhoVdt.extent(1); ++j) {
-          fs.curr.V[i, j] = drhoVdt[i, j] + 2.0 * fs.curr.V[i, j] - fs.old.V[i, j];
-        }
-      }
-
-      // NOTE: THIS IT WRONG FOR TWO-PHASE FLOWS!
-      // for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
-      //   for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-      //     fs.curr.U[i, j] = fs.old.U[i, j] + dt * drhoUdt[i, j] / fs.curr.rho_u_stag[i, j];
-      //   }
-      // }
-      // for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
-      //   for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-      //     fs.curr.V[i, j] = fs.old.V[i, j] + dt * drhoVdt[i, j] / fs.curr.rho_v_stag[i, j];
-      //   }
-      // }
-
-      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#ifdef SAVE_INTERMEDIATES
-      {
-        if (!to_npy(Igor::detail::format("{}/drhoUdt_{}.npy", OUTPUT_DIR, sub_iter), drhoUdt)) {
-          return 1;
-        }
-        if (!to_npy(Igor::detail::format("{}/drhoVdt_{}.npy", OUTPUT_DIR, sub_iter), drhoVdt)) {
-          return 1;
-        }
-      }
-#endif  // SAVE_INTERMEDIATES
-      // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
+      // Correct the outflow
       Float inflow     = 0.0;
       Float outflow    = 0.0;
       Float mass_error = 0.0;
@@ -430,21 +320,8 @@ auto main() -> int {
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
-#ifdef ANALYTIC_CURVATURE
-      {
-        auto get_curvature = [](Float x, Float y) {
-          return 1.0 / std::sqrt(Igor::sqr(x - CX) + Igor::sqr(y - CY));
-        };
-        for (Index i = 0; i < NX; ++i) {
-          for (Index j = 0; j < NY; ++j) {
-            curv[i, j] = get_curvature(fs.xm[i], fs.ym[j]);
-          }
-        }
-      }
-#else
       smooth_vof_field(fs.xm, fs.ym, vof_old, vof_smooth);
       calc_curvature(dx, dy, vof_old, vof_smooth, curv);
-#endif
 
       for (Index i = 0; i < NX; ++i) {
         for (Index j = 0; j < NY; ++j) {
@@ -469,7 +346,6 @@ auto main() -> int {
       Index local_p_iter = 0;
       if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
-        failed = true;
       }
       p_iter += local_p_iter;
       {
@@ -489,10 +365,6 @@ auto main() -> int {
         }
       }
 
-      // Save uncorrected velocity
-      interpolate_U(fs.curr.U, Ui_uncorr);
-      interpolate_V(fs.curr.V, Vi_uncorr);
-
       // Correct velocity
       for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
@@ -510,15 +382,6 @@ auto main() -> int {
       }
     }
 
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#ifdef SAVE_INTERMEDIATES
-    {
-      if (!to_npy(Igor::detail::format("{}/U.npy", OUTPUT_DIR), fs.curr.U)) { return 1; }
-      if (!to_npy(Igor::detail::format("{}/V.npy", OUTPUT_DIR), fs.curr.V)) { return 1; }
-    }
-#endif  // SAVE_INTERMEDIATES
-    // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
@@ -534,16 +397,8 @@ auto main() -> int {
     }
     monitor.write();
     // pbar.update(dt);
-#ifdef SAVE_INTERMEDIATES
-    break;
-#endif  // SAVE_INTERMEDIATES
   }
   std::cout << '\n';
 
-  if (failed) {
-    Igor::Warn("Solver did not finish successfully.");
-    return 1;
-  } else {
-    Igor::Info("Solver finish successfully.");
-  }
+  Igor::Info("Solver finish successfully.");
 }

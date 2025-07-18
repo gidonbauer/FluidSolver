@@ -2,7 +2,6 @@
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
-#include <Igor/ProgressBar.hpp>
 #include <Igor/Timer.hpp>
 #include <Igor/TypeName.hpp>
 
@@ -241,7 +240,6 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
-  // Igor::ProgressBar<Float> pbar(T_END, 67);
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
@@ -295,14 +293,14 @@ auto main() -> int {
       // NOTE: Added scaling factor (rho_old / rho_curr) to old velocity
       for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-          fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] / fs.curr.rho_u_stag[i, j]) * fs.old.U[i, j] +
-                            dt * drhoUdt[i, j] / fs.curr.rho_u_stag[i, j];
+          fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
+                            fs.curr.rho_u_stag[i, j];
         }
       }
       for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-          fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] / fs.curr.rho_v_stag[i, j]) * fs.old.V[i, j] +
-                            dt * drhoVdt[i, j] / fs.curr.rho_v_stag[i, j];
+          fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
+                            fs.curr.rho_v_stag[i, j];
         }
       }
 
@@ -396,7 +394,6 @@ auto main() -> int {
       if (!vtk_writer.write(t)) { return 1; }
     }
     monitor.write();
-    // pbar.update(dt);
   }
   std::cout << '\n';
 

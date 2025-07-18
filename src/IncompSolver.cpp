@@ -213,14 +213,14 @@ auto main() -> int {
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
         for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-          // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.curr.U[i, j] = fs.old.U[i, j] + dt * drhoUdt[i, j] / RHO;
+          fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
+                            fs.curr.rho_u_stag[i, j];
         }
       }
       for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
         for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-          // TODO: Need to interpolate rho for U- and V-staggered mesh
-          fs.curr.V[i, j] = fs.old.V[i, j] + dt * drhoVdt[i, j] / RHO;
+          fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
+                            fs.curr.rho_v_stag[i, j];
         }
       }
 

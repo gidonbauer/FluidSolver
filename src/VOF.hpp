@@ -283,11 +283,12 @@ void advect_cells(const FS<Float, NX, NY>& fs,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-constexpr auto get_intersections_with_cell(Index i,
-                                           Index j,
-                                           const Vector<Float, NX + 1>& x,
-                                           const Vector<Float, NY + 1>& y,
-                                           const IRL::Plane& plane) -> std::array<IRL::Pt, 2> {
+[[nodiscard]] constexpr auto get_intersections_with_cell(Index i,
+                                                         Index j,
+                                                         const Vector<Float, NX + 1>& x,
+                                                         const Vector<Float, NY + 1>& y,
+                                                         const IRL::Plane& plane)
+    -> std::array<IRL::Pt, 2> {
   Igor::StaticVector<IRL::Pt, 4> trial_points{};
   constexpr std::array offsets{
       std::pair<Index, Index>{0, 0},

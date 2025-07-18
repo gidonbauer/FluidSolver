@@ -77,6 +77,7 @@ struct FlowBConds {
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Float {
+  // TODO: Is this correct for the two-phase case with high density differences?
   Float CFLc_x = 0.0;
   Float CFLc_y = 0.0;
   Float CFLv_x = 0.0;
@@ -488,7 +489,7 @@ template <typename Float, Index NX, Index NY>
 constexpr void calc_rho_and_visc(const InterfaceReconstruction<NX, NY>& ir,
                                  const Matrix<Float, NX, NY>& vof,
                                  FS<Float, NX, NY>& fs) noexcept {
-#if 1
+#if 0
   (void)ir;
   // = Density on U-staggered mesh =================================================================
   for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {

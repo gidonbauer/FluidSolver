@@ -35,7 +35,7 @@ constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
 constexpr Float T_END           = 5.0;  // 2e-2;  // 1.0;
-constexpr Float DT_MAX          = 1e-4;
+constexpr Float DT_MAX          = 2e-4;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-3;
 
@@ -186,10 +186,10 @@ auto main() -> int {
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
-  // monitor.add_variable(&vof_min, "min(vof)");
-  // monitor.add_variable(&vof_max, "max(vof)");
+  monitor.add_variable(&vof_min, "min(vof)");
+  monitor.add_variable(&vof_max, "max(vof)");
   // monitor.add_variable(&vof_integral, "int(vof)");
-  // monitor.add_variable(&vof_loss, "loss(vof)");
+  monitor.add_variable(&vof_loss, "loss(vof)");
   // monitor.add_variable(&vof_vol_error, "max(vol. error)");
   // = Output ======================================================================================
 
@@ -356,16 +356,53 @@ auto main() -> int {
       // TODO: Update the density using the continuity equation (with the hybrid scheme) and use the
       //       consistent density here
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-          fs.curr.U[i, j] = fs.old.U[i, j] + dt * drhoUdt[i, j] / fs.curr.rho_u_stag[i, j];
+
+      // ! Calculate residual
+      // resU = time%dt * resU - 2.0_WP * fs%rho_U * fs%U + (fs%rho_U + fs%rho_Uold) * fs%Uold
+      // resV = time%dt * resV - 2.0_WP * fs%rho_V * fs%V + (fs%rho_V + fs%rho_Vold) * fs%Vold
+      // resW = time%dt * resW - 2.0_WP * fs%rho_W * fs%W + (fs%rho_W + fs%rho_Wold) * fs%Wold
+      // call fs%solve_implicit(dt=time%dt, resU=resU, resV=resV, resW=resW)
+      for (Index i = 0; i < drhoUdt.extent(0); ++i) {
+        for (Index j = 0; j < drhoUdt.extent(1); ++j) {
+          drhoUdt[i, j] = dt * drhoUdt[i, j] - 2.0 * fs.curr.rho_u_stag[i, j] * fs.curr.U[i, j] +
+                          (fs.curr.rho_u_stag[i, j] + fs.old.rho_u_stag[i, j]) * fs.old.U[i, j];
+          drhoUdt[i, j] /= fs.curr.rho_u_stag[i, j];
         }
       }
-      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-          fs.curr.V[i, j] = fs.old.V[i, j] + dt * drhoVdt[i, j] / fs.curr.rho_v_stag[i, j];
+      for (Index i = 0; i < drhoVdt.extent(0); ++i) {
+        for (Index j = 0; j < drhoVdt.extent(1); ++j) {
+          drhoVdt[i, j] = dt * drhoVdt[i, j] - 2.0 * fs.curr.rho_v_stag[i, j] * fs.curr.V[i, j] +
+                          (fs.curr.rho_v_stag[i, j] + fs.old.rho_v_stag[i, j]) * fs.old.V[i, j];
+          drhoVdt[i, j] /= fs.curr.rho_v_stag[i, j];
         }
       }
+
+      // ! Update velocity
+      // fs%U = resU + 2.0_WP * fs%U - fs%Uold
+      // fs%V = resV + 2.0_WP * fs%V - fs%Vold
+      // fs%W = resW + 2.0_WP * fs%W - fs%Wold
+      for (Index i = 0; i < drhoUdt.extent(0); ++i) {
+        for (Index j = 0; j < drhoUdt.extent(1); ++j) {
+          fs.curr.U[i, j] = drhoUdt[i, j] + 2.0 * fs.curr.U[i, j] - fs.old.U[i, j];
+        }
+      }
+      for (Index i = 0; i < drhoVdt.extent(0); ++i) {
+        for (Index j = 0; j < drhoVdt.extent(1); ++j) {
+          fs.curr.V[i, j] = drhoVdt[i, j] + 2.0 * fs.curr.V[i, j] - fs.old.V[i, j];
+        }
+      }
+
+      // NOTE: THIS IT WRONG FOR TWO-PHASE FLOWS!
+      // for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
+      //   for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
+      //     fs.curr.U[i, j] = fs.old.U[i, j] + dt * drhoUdt[i, j] / fs.curr.rho_u_stag[i, j];
+      //   }
+      // }
+      // for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
+      //   for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
+      //     fs.curr.V[i, j] = fs.old.V[i, j] + dt * drhoVdt[i, j] / fs.curr.rho_v_stag[i, j];
+      //   }
+      // }
 
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #ifdef SAVE_INTERMEDIATES

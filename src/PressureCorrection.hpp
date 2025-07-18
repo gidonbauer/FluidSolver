@@ -281,7 +281,9 @@ class PS {
     const HYPRE_Int error_flag = HYPRE_GetError();
     if (error_flag != 0) {
       if (HYPRE_CheckError(error_flag, HYPRE_ERROR_CONV) != 0) {
-        Igor::Warn("HYPRE did not converge.");
+        Igor::Warn("HYPRE did not converge: residual = {:.6e}, #iterations = {}",
+                   final_residual,
+                   local_num_iter);
         HYPRE_ClearError(HYPRE_ERROR_CONV);
       } else {
         HYPRE_DescribeError(error_flag, buffer.data());

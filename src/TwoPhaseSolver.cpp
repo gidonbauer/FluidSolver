@@ -35,9 +35,9 @@ constexpr Float DT_WRITE        = 2e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-3;
+constexpr Float VISC_G          = 1e-0;
 constexpr Float RHO_G           = 1.0;
-constexpr Float VISC_L          = VISC_G;
+constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 10.0;
 
 constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
@@ -395,7 +395,6 @@ auto main() -> int {
     }
     monitor.write();
   }
-  std::cout << '\n';
 
   Igor::Info("Solver finish successfully.");
 }

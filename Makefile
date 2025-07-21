@@ -18,16 +18,16 @@ include Makefiles/libs.mk
 
 all: ${TARGETS}
 
-IncompSolver: src/IncompSolver.cpp ${HEADERS}
+IncompSolver: examples/IncompSolver.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
-VOF: src/VOF.cpp ${HEADERS}
+VOF: examples/VOF.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
-Curvature: src/Curvature.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
+Curvature: examples/Curvature.cpp ${HEADERS}
+	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
-TwoPhaseSolver: src/TwoPhaseSolver.cpp ${HEADERS}
+TwoPhaseSolver: examples/TwoPhaseSolver.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
 clean: clean-test

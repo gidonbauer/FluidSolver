@@ -149,10 +149,10 @@ template <typename Float, Index NX, Index NY>
 
   auto get_indices =
       []<Index N>(Float pos, const Vector<Float, N>& grid, Float delta) -> std::pair<Index, Index> {
-    if (pos <= grid[0]) { return {0, 0}; }
-    if (pos >= grid[N - 1]) { return {N - 1, N - 1}; }
     const auto prev = static_cast<Index>(std::floor((pos - grid[0]) / delta));
     const auto next = static_cast<Index>(std::floor((pos - grid[0]) / delta + 1.0));
+    if (pos <= grid[0] || prev < 0) { return {0, 0}; }
+    if (pos >= grid[N - 1] || next >= N) { return {N - 1, N - 1}; }
     return {prev, next};
   };
 

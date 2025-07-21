@@ -101,6 +101,10 @@ auto main() -> int {
   Float t          = 0.0;
   Float dt         = DT_MAX;
 
+  Float mass       = 0.0;
+  Float mom_x      = 0.0;
+  Float mom_y      = 0.0;
+
   Float U_max      = 0.0;
   Float V_max      = 0.0;
   Float div_max    = 0.0;
@@ -125,6 +129,9 @@ auto main() -> int {
   monitor.add_variable(&inflow, "inflow");
   monitor.add_variable(&outflow, "outflow");
   monitor.add_variable(&mass_error, "mass error");
+  monitor.add_variable(&mass, "mass");
+  monitor.add_variable(&mom_x, "momentum (x)");
+  monitor.add_variable(&mom_y, "momentum (y)");
 
   VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
   vtk_writer.add_scalar("pressure", &fs.p);
@@ -166,6 +173,7 @@ auto main() -> int {
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
   div_max = max(div);
+  calc_conserved_quantities(fs, mass, mom_x, mom_y);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -268,6 +276,7 @@ auto main() -> int {
     U_max   = max(fs.curr.U);
     V_max   = max(fs.curr.V);
     div_max = max(div);
+    calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
     }

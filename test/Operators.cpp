@@ -4,6 +4,7 @@
 #include "Container.hpp"
 #include "FS.hpp"
 #include "Operators.hpp"
+#include "Quadrature.hpp"
 
 using Float           = double;
 constexpr Float X_MIN = 2.0;
@@ -216,10 +217,98 @@ auto test_gradient_centered_points() noexcept -> bool {
   return true;
 }
 
+// -------------------------------------------------------------------------------------------------
+auto test_staggered_integral() -> bool {
+  Igor::ScopeTimer timer("StaggeredIntegral");
+  bool res = true;
+
+  FS<Float, NX, NY> fs{};
+  for (Index i = 0; i < fs.x.extent(0); ++i) {
+    fs.x[i] = X_MIN + static_cast<Float>(i) * DX;
+  }
+  for (Index j = 0; j < fs.y.extent(0); ++j) {
+    fs.y[j] = Y_MIN + static_cast<Float>(j) * DY;
+  }
+  init_mid_and_delta(fs);
+
+  auto rho  = [](Float x, Float y) { return 12.0 * x + x * y * y; };
+  auto rhoU = [](Float x, Float y) { return (12.0 * x + x * y * y) * std::sin(x + y); };
+  auto rhoV = [](Float x, Float y) { return (12.0 * x + x * y * y) * std::cos(x + y); };
+
+  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
+      fs.curr.rho_u_stag[i, j] = rho(fs.x[i], fs.ym[j]);
+      fs.curr.U[i, j]          = rhoU(fs.x[i], fs.ym[j]) / rho(fs.x[i], fs.ym[j]);
+    }
+  }
+  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
+    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
+      fs.curr.rho_v_stag[i, j] = rho(fs.xm[i], fs.y[j]);
+      fs.curr.V[i, j]          = rhoV(fs.xm[i], fs.y[j]) / rho(fs.xm[i], fs.y[j]);
+    }
+  }
+
+  Float mass_expected       = 0.0;
+  Float momentum_x_expected = 0.0;
+  Float momentum_y_expected = 0.0;
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      mass_expected       += quadrature<64>(rho, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]);
+      momentum_x_expected += quadrature<64>(rhoU, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]);
+      momentum_y_expected += quadrature<64>(rhoV, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]);
+    }
+  }
+
+  Float mass       = 0.0;
+  Float momentum_x = 0.0;
+  Float momentum_y = 0.0;
+  calc_conserved_quantities(fs, mass, momentum_x, momentum_y);
+
+  const auto mass_error       = std::abs(mass - mass_expected);
+  const auto momentum_x_error = std::abs(momentum_x - momentum_x_expected);
+  const auto momentum_y_error = std::abs(momentum_y - momentum_y_expected);
+
+  constexpr Float TOL         = 10.0 * Igor::sqr(std::min(DX, DY));
+  if (mass_error > TOL) {
+    Igor::Warn("Calculated incorrect mass: expected {:.6e} but got {:.6e} => error = {:.6e}",
+               mass_expected,
+               mass,
+               mass_error);
+    res = false;
+  }
+  if (momentum_x_error > TOL) {
+    Igor::Warn("Calculated incorrect momentum in x-direction: expected {:.6e} but got {:.6e} => "
+               "error = {:.6e}",
+               momentum_x_expected,
+               momentum_x,
+               momentum_x_error);
+    res = false;
+  }
+  if (momentum_y_error > TOL) {
+    Igor::Warn("Calculated incorrect momentum in y-direction: expected {:.6e} but got {:.6e} => "
+               "error = {:.6e}",
+               momentum_y_expected,
+               momentum_y,
+               momentum_y_error);
+    res = false;
+  }
+
+  return res;
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
-  bool success = true;
-  success      = success && test_eval_grid_at();
-  success      = success && test_gradient_centered_points();
+  bool success      = true;
+  bool test_success = true;
+
+  test_success      = test_eval_grid_at();
+  success           = success && test_success;
+
+  test_success      = test_gradient_centered_points();
+  success           = success && test_success;
+
+  test_success      = test_staggered_integral();
+  success           = success && test_success;
 
   return success ? 0 : 1;
 }

@@ -520,4 +520,30 @@ constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vof, FS<Float, NX,
   }
 }
 
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+void calc_conserved_quantities(const FS<Float, NX, NY>& fs,
+                               Float& mass,
+                               Float& momentum_x,
+                               Float& momentum_y) noexcept {
+  mass       = 0.0;
+  momentum_x = 0.0;
+  momentum_y = 0.0;
+
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      mass += (fs.curr.rho_u_stag[i, j] + fs.curr.rho_u_stag[i + 1, j] + fs.curr.rho_v_stag[i, j] +
+               fs.curr.rho_v_stag[i, j + 1]) /
+              4.0 * fs.dx[i] * fs.dy[j];
+
+      momentum_x += (fs.curr.rho_u_stag[i, j] * fs.curr.U[i, j] +
+                     fs.curr.rho_u_stag[i + 1, j] * fs.curr.U[i + 1, j]) /
+                    2.0 * fs.dx[i] * fs.dy[j];
+      momentum_y += (fs.curr.rho_v_stag[i, j] * fs.curr.V[i, j] +
+                     fs.curr.rho_v_stag[i, j + 1] * fs.curr.V[i, j + 1]) /
+                    2.0 * fs.dx[i] * fs.dy[j];
+    }
+  }
+}
+
 #endif  // FLUID_SOLVER_FS_HPP_

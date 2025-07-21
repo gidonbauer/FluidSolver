@@ -132,14 +132,18 @@ auto main() -> int {
   Matrix<Float, NX, NY> delta_p{};
 
   // Observation variables
-  Float t             = 0.0;
-  Float dt            = DT_MAX;
+  Float t       = 0.0;
+  Float dt      = DT_MAX;
 
-  Float U_max         = 0.0;
-  Float V_max         = 0.0;
+  Float mass    = 0.0;
+  Float mom_x   = 0.0;
+  Float mom_y   = 0.0;
 
-  Float div_max       = 0.0;
-  Float div_L1        = 0.0;
+  Float U_max   = 0.0;
+  Float V_max   = 0.0;
+
+  Float div_max = 0.0;
+  // Float div_L1        = 0.0;
 
   Float vof_min       = 0.0;
   Float vof_max       = 0.0;
@@ -147,9 +151,9 @@ auto main() -> int {
   Float vof_loss      = 0.0;
   Float vof_vol_error = 0.0;
 
-  Float p_max         = 0.0;
-  Float p_res         = 0.0;
-  Index p_iter        = 0;
+  // Float p_max         = 0.0;
+  Float p_res  = 0.0;
+  Index p_iter = 0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -170,9 +174,9 @@ auto main() -> int {
   monitor.add_variable(&V_max, "max(V)");
 
   monitor.add_variable(&div_max, "max(div)");
-  monitor.add_variable(&div_L1, "L1(div)");
+  // monitor.add_variable(&div_L1, "L1(div)");
 
-  monitor.add_variable(&p_max, "max(p)");
+  // monitor.add_variable(&p_max, "max(p)");
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
@@ -181,6 +185,10 @@ auto main() -> int {
   // monitor.add_variable(&vof_integral, "int(vof)");
   monitor.add_variable(&vof_loss, "loss(vof)");
   // monitor.add_variable(&vof_vol_error, "max(vol. error)");
+
+  monitor.add_variable(&mass, "mass");
+  monitor.add_variable(&mom_x, "momentum (x)");
+  monitor.add_variable(&mom_y, "momentum (y)");
   // = Output ======================================================================================
 
   // = Initialize grid =============================================================================
@@ -232,9 +240,10 @@ auto main() -> int {
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
   div_max = max(div);
-  div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
-  p_max   = max(fs.p);
+  // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
+  // p_max = max(fs.p);
   calc_vof_stats(fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
+  calc_conserved_quantities(fs, mass, mom_x, mom_y);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -388,9 +397,10 @@ auto main() -> int {
     U_max   = max(fs.curr.U);
     V_max   = max(fs.curr.V);
     div_max = max(div);
-    div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
-    p_max   = max(fs.p);
+    // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
+    // p_max = max(fs.p);
     calc_vof_stats(fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
+    calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
     }

@@ -53,6 +53,8 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
 
+// TODO: Test case moving drop through stationary flow field
+
 // Channel flow
 constexpr FlowBConds<Float> bconds{
     //        LEFT              RIGHT           BOTTOM            TOP

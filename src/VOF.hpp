@@ -161,6 +161,7 @@ void advect_cells(const FS<Float, NX, NY>& fs,
   constexpr Index NEIGHBORHOOD_OFFSET = 1;
 
   Float local_max_volume_error        = 0.0;
+#pragma omp parallel for schedule(dynamic) collapse(2) reduction(max : local_max_volume_error)
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
       // Early exit of loop iteration if we are entirely inside or outside of liquid phase

@@ -6,7 +6,6 @@
 #include <Igor/Math.hpp>
 
 #include "Container.hpp"
-#include "IR.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
@@ -486,11 +485,7 @@ constexpr void calc_rho_and_visc(FS<Float, NX, NY>& fs) noexcept {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-constexpr void calc_rho_and_visc(const InterfaceReconstruction<NX, NY>& ir,
-                                 const Matrix<Float, NX, NY>& vof,
-                                 FS<Float, NX, NY>& fs) noexcept {
-#if 1
-  (void)ir;
+constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vof, FS<Float, NX, NY>& fs) noexcept {
   // = Density on U-staggered mesh =================================================================
   for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
     for (Index j = 0; j < fs.curr.rho_u_stag.extent(1); ++j) {
@@ -516,112 +511,8 @@ constexpr void calc_rho_and_visc(const InterfaceReconstruction<NX, NY>& ir,
     fs.curr.rho_v_stag[i, 0]  = fs.curr.rho_v_stag[i, 1];
     fs.curr.rho_v_stag[i, NY] = fs.curr.rho_v_stag[i, NY - 1];
   }
-#else
-  auto get_dist = [](const IRL::PlanarSeparator& interface, const IRL::Pt& pt) -> Float {
-    IGOR_ASSERT(interface.getNumberOfPlanes() == 1,
-                "Expected one plane but got {}",
-                interface.getNumberOfPlanes());
-    const auto& plane = interface[0];
-    return plane.signedDistanceToPoint(pt);
-  };
 
-  // = Density on U-staggered mesh =================================================================
-  for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
-    for (Index j = 1; j < fs.curr.rho_u_stag.extent(1) - 1; ++j) {
-      const auto vof_i = (vof[i - 1, j] + vof[i, j]) / 2.0;
-      if (vof_i >= VOF_HIGH) {
-        fs.curr.rho_u_stag[i, j] = fs.rho_liquid;
-      } else if (vof_i <= VOF_LOW) {
-        fs.curr.rho_u_stag[i, j] = fs.rho_gas;
-      } else {
-        const auto minus_has_interface = has_interface(vof, i - 1, j);
-        const auto plus_has_interface  = has_interface(vof, i, j);
-        const IRL::Pt pt{fs.x[i], fs.ym[j], 0.0};
-
-        if (minus_has_interface && plus_has_interface) {
-          const auto dist1 = get_dist(ir.interface[i - 1, j], pt);
-          const auto dist2 = get_dist(ir.interface[i, j], pt);
-          if (dist1 > 0.0 && dist2 > 0.0) {
-            fs.curr.rho_u_stag[i, j] = fs.rho_gas;
-          } else if (dist1 <= 0.0 && dist2 <= 0.0) {
-            fs.curr.rho_u_stag[i, j] = fs.rho_liquid;
-          } else {
-            const auto rho_minus =
-                vof[i - 1, j] * fs.rho_liquid + (1.0 - vof[i - 1, j]) * fs.rho_gas;
-            const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
-            fs.curr.rho_u_stag[i, j] = (rho_minus + rho_plus) / 2.0;
-          }
-        } else if (minus_has_interface) {
-          const auto dist = get_dist(ir.interface[i - 1, j], pt);
-          if (dist > 0.0) {
-            fs.curr.rho_u_stag[i, j] = fs.rho_gas;
-          } else {
-            fs.curr.rho_u_stag[i, j] = fs.rho_liquid;
-          }
-        } else if (plus_has_interface) {
-          const auto dist = get_dist(ir.interface[i, j], pt);
-          if (dist > 0.0) {
-            fs.curr.rho_u_stag[i, j] = fs.rho_gas;
-          } else {
-            fs.curr.rho_u_stag[i, j] = fs.rho_liquid;
-          }
-        } else {
-          Igor::Panic("Unreachable: One of the neighboring cells must have an interface.");
-        }
-      }
-    }
-  }
-  apply_neumann_bconds(fs.curr.rho_u_stag);
-
-  // = Density on V-staggered mesh =================================================================
-  for (Index i = 1; i < fs.curr.rho_v_stag.extent(0) - 1; ++i) {
-    for (Index j = 1; j < fs.curr.rho_v_stag.extent(1) - 1; ++j) {
-      const auto vof_i = (vof[i, j - 1] + vof[i, j]) / 2.0;
-      if (vof_i >= VOF_HIGH) {
-        fs.curr.rho_v_stag[i, j] = fs.rho_liquid;
-      } else if (vof_i <= VOF_LOW) {
-        fs.curr.rho_v_stag[i, j] = fs.rho_gas;
-      } else {
-        const auto minus_has_interface = has_interface(vof, i, j - 1);
-        const auto plus_has_interface  = has_interface(vof, i, j);
-        const IRL::Pt pt{fs.xm[i], fs.y[j], 0.0};
-
-        if (minus_has_interface && plus_has_interface) {
-          const auto dist1 = get_dist(ir.interface[i, j - 1], pt);
-          const auto dist2 = get_dist(ir.interface[i, j], pt);
-          if (dist1 > 0.0 && dist2 > 0.0) {
-            fs.curr.rho_v_stag[i, j] = fs.rho_gas;
-          } else if (dist1 <= 0.0 && dist2 <= 0.0) {
-            fs.curr.rho_v_stag[i, j] = fs.rho_liquid;
-          } else {
-            const auto rho_minus =
-                vof[i, j - 1] * fs.rho_liquid + (1.0 - vof[i, j - 1]) * fs.rho_gas;
-            const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
-            fs.curr.rho_v_stag[i, j] = (rho_minus + rho_plus) / 2.0;
-          }
-        } else if (minus_has_interface) {
-          const auto dist = get_dist(ir.interface[i, j - 1], pt);
-          if (dist > 0.0) {
-            fs.curr.rho_v_stag[i, j] = fs.rho_gas;
-          } else {
-            fs.curr.rho_v_stag[i, j] = fs.rho_liquid;
-          }
-        } else if (plus_has_interface) {
-          const auto dist = get_dist(ir.interface[i, j], pt);
-          if (dist > 0.0) {
-            fs.curr.rho_v_stag[i, j] = fs.rho_gas;
-          } else {
-            fs.curr.rho_v_stag[i, j] = fs.rho_liquid;
-          }
-        } else {
-          Igor::Panic("Unreachable: One of the neighboring cells must have an interface.");
-        }
-      }
-    }
-  }
-  apply_neumann_bconds(fs.curr.rho_v_stag);
-#endif
-
+  // = Viscosity on centered mesh ==================================================================
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
       fs.visc[i, j] = vof[i, j] * fs.visc_liquid + (1.0 - vof[i, j]) * fs.visc_gas;

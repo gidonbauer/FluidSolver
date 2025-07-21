@@ -35,7 +35,7 @@ constexpr Float DT_WRITE        = 2e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-0;
+constexpr Float VISC_G          = 1e-3;  // 1e-0;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 10.0;
@@ -221,7 +221,7 @@ auto main() -> int {
 
   apply_velocity_bconds(fs, bconds);
 
-  calc_rho_and_visc(ir, vof, fs);
+  calc_rho_and_visc(vof, fs);
   PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
   interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
 
@@ -251,7 +251,7 @@ auto main() -> int {
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs.x, fs.y, vof_old, ir);
     // TODO: Calculate viscosity from new VOF field
-    calc_rho_and_visc(ir, vof_old, fs);
+    calc_rho_and_visc(vof_old, fs);
     save_old_density(fs.curr, fs.old);
 
     interpolate_U(fs.curr.U, Ui);

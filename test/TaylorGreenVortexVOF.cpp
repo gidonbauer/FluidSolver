@@ -202,7 +202,7 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  calc_rho_and_visc(ir, vof, fs);
+  calc_rho_and_visc(vof, fs);
   Float max_div = std::transform_reduce(
       div.get_data(),
       div.get_data() + div.size(),

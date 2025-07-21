@@ -224,10 +224,10 @@ void advect_cells(const FS<Float, NX, NY>& fs,
 
         const Float correct_flux_vol = [&] {
           switch (FACE_DIRECTION[cell_idx]) {
-            case Dir::XM: return -fs.curr.U[i, j] * fs.dy[j] * dt;
-            case Dir::XP: return fs.curr.U[i + 1, j] * fs.dy[j] * dt;
-            case Dir::YM: return -fs.curr.V[i, j] * fs.dx[i] * dt;
-            case Dir::YP: return fs.curr.V[i, j + 1] * fs.dx[i] * dt;
+            case Dir::XM: return -fs.curr.U[i, j] * fs.dy * dt;
+            case Dir::XP: return fs.curr.U[i + 1, j] * fs.dy * dt;
+            case Dir::YM: return -fs.curr.V[i, j] * fs.dx * dt;
+            case Dir::YP: return fs.curr.V[i, j + 1] * fs.dx * dt;
             case Dir::ZM:
             case Dir::ZP: Igor::Panic("Unreachable"); std::unreachable();
           }

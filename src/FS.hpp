@@ -27,11 +27,11 @@ struct FS {
 
   Vector<Float, NX + 1> x{};
   Vector<Float, NX> xm{};
-  Vector<Float, NX> dx{};
+  Float dx{};
 
   Vector<Float, NY + 1> y{};
   Vector<Float, NY> ym{};
-  Vector<Float, NY> dy{};
+  Float dy{};
 
   Matrix<Float, NX, NY> visc{};
 
@@ -41,6 +41,34 @@ struct FS {
   State<Float, NX, NY> curr{};
 };
 
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+constexpr void init_grid(Float x_min,
+                         Float x_max,
+                         Index nx,
+                         Float y_min,
+                         Float y_max,
+                         Index ny,
+                         FS<Float, NX, NY>& fs) noexcept {
+  fs.dx = (x_max - x_min) / static_cast<Float>(nx);
+  fs.dy = (y_max - y_min) / static_cast<Float>(ny);
+
+  for (Index i = 0; i < NX + 1; ++i) {
+    fs.x[i] = x_min + static_cast<Float>(i) * fs.dx;
+  }
+  for (Index j = 0; j < NY + 1; ++j) {
+    fs.y[j] = y_min + static_cast<Float>(j) * fs.dy;
+  }
+
+  for (Index i = 0; i < NX; ++i) {
+    fs.xm[i] = (fs.x[i] + fs.x[i + 1]) / 2;
+  }
+  for (Index j = 0; j < NY; ++j) {
+    fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 constexpr void save_old_velocity(const State<Float, NX, NY>& curr,
                                  State<Float, NX, NY>& old) noexcept {
@@ -48,6 +76,7 @@ constexpr void save_old_velocity(const State<Float, NX, NY>& curr,
   std::copy_n(curr.V.get_data(), curr.V.size(), old.V.get_data());
 }
 
+// -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 constexpr void save_old_density(const State<Float, NX, NY>& curr,
                                 State<Float, NX, NY>& old) noexcept {
@@ -55,6 +84,7 @@ constexpr void save_old_density(const State<Float, NX, NY>& curr,
   std::copy_n(curr.rho_v_stag.get_data(), curr.rho_v_stag.size(), old.rho_v_stag.get_data());
 }
 
+// -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 constexpr void save_old_state(const State<Float, NX, NY>& curr,
                               State<Float, NX, NY>& old) noexcept {
@@ -62,6 +92,7 @@ constexpr void save_old_state(const State<Float, NX, NY>& curr,
   save_old_velocity(curr, old);
 }
 
+// -------------------------------------------------------------------------------------------------
 // TODO: Clipped Neumann?
 enum class BCond : uint8_t { DIRICHLET, NEUMANN };
 enum : Index { LEFT, RIGHT, BOTTOM, TOP, NSIDES };
@@ -76,7 +107,6 @@ struct FlowBConds {
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Float {
-  // TODO: Is this correct for the two-phase case with high density differences?
   Float CFLc_x = 0.0;
   Float CFLc_y = 0.0;
   Float CFLv_x = 0.0;
@@ -84,14 +114,14 @@ auto adjust_dt(const FS<Float, NX, NY>& fs, Float cfl_max, Float dt_max) -> Floa
 
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      CFLc_x         = std::max(CFLc_x, (fs.curr.U[i, j] + fs.curr.U[i + 1, j]) / 2 / fs.dx[i]);
-      CFLc_y         = std::max(CFLc_y, (fs.curr.V[i, j] + fs.curr.V[i, j + 1]) / 2 / fs.dy[j]);
+      CFLc_x         = std::max(CFLc_x, (fs.curr.U[i, j] + fs.curr.U[i + 1, j]) / 2 / fs.dx);
+      CFLc_y         = std::max(CFLc_y, (fs.curr.V[i, j] + fs.curr.V[i, j + 1]) / 2 / fs.dy);
 
       const auto rho = (fs.curr.rho_u_stag[i, j] + fs.curr.rho_u_stag[i + 1, j] +
                         fs.curr.rho_v_stag[i, j] + fs.curr.rho_v_stag[i, j + 1]) /
                        4.0;
-      CFLv_x = std::max(CFLv_x, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dx[i]) * rho));
-      CFLv_y = std::max(CFLv_y, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dy[j]) * rho));
+      CFLv_x = std::max(CFLv_x, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dx) * rho));
+      CFLv_y = std::max(CFLv_y, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dy) * rho));
     }
   }
 
@@ -130,7 +160,6 @@ template <typename Float, Index NX, Index NY>
 void calc_dmomdt(const FS<Float, NX, NY>& fs,
                  Matrix<Float, NX + 1, NY>& dmomUdt,
                  Matrix<Float, NX, NY + 1>& dmomVdt) {
-  // TODO: Use the correct dx and dy in case of non-uniform grids (not planned at the moment)
   static Matrix<Float, NX, NY> FX{};
   static Matrix<Float, NX, NY> FY{};
   std::fill_n(dmomUdt.get_data(), dmomUdt.size(), 0.0);
@@ -157,7 +186,7 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
                                                               fs.curr.U[i, j],
                                                               fs.curr.U[i + 1, j]);
         const auto U_i                        = ((fs.curr.U[i + 1, j] + fs.curr.U[i, j]) / 2);
-        const auto dUdx                       = (fs.curr.U[i + 1, j] - fs.curr.U[i, j]) / fs.dx[i];
+        const auto dUdx                       = (fs.curr.U[i + 1, j] - fs.curr.U[i, j]) / fs.dx;
 
         FX[i, j] = -rho_i_hybrid * U_i_hybrid * U_i + 2.0 * fs.visc[i, j] * dUdx - fs.p[i, j];
       }
@@ -178,8 +207,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
 
         const auto visc_corner =
             (fs.visc[i - 1, j] + fs.visc[i, j] + fs.visc[i - 1, j + 1] + fs.visc[i, j + 1]) / 4.0;
-        const auto dUdy = (fs.curr.U[i, j + 1] - fs.curr.U[i, j]) / fs.dy[j];
-        const auto dVdx = (fs.curr.V[i, j + 1] - fs.curr.V[i - 1, j + 1]) / fs.dx[i];
+        const auto dUdy = (fs.curr.U[i, j + 1] - fs.curr.U[i, j]) / fs.dy;
+        const auto dVdx = (fs.curr.V[i, j + 1] - fs.curr.V[i - 1, j + 1]) / fs.dx;
 
         FY[i, j]        = -rho_i_hybrid * U_i_hybrid * V_i + visc_corner * (dUdy + dVdx);
       } else {
@@ -191,8 +220,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
   }
   for (Index i = 1; i < dmomUdt.extent(0) - 1; ++i) {
     for (Index j = 1; j < dmomUdt.extent(1) - 1; ++j) {
-      dmomUdt[i, j] = (FX[i, j] - FX[i - 1, j]) / fs.dx[i - 1] +  //
-                      (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
+      dmomUdt[i, j] = (FX[i, j] - FX[i - 1, j]) / fs.dx +  //
+                      (FY[i, j] - FY[i, j - 1]) / fs.dy;
     }
   }
 
@@ -216,8 +245,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
 
         const auto visc_corner =
             (fs.visc[i - 1, j] + fs.visc[i, j] + fs.visc[i - 1, j + 1] + fs.visc[i, j + 1]) / 4.0;
-        const auto dUdy = (fs.curr.U[i, j + 1] - fs.curr.U[i, j]) / fs.dy[j];
-        const auto dVdx = (fs.curr.V[i, j + 1] - fs.curr.V[i - 1, j + 1]) / fs.dx[i];
+        const auto dUdy = (fs.curr.U[i, j + 1] - fs.curr.U[i, j]) / fs.dy;
+        const auto dVdx = (fs.curr.V[i, j + 1] - fs.curr.V[i - 1, j + 1]) / fs.dx;
 
         FX[i, j]        = -rho_i_hybrid * U_i * V_i_hybrid + visc_corner * (dUdy + dVdx);
       } else {
@@ -240,7 +269,7 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
                                                               fs.curr.V[i, j + 1]);
         const auto V_i                        = (fs.curr.V[i, j] + fs.curr.V[i, j + 1]) / 2;
 
-        const auto dVdy                       = (fs.curr.V[i, j + 1] - fs.curr.V[i, j]) / fs.dy[j];
+        const auto dVdy                       = (fs.curr.V[i, j + 1] - fs.curr.V[i, j]) / fs.dy;
 
         FY[i, j] = -rho_i_hybrid * V_i_hybrid * V_i + 2.0 * fs.visc[i, j] * dVdy - fs.p[i, j];
       }
@@ -248,8 +277,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
   }
   for (Index i = 1; i < dmomVdt.extent(0) - 1; ++i) {
     for (Index j = 1; j < dmomVdt.extent(1) - 1; ++j) {
-      dmomVdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx[i - 1] +  //
-                      (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
+      dmomVdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx +  //
+                      (FY[i, j] - FY[i, j - 1]) / fs.dy;
     }
   }
 }
@@ -303,8 +332,8 @@ void calc_drhodt(const FS<Float, NX, NY>& fs,
   }
   for (Index i = 1; i < drho_u_stagdt.extent(0) - 1; ++i) {
     for (Index j = 1; j < drho_u_stagdt.extent(1) - 1; ++j) {
-      drho_u_stagdt[i, j] = (FX[i, j] - FX[i - 1, j]) / fs.dx[i - 1] +  //
-                            (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
+      drho_u_stagdt[i, j] = (FX[i, j] - FX[i - 1, j]) / fs.dx +  //
+                            (FY[i, j] - FY[i, j - 1]) / fs.dy;
     }
   }
 
@@ -347,8 +376,8 @@ void calc_drhodt(const FS<Float, NX, NY>& fs,
   }
   for (Index i = 1; i < drho_v_stagdt.extent(0) - 1; ++i) {
     for (Index j = 1; j < drho_v_stagdt.extent(1) - 1; ++j) {
-      drho_v_stagdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx[i - 1] +  //
-                            (FY[i, j] - FY[i, j - 1]) / fs.dy[j - 1];
+      drho_v_stagdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx +  //
+                            (FY[i, j] - FY[i, j - 1]) / fs.dy;
     }
   }
 }
@@ -453,19 +482,6 @@ constexpr void apply_neumann_bconds(Matrix<Float, NX, NY>& field) noexcept {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-constexpr void init_mid_and_delta(FS<Float, NX, NY>& fs) noexcept {
-  for (Index i = 0; i < NX; ++i) {
-    fs.xm[i] = (fs.x[i] + fs.x[i + 1]) / 2;
-    fs.dx[i] = fs.x[i + 1] - fs.x[i];
-  }
-  for (Index j = 0; j < NY; ++j) {
-    fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
-    fs.dy[j] = fs.y[j + 1] - fs.y[j];
-  }
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
 constexpr void calc_rho_and_visc(FS<Float, NX, NY>& fs) noexcept {
   IGOR_ASSERT(std::abs(fs.rho_gas - fs.rho_liquid) < 1e-12,
               "Expected constant density but rho_gas = {:.6e} and rho_liquid = {:.6e}",
@@ -534,14 +550,14 @@ void calc_conserved_quantities(const FS<Float, NX, NY>& fs,
     for (Index j = 0; j < NY; ++j) {
       mass += (fs.curr.rho_u_stag[i, j] + fs.curr.rho_u_stag[i + 1, j] + fs.curr.rho_v_stag[i, j] +
                fs.curr.rho_v_stag[i, j + 1]) /
-              4.0 * fs.dx[i] * fs.dy[j];
+              4.0 * fs.dx * fs.dy;
 
       momentum_x += (fs.curr.rho_u_stag[i, j] * fs.curr.U[i, j] +
                      fs.curr.rho_u_stag[i + 1, j] * fs.curr.U[i + 1, j]) /
-                    2.0 * fs.dx[i] * fs.dy[j];
+                    2.0 * fs.dx * fs.dy;
       momentum_y += (fs.curr.rho_v_stag[i, j] * fs.curr.V[i, j] +
                      fs.curr.rho_v_stag[i, j + 1] * fs.curr.V[i, j + 1]) /
-                    2.0 * fs.dx[i] * fs.dy[j];
+                    2.0 * fs.dx * fs.dy;
     }
   }
 }

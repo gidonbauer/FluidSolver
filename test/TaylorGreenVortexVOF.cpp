@@ -172,13 +172,7 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Setup grid and cell localizers ==============================================================
-  for (Index i = 0; i < fs.x.extent(0); ++i) {
-    fs.x[i] = X_MIN + static_cast<Float>(i) * DX;
-  }
-  for (Index j = 0; j < fs.y.extent(0); ++j) {
-    fs.y[j] = Y_MIN + static_cast<Float>(j) * DY;
-  }
-  init_mid_and_delta(fs);
+  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   // Localize the cells
   localize_cells(fs.x, fs.y, ir);
@@ -192,8 +186,7 @@ auto main() -> int {
                Igor::sqr(0.5);
       };
 
-      vof[i, j] =
-          quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx[i] * fs.dy[j]);
+      vof[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
     }
   }
   reconstruct_interface(fs.x, fs.y, vof, ir);

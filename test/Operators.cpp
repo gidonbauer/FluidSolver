@@ -15,9 +15,6 @@ constexpr Float Y_MAX = 3.0;
 constexpr Index NX    = 200;
 constexpr Index NY    = 300;
 
-constexpr auto DX     = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
-
 // -------------------------------------------------------------------------------------------------
 auto test_eval_grid_at() noexcept -> bool {
   Igor::ScopeTimer timer("EvalGridAt");
@@ -30,20 +27,7 @@ auto test_eval_grid_at() noexcept -> bool {
   // = Allocate memory =============================================================================
 
   // = Initialize grid =============================================================================
-  for (Index i = 0; i < fs.x.extent(0); ++i) {
-    fs.x[i] = X_MIN + static_cast<Float>(i) * DX;
-  }
-  for (Index i = 0; i < fs.xm.extent(0); ++i) {
-    fs.xm[i] = (fs.x[i] + fs.x[i + 1]) / 2;
-    fs.dx[i] = fs.x[i + 1] - fs.x[i];
-  }
-  for (Index j = 0; j < fs.y.extent(0); ++j) {
-    fs.y[j] = Y_MIN + static_cast<Float>(j) * DY;
-  }
-  for (Index j = 0; j < fs.ym.extent(0); ++j) {
-    fs.ym[j] = (fs.y[j] + fs.y[j + 1]) / 2;
-    fs.dy[j] = fs.y[j + 1] - fs.y[j];
-  }
+  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
   // = Initialize grid =============================================================================
 
   // = Initialize flow field =======================================================================
@@ -105,13 +89,7 @@ auto test_gradient_centered_points() noexcept -> bool {
   Igor::ScopeTimer timer("GradientCenteredPoints");
 
   FS<Float, NX, NY> fs{};
-  for (Index i = 0; i < fs.x.extent(0); ++i) {
-    fs.x[i] = X_MIN + static_cast<Float>(i) * DX;
-  }
-  for (Index j = 0; j < fs.y.extent(0); ++j) {
-    fs.y[j] = Y_MIN + static_cast<Float>(j) * DY;
-  }
-  init_mid_and_delta(fs);
+  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   Matrix<Float, NX, NY> f{};
   Matrix<Float, NX, NY> dfdx{};
@@ -129,9 +107,9 @@ auto test_gradient_centered_points() noexcept -> bool {
     }
   }
 
-  calc_grad_of_centered_points(f, DX, DY, dfdx, dfdy);
-  calc_grad_of_centered_points(dfdx, DX, DY, dfdxx, dfdxy);
-  calc_grad_of_centered_points(dfdy, DX, DY, dfdyx, dfdyy);
+  calc_grad_of_centered_points(f, fs.dx, fs.dy, dfdx, dfdy);
+  calc_grad_of_centered_points(dfdx, fs.dx, fs.dy, dfdxx, dfdxy);
+  calc_grad_of_centered_points(dfdy, fs.dx, fs.dy, dfdyx, dfdyy);
 
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
@@ -223,13 +201,7 @@ auto test_staggered_integral() -> bool {
   bool res = true;
 
   FS<Float, NX, NY> fs{};
-  for (Index i = 0; i < fs.x.extent(0); ++i) {
-    fs.x[i] = X_MIN + static_cast<Float>(i) * DX;
-  }
-  for (Index j = 0; j < fs.y.extent(0); ++j) {
-    fs.y[j] = Y_MIN + static_cast<Float>(j) * DY;
-  }
-  init_mid_and_delta(fs);
+  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   auto rho  = [](Float x, Float y) { return 12.0 * x + x * y * y; };
   auto rhoU = [](Float x, Float y) { return (12.0 * x + x * y * y) * std::sin(x + y); };
@@ -268,7 +240,7 @@ auto test_staggered_integral() -> bool {
   const auto momentum_x_error = std::abs(momentum_x - momentum_x_expected);
   const auto momentum_y_error = std::abs(momentum_y - momentum_y_expected);
 
-  constexpr Float TOL         = 10.0 * Igor::sqr(std::min(DX, DY));
+  const Float TOL             = 10.0 * Igor::sqr(std::min(fs.dx, fs.dy));
   if (mass_error > TOL) {
     Igor::Warn("Calculated incorrect mass: expected {:.6e} but got {:.6e} => error = {:.6e}",
                mass_expected,

@@ -51,10 +51,8 @@ auto main() -> int {
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
+  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
   calc_rho_and_visc(fs);
-
-  constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
-  constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
@@ -91,16 +89,7 @@ auto main() -> int {
   vtk_writer.add_vector("velocity", &Ui, &Vi);
   // = Output ======================================================================================
 
-  // = Initialize grid =============================================================================
-  for (Index i = 0; i < fs.x.extent(0); ++i) {
-    fs.x[i] = X_MIN + static_cast<Float>(i) * dx;
-  }
-  for (Index j = 0; j < fs.y.extent(0); ++j) {
-    fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
-  }
-  init_mid_and_delta(fs);
   PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
-  // = Initialize grid =============================================================================
 
   // = Initialize flow field =======================================================================
   std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
@@ -143,7 +132,6 @@ auto main() -> int {
       calc_mid_time(fs.curr.V, fs.old.V);
 
       // = Update flow field =======================================================================
-      // TODO: Handle density and interfaces
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
         for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
@@ -196,7 +184,6 @@ auto main() -> int {
       }
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-      // TODO: Add capillary forces here.
       Index local_p_iter = 0;
       if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
@@ -213,12 +200,12 @@ auto main() -> int {
 
       for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-          fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i] * dt / RHO;
+          fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / RHO;
         }
       }
       for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-          fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j] * dt / RHO;
+          fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / RHO;
         }
       }
     }
@@ -243,10 +230,9 @@ auto main() -> int {
 
   // = Perform tests ===============================================================================
   bool any_test_failed = false;
-  const Float TOL      = 3.0 * Igor::sqr(std::max(fs.dx[0], fs.dy[0]));
+  const Float TOL      = 3.0 * Igor::sqr(std::max(fs.dx, fs.dy));
 
-  // TODO: Assumes equidistant spacing in x- and y-direction
-  const auto vol = fs.dx[0] * fs.dy[0];
+  const auto vol       = fs.dx * fs.dy;
 
   // Test U
   Float L1_error_U = 0.0;

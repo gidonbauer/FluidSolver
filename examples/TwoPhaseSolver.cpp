@@ -113,9 +113,6 @@ auto main() -> int {
   FS<Float, NX, NY> fs{
       .visc_gas = VISC_G, .visc_liquid = VISC_L, .rho_gas = RHO_G, .rho_liquid = RHO_L};
 
-  constexpr auto dx = (X_MAX - X_MIN) / static_cast<Float>(NX);
-  constexpr auto dy = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
-
   InterfaceReconstruction<NX, NY> ir{};
   Matrix<Float, NX, NY> vof_old{};
   Matrix<Float, NX, NY> vof{};
@@ -194,20 +191,12 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize grid =============================================================================
-  for (Index i = 0; i < fs.x.extent(0); ++i) {
-    fs.x[i] = X_MIN + static_cast<Float>(i) * dx;
-  }
-  for (Index j = 0; j < fs.y.extent(0); ++j) {
-    fs.y[j] = Y_MIN + static_cast<Float>(j) * dy;
-  }
-  init_mid_and_delta(fs);
-  // = Initialize grid =============================================================================
+  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   // = Initialize VOF field ========================================================================
   for (Index i = 0; i < vof.extent(0); ++i) {
     for (Index j = 0; j < vof.extent(1); ++j) {
-      vof[i, j] =
-          quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx[i] * fs.dy[j]);
+      vof[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
     }
   }
   const Float init_vof_integral = integrate(fs.dx, fs.dy, vof);
@@ -331,13 +320,13 @@ auto main() -> int {
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // TODO: Add capillary forces here.
       smooth_vof_field(fs.xm, fs.ym, vof_old, vof_smooth);
-      calc_curvature(dx, dy, vof_old, vof_smooth, curv);
+      calc_curvature(fs.dx, fs.dy, vof_old, vof_smooth, curv);
 
       for (Index i = 0; i < NX; ++i) {
         for (Index j = 0; j < NY; ++j) {
           if (has_interface(vof_old, i, j)) {
-            const auto dkappadx = (-curv[i + 1, j] - -curv[i - 1, j]) / (2.0 * fs.dx[i]);
-            const auto dkappady = (-curv[i, j + 1] - -curv[i, j - 1]) / (2.0 * fs.dy[j]);
+            const auto dkappadx = (-curv[i + 1, j] - -curv[i - 1, j]) / (2.0 * fs.dx);
+            const auto dkappady = (-curv[i, j + 1] - -curv[i, j - 1]) / (2.0 * fs.dy);
 
             IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
                         "Expected exactly one plane but got {}",
@@ -378,14 +367,14 @@ auto main() -> int {
       // Correct velocity
       for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-          const auto dpdx  = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx[i];
+          const auto dpdx  = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx;
           const auto rho   = fs.curr.rho_u_stag[i, j];
           fs.curr.U[i, j] -= dpdx * dt / rho;
         }
       }
       for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-          const auto dpdy  = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy[j];
+          const auto dpdy  = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy;
           const auto rho   = fs.curr.rho_v_stag[i, j];
           fs.curr.V[i, j] -= dpdy * dt / rho;
         }

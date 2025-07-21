@@ -41,12 +41,12 @@ void interpolate_UV_staggered_field(const Matrix<Float, NX + 1, NY>& u_stag,
 template <typename Float, Index NX, Index NY>
 void calc_divergence(const Matrix<Float, NX + 1, NY>& U,
                      const Matrix<Float, NX, NY + 1>& V,
-                     const Vector<Float, NX>& dx,
-                     const Vector<Float, NY>& dy,
+                     Float dx,
+                     Float dy,
                      Matrix<Float, NX, NY>& div) {
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      div[i, j] = (U[i + 1, j] - U[i, j]) / dx[i] + (V[i, j + 1] - V[i, j]) / dy[j];
+      div[i, j] = (U[i + 1, j] - U[i, j]) / dx + (V[i, j + 1] - V[i, j]) / dy;
     }
   }
 }
@@ -63,13 +63,11 @@ void calc_mid_time(Matrix<Float, NX, NY>& current, const Matrix<Float, NX, NY>& 
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-constexpr auto integrate(const Vector<Float, NX>& dx,
-                         const Vector<Float, NY>& dy,
-                         const Matrix<Float, NX, NY>& field) noexcept -> Float {
+constexpr auto integrate(Float dx, Float dy, const Matrix<Float, NX, NY>& field) noexcept -> Float {
   Float integral = 0.0;
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      integral += field[i, j] * dx[i] * dy[j];
+      integral += field[i, j] * dx * dy;
     }
   }
   return integral;
@@ -77,9 +75,7 @@ constexpr auto integrate(const Vector<Float, NX>& dx,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-constexpr auto L1_norm(const Vector<Float, NX>& dx,
-                       const Vector<Float, NY>& dy,
-                       const Matrix<Float, NX, NY>& field) noexcept -> Float {
+constexpr auto L1_norm(Float dx, Float dy, const Matrix<Float, NX, NY>& field) noexcept -> Float {
   Float integral = 0.0;
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
@@ -91,9 +87,7 @@ constexpr auto L1_norm(const Vector<Float, NX>& dx,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-void shift_pressure_to_zero(const Vector<Float, NX>& dx,
-                            const Vector<Float, NY>& dy,
-                            Matrix<Float, NX, NY>& dp) {
+void shift_pressure_to_zero(Float dx, Float dy, Matrix<Float, NX, NY>& dp) {
   Float vol_avg_p = integrate(dx, dy, dp);
   for (Index i = 0; i < dp.extent(0); ++i) {
     for (Index j = 0; j < dp.extent(1); ++j) {
@@ -109,7 +103,6 @@ template <typename Float, Index NX, Index NY>
                                                   const Matrix<Float, NX, NY>& field,
                                                   Float x,
                                                   Float y) -> Float {
-  // TODO: Assumes equidistant grid
   const auto dx = xm[1] - xm[0];
   const auto dy = ym[1] - ym[0];
 
@@ -143,7 +136,6 @@ template <typename Float, Index NX, Index NY>
                                                 const Matrix<Float, NX, NY>& Vi,
                                                 Float x,
                                                 Float y) -> std::pair<Float, Float> {
-  // TODO: Assumes equidistant grid
   const auto dx = xm[1] - xm[0];
   const auto dy = ym[1] - ym[0];
 
@@ -180,7 +172,6 @@ void calc_grad_of_centered_points(const Matrix<Float, NX, NY>& f,
                                   Float dy,
                                   Matrix<Float, NX, NY>& dfdx,
                                   Matrix<Float, NX, NY>& dfdy) noexcept {
-  // TODO: This assumes an equidistant mesh
   for (Index i = 1; i < NX - 1; ++i) {
     for (Index j = 1; j < NY - 1; ++j) {
       dfdx[i, j] = (f[i + 1, j] - f[i - 1, j]) / (2.0 * dx);

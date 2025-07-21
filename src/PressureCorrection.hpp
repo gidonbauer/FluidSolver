@@ -29,7 +29,6 @@ class PS {
   bool m_is_setup = false;
 
  public:
-  // TODO: Assumes equidistant spacing in x- and y-direction respectively
   constexpr PS(const FS<Float, NX, NY>& fs, Float tol, HYPRE_Int max_iter) noexcept
       : m_tol(tol),
         m_max_iter(max_iter) {
@@ -138,8 +137,7 @@ class PS {
     enum : size_t { S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP };
     std::array<HYPRE_Int, STENCIL_SIZE> stencil_indices{S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP};
 
-    // TODO: Should we scale each cell by its volume or use a constant scaling factor?
-    const Float vol = fs.dx[0] * fs.dy[0];
+    const Float vol = fs.dx * fs.dy;
 
     for (Index i = 0; i < NX; ++i) {
       for (Index j = 0; j < NY; ++j) {
@@ -149,39 +147,39 @@ class PS {
         // = x-components ==========================================================================
         if (i == 0) {
           // On left
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.curr.rho_u_stag[i + 1, j]);
+          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
           s[S_LEFT]   += 0.0;
-          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.curr.rho_u_stag[i + 1, j]);
+          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
         } else if (i == NX - 1) {
           // On right
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx[i]) * fs.curr.rho_u_stag[i, j]);
-          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx[i]) * fs.curr.rho_u_stag[i, j]);
+          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
+          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
           s[S_RIGHT]  += 0.0;
         } else {
           // In interior (x)
-          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx[i]) * fs.curr.rho_u_stag[i, j]) +
-                                 -1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.curr.rho_u_stag[i + 1, j]));
-          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx[i]) * fs.curr.rho_u_stag[i, j]);
-          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx[i + 1]) * fs.curr.rho_u_stag[i + 1, j]);
+          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]) +
+                                 -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]));
+          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
+          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
         }
 
         // = y-components ==========================================================================
         if (j == 0) {
           // On bottom
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.curr.rho_v_stag[i, j + 1]);
+          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
           s[S_BOTTOM] += 0.0;
-          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.curr.rho_v_stag[i, j + 1]);
+          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
         } else if (j == NY - 1) {
           // On top
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy[j]) * fs.curr.rho_v_stag[i, j]);
-          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy[j]) * fs.curr.rho_v_stag[i, j]);
+          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
+          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
           s[S_TOP]    += 0.0;
         } else {
           // In interior (y)
-          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy[j]) * fs.curr.rho_v_stag[i, j]) +
-                                 -1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.curr.rho_v_stag[i, j + 1]));
-          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy[j]) * fs.curr.rho_v_stag[i, j]);
-          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy[j + 1]) * fs.curr.rho_v_stag[i, j + 1]);
+          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]) +
+                                 -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]));
+          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
+          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
         }
       }
     }
@@ -223,8 +221,7 @@ class PS {
     HYPRE_Int ierr = 0;
     bool res       = true;
 
-    // TODO: Should we scale each cell by its volume or use a constant scaling factor?
-    const auto vol = fs.dx[0] * fs.dy[0];
+    const auto vol = fs.dx * fs.dy;
 
     static Matrix<Float, NX, NY, Layout::F> rhs_values{};
 

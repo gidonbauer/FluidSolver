@@ -148,8 +148,16 @@ template <typename Float, Index NX, Index NY>
     return {prev, next};
   };
 
-  const auto [iprev, inext] = get_indices(x, xm, dx);
-  const auto [jprev, jnext] = get_indices(y, ym, dy);
+  // const auto [iprev, inext] = get_indices(x, xm, dx);
+  // const auto [jprev, jnext] = get_indices(y, ym, dy);
+
+  const auto i_pair         = get_indices(x, xm, dx);
+  const auto j_pair         = get_indices(y, ym, dy);
+
+  const auto iprev          = i_pair.first;
+  const auto inext          = i_pair.second;
+  const auto jprev          = j_pair.first;
+  const auto jnext          = j_pair.second;
 
   auto interpolate_bilinear = [&](const Matrix<Float, NX, NY>& field) -> Float {
     // Interpolate in x

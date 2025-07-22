@@ -143,7 +143,7 @@ void curvature_from_quad_reconstruction(const FS<Float, NX, NY>& fs,
       j += 1;
     }
 
-    Igor::Debug("{}, {}: normal = {}", i, j, ir.interface[i, j][0].normal());
+    // Igor::Debug("{}, {}: normal = {}", i, j, ir.interface[i, j][0].normal());
 
     for (Index di = -1; di <= 1; ++di) {
       for (Index dj = -1; dj <= 1; ++dj) {

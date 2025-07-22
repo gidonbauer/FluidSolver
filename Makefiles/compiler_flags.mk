@@ -24,7 +24,8 @@ else ifeq (${BASENAME_CXX}, icpx)
 	CXX_RELEASE_FLAGS = -O3 -xSSE4.2 -axCORE-AVX2,AVX -fp-model precise
 	CXX_FAST_FLAGS = -O3 -xSSE4.2 -axCORE-AVX2,AVX -fp-model fast=2 -ffast-math -DIGOR_NDEBUG
 	CXX_DEBUG_FLAGS = -O0 -g
-	CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
+#	CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
+	CXX_SANITIZER_FLAGS = -fsanitize=thread
 	CXX_OPENMP_FLAGS = -qopenmp
 
 else

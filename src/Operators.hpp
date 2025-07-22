@@ -64,25 +64,19 @@ void calc_mid_time(Matrix<Float, NX, NY>& current, const Matrix<Float, NX, NY>& 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 constexpr auto integrate(Float dx, Float dy, const Matrix<Float, NX, NY>& field) noexcept -> Float {
-  Float integral = 0.0;
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      integral += field[i, j] * dx * dy;
-    }
-  }
-  return integral;
+  return std::reduce(field.get_data(), field.get_data() + field.size(), Float{0}, std::plus<>{}) *
+         dx * dy;
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 constexpr auto L1_norm(Float dx, Float dy, const Matrix<Float, NX, NY>& field) noexcept -> Float {
-  Float integral = 0.0;
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      integral += std::abs(field[i, j]) * dx[i] * dy[j];
-    }
-  }
-  return integral;
+  return std::transform_reduce(field.get_data(),
+                               field.get_data() + field.size(),
+                               Float{0},
+                               std::plus<>{},
+                               [](Float x) { return std::abs(x); }) *
+         dx * dy;
 }
 
 // -------------------------------------------------------------------------------------------------

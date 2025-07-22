@@ -2,10 +2,11 @@ TESTS = LaminarChannel_0     \
         LaminarChannel_1     \
         Couette              \
         TaylorGreenVortex    \
-				ConstantVelocityVOF  \
+        ConstantVelocityVOF  \
         LinearVelocityVOF    \
         TaylorGreenVortexVOF \
-				Operators
+        Operators            \
+        MovingDrop
 
 test: ${addprefix test/, ${TESTS}} ${addprefix test-, ${TESTS}}
 
@@ -21,6 +22,9 @@ test/LaminarChannel_0: test/LaminarChannel.cpp ${HEADERS}
 
 test/LaminarChannel_1: test/LaminarChannel.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} -DLC_U_INIT=1 ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
+
+test/MovingDrop: test/MovingDrop.cpp ${HEADERS}
+	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
 clean-test:
 	${RM} -r ${addprefix test/, ${TESTS}} ${addsuffix .dSYM, ${addprefix test/, ${TESTS}}}

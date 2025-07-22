@@ -218,7 +218,6 @@ class PS {
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
 
     static std::array<char, 1024UZ> buffer{};
-    HYPRE_Int ierr = 0;
     bool res       = true;
 
     const auto vol = fs.dx * fs.dy;
@@ -250,7 +249,7 @@ class PS {
     // = Solve the system ==========================================================================
     Float final_residual     = -1.0;
     HYPRE_Int local_num_iter = -1;
-    ierr                     = HYPRE_StructGMRESSolve(m_solver, m_matrix, m_rhs, m_sol);
+    HYPRE_StructGMRESSolve(m_solver, m_matrix, m_rhs, m_sol);
     HYPRE_StructGMRESGetFinalRelativeResidualNorm(m_solver, &final_residual);
     HYPRE_StructGMRESGetNumIterations(m_solver, &local_num_iter);
 
@@ -261,17 +260,6 @@ class PS {
       }
     }
 
-    if (final_residual > 100.0 * m_tol) {
-      if (ierr != 0) {
-        HYPRE_DescribeError(ierr, buffer.data());
-        Igor::Warn("Could not solve the system successfully: {}", buffer.data());
-        HYPRE_ClearError(ierr);
-      }
-
-      Igor::Warn("Residual pressure correction = {}", final_residual);
-      Igor::Warn("Num. iterations pressure correction = {}", local_num_iter);
-      res = false;
-    }
     if (pressure_residual != nullptr) { *pressure_residual = final_residual; }
     if (num_iter != nullptr) { *num_iter = local_num_iter; }
 
@@ -282,6 +270,7 @@ class PS {
                    final_residual,
                    local_num_iter);
         HYPRE_ClearError(HYPRE_ERROR_CONV);
+        res = false;
       } else {
         HYPRE_DescribeError(error_flag, buffer.data());
         Igor::Panic("An error occured in HYPRE: {}", buffer.data());

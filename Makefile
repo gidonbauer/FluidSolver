@@ -9,7 +9,7 @@ HEADERS = src/Container.hpp          \
           src/Quadrature.hpp         \
           src/QuadratureTables.hpp   \
           src/VTKWriter.hpp          \
-					src/Curvature.hpp
+          src/Curvature.hpp
 
 TARGETS = IncompSolver VOF Curvature TwoPhaseSolver
 

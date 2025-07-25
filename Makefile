@@ -11,20 +11,14 @@ HEADERS = src/Container.hpp          \
           src/VTKWriter.hpp          \
           src/Curvature.hpp
 
-TARGETS = IncompSolver VOF Curvature TwoPhaseSolver
+TARGETS = IncompSolver VOF Curvature TwoPhaseSolver IB
 
 include Makefiles/compiler_flags.mk
 include Makefiles/libs.mk
 
 all: ${TARGETS}
 
-IncompSolver: examples/IncompSolver.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
-
-VOF: examples/VOF.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
-
-Curvature: examples/Curvature.cpp ${HEADERS}
+%: examples/%.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
 
 TwoPhaseSolver: examples/TwoPhaseSolver.cpp ${HEADERS}

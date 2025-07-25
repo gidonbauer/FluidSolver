@@ -209,12 +209,12 @@ class PS {
 
  public:
   // -------------------------------------------------------------------------------------------------
-  [[nodiscard]] auto solve(const FS<Float, NX, NY>& fs,
-                           const Matrix<Float, NX, NY>& div,
-                           Float dt,
-                           Matrix<Float, NX, NY>& resP,
-                           Float* pressure_residual = nullptr,
-                           Index* num_iter          = nullptr) -> bool {
+  auto solve(const FS<Float, NX, NY>& fs,
+             const Matrix<Float, NX, NY>& div,
+             Float dt,
+             Matrix<Float, NX, NY>& resP,
+             Float* pressure_residual = nullptr,
+             Index* num_iter          = nullptr) -> bool {
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
 
     static std::array<char, 1024UZ> buffer{};
@@ -266,9 +266,11 @@ class PS {
     const HYPRE_Int error_flag = HYPRE_GetError();
     if (error_flag != 0) {
       if (HYPRE_CheckError(error_flag, HYPRE_ERROR_CONV) != 0) {
+#ifndef FS_SILENCE_CONV_WARN
         Igor::Warn("HYPRE did not converge: residual = {:.6e}, #iterations = {}",
                    final_residual,
                    local_num_iter);
+#endif  // FS_SILENCE_CONV_WARN
         HYPRE_ClearError(HYPRE_ERROR_CONV);
         res = false;
       } else {

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <numeric>
+#include <type_traits>
 
 #include <Igor/Logging.hpp>
 
@@ -13,10 +14,24 @@ using Index = int;
 template <typename Contained, Index N>
 requires(N >= 0)
 class Vector {
-  std::unique_ptr<std::array<Contained, N>> m_data{};
+ public:
+  static constexpr bool is_small = N * sizeof(Contained) < 1024UZ;
+
+ private:
+  using StorageType = std::
+      conditional_t<is_small, std::array<Contained, N>, std::unique_ptr<std::array<Contained, N>>>;
+  StorageType m_data{};
 
  public:
   Vector() noexcept
+  requires(is_small)
+  {
+    if constexpr (std::is_arithmetic_v<Contained>) {
+      std::fill_n(m_data.data(), size(), Contained{0});
+    }
+  }
+  Vector() noexcept
+  requires(!is_small)
       : m_data(new std::array<Contained, static_cast<size_t>(N)>) {
     IGOR_ASSERT(m_data != nullptr, "Allocation failed.");
     if constexpr (std::is_arithmetic_v<Contained>) {
@@ -31,17 +46,27 @@ class Vector {
 
   [[nodiscard]] constexpr auto operator[](Index idx) noexcept -> Contained& {
     IGOR_ASSERT(idx >= 0 && idx < N, "Index {} is out of bounds for Vector of size {}", idx, N);
-    return *(m_data->data() + idx);
+    return *(get_data() + idx);
   }
 
   [[nodiscard]] constexpr auto operator[](Index idx) const noexcept -> const Contained& {
     IGOR_ASSERT(idx >= 0 && idx < N, "Index {} is out of bounds for Vector of size {}", idx, N);
-    return *(m_data->data() + idx);
+    return *(get_data() + idx);
   }
 
-  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* { return m_data->data(); }
+  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* {
+    if constexpr (is_small) {
+      return m_data.data();
+    } else {
+      return m_data->data();
+    }
+  }
   [[nodiscard]] constexpr auto get_data() const noexcept -> const Contained* {
-    return m_data->data();
+    if constexpr (is_small) {
+      return m_data.data();
+    } else {
+      return m_data->data();
+    }
   }
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index { return N; }
@@ -51,8 +76,8 @@ class Vector {
     return N;
   }
 
-  [[nodiscard]] constexpr auto begin() noexcept -> Contained* { return m_data->data(); }
-  [[nodiscard]] constexpr auto end() noexcept -> Contained* { return m_data->data() + size(); }
+  [[nodiscard]] constexpr auto begin() noexcept -> Contained* { return get_data(); }
+  [[nodiscard]] constexpr auto end() noexcept -> Contained* { return get_data() + size(); }
 
   [[nodiscard]] constexpr auto is_valid_index(Index i) const noexcept -> bool {
     return 0 <= i && i < N;
@@ -64,7 +89,14 @@ enum class Layout : uint8_t { C, F };
 template <typename Contained, Index M, Index N, Layout LAYOUT = Layout::C>
 requires(M >= 0 && N >= 0)
 class Matrix {
-  std::unique_ptr<std::array<Contained, static_cast<size_t>(M* N)>> m_data{};
+ public:
+  static constexpr bool is_small = M * N * sizeof(Contained) < 1024UZ;
+
+ private:
+  using StorageType = std::conditional_t<is_small,
+                                         std::array<Contained, M * N>,
+                                         std::unique_ptr<std::array<Contained, M * N>>>;
+  StorageType m_data{};
 
   [[nodiscard]] constexpr auto get_idx(Index i, Index j) const noexcept -> Index {
     if constexpr (LAYOUT == Layout::C) {
@@ -76,7 +108,15 @@ class Matrix {
 
  public:
   Matrix() noexcept
-      : m_data(new std::array<Contained, static_cast<size_t>(M* N)>) {
+  requires(is_small)
+  {
+    if constexpr (std::is_arithmetic_v<Contained>) {
+      std::fill_n(m_data.data(), size(), Contained{0});
+    }
+  }
+  Matrix() noexcept
+  requires(!is_small)
+      : m_data(new std::array<Contained, M * N>) {
     IGOR_ASSERT(m_data != nullptr, "Allocation failed.");
     if constexpr (std::is_arithmetic_v<Contained>) {
       std::fill_n(m_data->data(), size(), Contained{0});
@@ -95,7 +135,7 @@ class Matrix {
                 j,
                 M,
                 N);
-    return *(m_data->data() + get_idx(i, j));
+    return *(get_data() + get_idx(i, j));
   }
 
   constexpr auto operator[](Index i, Index j) const noexcept -> const Contained& {
@@ -105,12 +145,22 @@ class Matrix {
                 j,
                 M,
                 N);
-    return *(m_data->data() + get_idx(i, j));
+    return *(get_data() + get_idx(i, j));
   }
 
-  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* { return m_data->data(); }
+  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* {
+    if constexpr (is_small) {
+      return m_data.data();
+    } else {
+      return m_data->data();
+    }
+  }
   [[nodiscard]] constexpr auto get_data() const noexcept -> const Contained* {
-    return m_data->data();
+    if constexpr (is_small) {
+      return m_data.data();
+    } else {
+      return m_data->data();
+    }
   }
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index { return M * N; }

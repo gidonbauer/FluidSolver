@@ -6,7 +6,8 @@ TESTS = LaminarChannel_0     \
         LinearVelocityVOF    \
         TaylorGreenVortexVOF \
         Operators            \
-        MovingDrop
+        MovingDrop           \
+        Container
 
 test: ${addprefix test/, ${TESTS}} ${addprefix test-, ${TESTS}}
 

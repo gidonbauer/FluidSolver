@@ -1,5 +1,7 @@
 #include <cstddef>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -102,6 +104,8 @@ auto calc_center_of_mass(Float dx,
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
@@ -212,9 +216,9 @@ auto main() -> int {
   calc_rho_and_visc(vof, fs);
   PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
-  interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
+  interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);

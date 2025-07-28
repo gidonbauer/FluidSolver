@@ -50,33 +50,48 @@ static_assert(CUBOID_OFFSETS.size() + FACE_VERTICES.size() ==
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 constexpr auto advect_point(const IRL::Pt& pt,
-                            const Vector<Float, NX>& xm,
-                            const Vector<Float, NY>& ym,
+                            const FS<Float, NX, NY>& fs,
                             const Matrix<Float, NX, NY>& Ui,
                             const Matrix<Float, NX, NY>& Vi,
                             Float dt) -> IRL::Pt {
-#ifdef ADVECT_EULER
-  const auto [u, v] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
-  return {pt[0] - dt * u, pt[1] - dt * v, pt[2]};
-#elif defined(ADVECT_RK2)
-  const auto [u1, v1] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
+  const auto [u1, v1] = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0], pt[1]);
   const auto [u2, v2] =
-      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - dt / 2.0 * u1, pt[1] - dt / 2.0 * v1);
-  return {pt[0] - dt * u2, pt[1] - dt * v2, pt[2]};
-#else
-  const auto [u1, v1] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
-  const auto [u2, v2] =
-      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
+      eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
   const auto [u3, v3] =
-      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
-  const auto [u4, v4] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - dt * u3, pt[1] - dt * v3);
+      eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
+  const auto [u4, v4] = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0] - dt * u3, pt[1] - dt * v3);
 
   return {
       pt[0] - dt / 6.0 * (u1 + 2.0 * u2 + 2.0 * u3 + u4),
       pt[1] - dt / 6.0 * (v1 + 2.0 * v2 + 2.0 * v3 + v4),
       pt[2],
   };
-#endif
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+constexpr auto advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY>& fs, Float dt) -> IRL::Pt {
+  const auto u1 = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0], pt[1]);
+  const auto v1 = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0], pt[1]);
+
+  const auto u2 =
+      bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
+  const auto v2 =
+      bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
+
+  const auto u3 =
+      bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
+  const auto v3 =
+      bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
+
+  const auto u4 = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0] - dt * u3, pt[1] - dt * v3);
+  const auto v4 = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0] - dt * u3, pt[1] - dt * v3);
+
+  return {
+      pt[0] - dt / 6.0 * (u1 + 2.0 * u2 + 2.0 * u3 + u4),
+      pt[1] - dt / 6.0 * (v1 + 2.0 * v2 + 2.0 * v3 + v4),
+      pt[2],
+  };
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -152,8 +167,8 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
 template <typename Float, Index NX, Index NY>
 void advect_cells(const FS<Float, NX, NY>& fs,
                   const Matrix<Float, NX, NY>& vof_old,
-                  const Matrix<Float, NX, NY>& Ui,
-                  const Matrix<Float, NX, NY>& Vi,
+                  [[maybe_unused]] const Matrix<Float, NX, NY>& Ui,
+                  [[maybe_unused]] const Matrix<Float, NX, NY>& Vi,
                   Float dt,
                   const InterfaceReconstruction<NX, NY>& ir,
                   Matrix<Float, NX, NY>& vof,
@@ -196,7 +211,11 @@ void advect_cells(const FS<Float, NX, NY>& fs,
       // = Set cuboid vertices =====================================================================
       for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < CUBOID_OFFSETS.size(); ++cell_idx) {
         const auto [di, dj, dk] = CUBOID_OFFSETS[cell_idx];
-        advected_cell[cell_idx] = advect_point(offset_to_pt(di, dj, dk), fs.xm, fs.ym, Ui, Vi, dt);
+#ifndef FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
+        advected_cell[cell_idx] = advect_point(offset_to_pt(di, dj, dk), fs, Ui, Vi, dt);
+#else
+        advected_cell[cell_idx] = advect_point2(offset_to_pt(di, dj, dk), fs, dt);
+#endif  // FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
       }
 
 #ifndef VOF_NO_CORRECTION
@@ -280,6 +299,21 @@ void advect_cells(const FS<Float, NX, NY>& fs,
   }
 
   if (max_volume_error) { *max_volume_error = local_max_volume_error; }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+[[nodiscard]] constexpr auto get_interface_length(Index i,
+                                                  Index j,
+                                                  const Vector<Float, NX + 1>& x,
+                                                  const Vector<Float, NY + 1>& y,
+                                                  const IRL::Plane& plane) noexcept -> Float {
+  const auto [p1, p2] = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
+  IGOR_ASSERT(
+      std::abs(p1[2]) < 1e-12, "Expected z-component of p1 to be zero but is {:.6e}", p1[2]);
+  IGOR_ASSERT(
+      std::abs(p2[2]) < 1e-12, "Expected z-component of p2 to be zero but is {:.6e}", p2[2]);
+  return std::sqrt(Igor::sqr(p1[0] - p2[0]) + Igor::sqr(p1[1] - p2[1]));
 }
 
 // -------------------------------------------------------------------------------------------------

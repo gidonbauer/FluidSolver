@@ -8,6 +8,8 @@
 #include <Igor/Math.hpp>
 
 #include "Container.hpp"
+#include "FS.hpp"
+#include "IR.hpp"
 #include "Operators.hpp"
 
 // -------------------------------------------------------------------------------------------------
@@ -48,34 +50,78 @@ void smooth_vof_field(const Vector<Float, NX>& xm,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-void calc_curvature(Float dx,
-                    Float dy,
+void calc_curvature(const FS<Float, NX, NY>& fs,
+                    const InterfaceReconstruction<NX, NY>& ir,
                     const Matrix<Float, NX, NY>& vof,
-                    const Matrix<Float, NX, NY>& vof_smooth,
                     Matrix<Float, NX, NY>& curv) noexcept {
   static Matrix<Float, NX, NY> dvofdx{};
   static Matrix<Float, NX, NY> dvofdy{};
   static Matrix<Float, NX, NY> dvofdxx{};
   static Matrix<Float, NX, NY> dvofdyy{};
   static Matrix<Float, NX, NY> dvofdxy{};
+  static Matrix<Float, NX, NY> vof_smooth{};
+  static Matrix<Float, NX, NY> curv_centered{};
 
-  calc_grad_of_centered_points(vof_smooth, dx, dy, dvofdx, dvofdy);
-  calc_grad_of_centered_points(dvofdx, dx, dy, dvofdxx, dvofdxy);
-  calc_grad_of_centered_points(dvofdy, dx, dy, dvofdxy, dvofdyy);
+  smooth_vof_field(fs.xm, fs.ym, vof, vof_smooth);
 
-  std::fill_n(curv.get_data(), curv.size(), std::numeric_limits<Float>::quiet_NaN());
+  calc_grad_of_centered_points(vof_smooth, fs.dx, fs.dy, dvofdx, dvofdy);
+  calc_grad_of_centered_points(dvofdx, fs.dx, fs.dy, dvofdxx, dvofdxy);
+  calc_grad_of_centered_points(dvofdy, fs.dx, fs.dy, dvofdxy, dvofdyy);
 
-  // TODO: Maybe find center of interface an interpolate curvture at that point
-  for (Index i = 1; i < NX - 1; ++i) {
-    for (Index j = 1; j < NY - 1; ++j) {
-      if (has_interface_in_neighborhood(vof, i, j, 2)) {
-        curv[i, j] =
-            (dvofdxx[i, j] * Igor::sqr(dvofdy[i, j]) + dvofdyy[i, j] * Igor::sqr(dvofdx[i, j]) -
-             2.0 * dvofdx[i, j] * dvofdy[i, j] * dvofdxy[i, j]) /
-            std::pow(Igor::sqr(dvofdx[i, j]) + Igor::sqr(dvofdy[i, j]), 1.5);
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      const auto numer =
+          (dvofdxx[i, j] * Igor::sqr(dvofdy[i, j]) + dvofdyy[i, j] * Igor::sqr(dvofdx[i, j]) -
+           2.0 * dvofdx[i, j] * dvofdy[i, j] * dvofdxy[i, j]);
+      const auto denom    = std::pow(Igor::sqr(dvofdx[i, j]) + Igor::sqr(dvofdy[i, j]), 1.5);
+      curv_centered[i, j] = std::abs(denom) > 1e-8 ? -numer / denom : 0.0;
+    }
+  }
+
+#ifdef FS_CURV_NO_INTERPOLATION
+  (void)ir;
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      if (has_interface(vof, i, j)) {
+        curv[i, j] = curv_centered[i, j];
+      } else {
+        curv[i, j] = 0.0;
+      }
+    }
+  }
+#else
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      if (has_interface(vof, i, j)) {
+        const auto intersect =
+            get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]);
+        const auto center = (intersect[0] + intersect[1]) / 2.0;
+        curv[i, j]        = bilinear_interpolate(fs.xm, fs.ym, curv_centered, center[0], center[1]);
+      } else {
+        curv[i, j] = 0.0;
+      }
+    }
+  }
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+void calc_surface_length(const FS<Float, NX, NY>& fs,
+                         const InterfaceReconstruction<NX, NY>& ir,
+                         Matrix<Float, NX, NY>& surface_length) noexcept {
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      const auto& interface = ir.interface[i, j];
+      if (interface.getNumberOfPlanes() > 0) {
+        IGOR_ASSERT(interface.getNumberOfPlanes() == 1,
+                    "Expected exactly one plane but got {}",
+                    interface.getNumberOfPlanes());
+        surface_length[i, j] = get_interface_length<Float, NX, NY>(i, j, fs.x, fs.y, interface[0]);
+      } else {
+        surface_length[i, j] = 0.0;
       }
     }
   }
 }
-
 #endif  // FLUID_SOLVER_CURVATURE_HPP_

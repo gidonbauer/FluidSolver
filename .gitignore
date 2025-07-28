@@ -10,6 +10,8 @@ Curvature
 Curvature.dSYM
 TwoPhaseSolver
 TwoPhaseSolver.dSYM
+IB
+IB.dSYM
 
 *.env
 run.slurm

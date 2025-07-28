@@ -1,11 +1,10 @@
 #include <cstddef>
 
-#include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
-#include <Igor/TypeName.hpp>
 
 // #define FS_HYPRE_VERBOSE
+#define FS_SILENCE_CONV_WARN
 
 #include "Curvature.hpp"
 #include "FS.hpp"
@@ -20,30 +19,30 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 5 * 64;
-constexpr Index NY              = 64;
+constexpr Index NX              = 5 * 128;
+constexpr Index NY              = 128;
 
 constexpr Float X_MIN           = 0.0;
 constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 2.0;
+constexpr Float T_END           = 3.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.5;
-constexpr Float DT_WRITE        = 2e-2;
+constexpr Float DT_WRITE        = 1e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
 constexpr Float VISC_G          = 1e-3;  // 1e-0;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
-constexpr Float RHO_L           = 10.0;
+constexpr Float RHO_L           = 1e3;
 
-constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;  // sigma
+constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;
 constexpr Float CX              = 1.0;
 constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.25;
+constexpr Float R0              = 0.1;  // 0.25;
 constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
@@ -52,8 +51,6 @@ constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
-
-// TODO: Test case moving drop through stationary flow field
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -112,12 +109,14 @@ auto main() -> int {
   // = Allocate memory =============================================================================
   FS<Float, NX, NY> fs{
       .visc_gas = VISC_G, .visc_liquid = VISC_L, .rho_gas = RHO_G, .rho_liquid = RHO_L};
+  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   InterfaceReconstruction<NX, NY> ir{};
   Matrix<Float, NX, NY> vof_old{};
   Matrix<Float, NX, NY> vof{};
   Matrix<Float, NX, NY> vof_smooth{};
   Matrix<Float, NX, NY> curv{};
+  // Matrix<Float, NX, NY> interface_length{};
 
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
@@ -164,6 +163,7 @@ auto main() -> int {
   vtk_writer.add_scalar("VOF", &vof);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
   vtk_writer.add_scalar("curvature", &curv);
+  // vtk_writer.add_scalar("interface_length", &interface_length);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -190,9 +190,6 @@ auto main() -> int {
   monitor.add_variable(&mom_y, "momentum (y)");
   // = Output ======================================================================================
 
-  // = Initialize grid =============================================================================
-  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
-
   // = Initialize VOF field ========================================================================
   for (Index i = 0; i < vof.extent(0); ++i) {
     for (Index j = 0; j < vof.extent(1); ++j) {
@@ -202,6 +199,7 @@ auto main() -> int {
   const Float init_vof_integral = integrate(fs.dx, fs.dy, vof);
   localize_cells(fs.x, fs.y, ir);
   reconstruct_interface(fs.x, fs.y, vof, ir);
+  // calc_surface_length(fs, ir, interface_length);
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
@@ -222,11 +220,10 @@ auto main() -> int {
 
   calc_rho_and_visc(vof, fs);
   PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
-  interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
-  // Save uncorrected velocity
+  interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
@@ -250,12 +247,11 @@ auto main() -> int {
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs.x, fs.y, vof_old, ir);
+    // calc_surface_length(fs, ir, interface_length);
     // TODO: Calculate viscosity from new VOF field
     calc_rho_and_visc(vof_old, fs);
     save_old_density(fs.curr, fs.old);
 
-    interpolate_U(fs.curr.U, Ui);
-    interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
 
     p_iter = 0;
@@ -265,15 +261,6 @@ auto main() -> int {
 
       // = Update the density field to make the update consistent ==================================
       calc_drhodt(fs, drho_u_stagdt, drho_v_stagdt);
-      IGOR_ASSERT(std::none_of(drho_u_stagdt.get_data(),
-                               drho_u_stagdt.get_data() + drho_u_stagdt.size(),
-                               [](Float x) { return std::isnan(x); }),
-                  "NaN value in drho_u_stagdt.");
-      IGOR_ASSERT(std::none_of(drho_v_stagdt.get_data(),
-                               drho_v_stagdt.get_data() + drho_v_stagdt.size(),
-                               [](Float x) { return std::isnan(x); }),
-                  "NaN value in drho_v_stagdt.");
-
       for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.rho_u_stag.extent(1) - 1; ++j) {
           fs.curr.rho_u_stag[i, j] = fs.old.rho_u_stag[i, j] + dt * drho_u_stagdt[i, j];
@@ -286,12 +273,9 @@ auto main() -> int {
         }
       }
       apply_neumann_bconds(fs.curr.rho_v_stag);
-      ps.setup(fs);
-      interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      // NOTE: Added scaling factor (rho_old / rho_curr) to old velocity
       for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
         for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
           fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
@@ -318,34 +302,59 @@ auto main() -> int {
       }
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+
       // TODO: Add capillary forces here.
-      smooth_vof_field(fs.xm, fs.ym, vof_old, vof_smooth);
-      calc_curvature(fs.dx, fs.dy, vof_old, vof_smooth, curv);
+      calc_curvature(fs, ir, vof_old, curv);
 
-      for (Index i = 0; i < NX; ++i) {
-        for (Index j = 0; j < NY; ++j) {
+      for (Index i = 1; i < NX - 1; ++i) {
+        for (Index j = 1; j < NY - 1; ++j) {
           if (has_interface(vof_old, i, j)) {
-            const auto dkappadx = (-curv[i + 1, j] - -curv[i - 1, j]) / (2.0 * fs.dx);
-            const auto dkappady = (-curv[i, j + 1] - -curv[i, j - 1]) / (2.0 * fs.dy);
+#if 0
+            const auto dvofdx_minus =
+                1.0 / fs.curr.rho_u_stag[i, j] * (vof_old[i, j] - vof_old[i - 1, j]) / fs.dx;
+            const auto dvofdx_plus =
+                1.0 / fs.curr.rho_u_stag[i + 1, j] * (vof_old[i + 1, j] - vof_old[i, j]) / fs.dx;
+            const auto ddvofdxx = (dvofdx_plus - dvofdx_minus) / fs.dx;
 
-            IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
-                        "Expected exactly one plane but got {}",
-                        ir.interface[i, j].getNumberOfPlanes());
+            const auto dvofdy_minus =
+                1.0 / fs.curr.rho_v_stag[i, j] * (vof_old[i, j] - vof_old[i, j - 1]) / fs.dy;
+            const auto dvofdy_plus =
+                1.0 / fs.curr.rho_v_stag[i, j + 1] * (vof_old[i, j + 1] - vof_old[i, j]) / fs.dy;
+            const auto ddvofdyy = (dvofdy_plus - dvofdy_minus) / fs.dy;
 
-            const IRL::Normal n = ir.interface[i, j][0].normal();
-            IGOR_ASSERT(std::abs(n[2]) < 1e-12,
-                        "Expected z-component of normal to be 0 but is {:.6e}",
-                        n[2]);
+            // const auto delta_gamma =
+            //     get_interface_length<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]) /
+            //     (fs.dx * fs.dy);
+            const auto delta_gamma =
+                get_interface_length<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]);
 
-            div[i, j] += dt * 2.0 * SURFACE_TENSION * (n[0] * dkappadx + n[1] * dkappady);
+            div[i, j] +=
+                dt * 2.0 * SURFACE_TENSION * -curv[i, j] * delta_gamma * (ddvofdxx + ddvofdyy);
+#else
+            const auto st_x_minus = 2.0 * SURFACE_TENSION * (curv[i, j] + curv[i - 1, j]) / 2.0 *
+                                    (vof_old[i, j] - vof_old[i - 1, j]) / fs.dx;
+            const auto st_x_plus = 2.0 * SURFACE_TENSION * (curv[i + 1, j] + curv[i, j]) / 2.0 *
+                                   (vof_old[i + 1, j] - vof_old[i, j]) / fs.dx;
+
+            const auto st_y_minus = 2.0 * SURFACE_TENSION * (curv[i, j] + curv[i, j - 1]) / 2.0 *
+                                    (vof_old[i, j] - vof_old[i, j - 1]) / fs.dx;
+            const auto st_y_plus = 2.0 * SURFACE_TENSION * (curv[i, j + 1] + curv[i, j]) / 2.0 *
+                                   (vof_old[i, j + 1] - vof_old[i, j]) / fs.dx;
+
+            div[i, j] += dt * ((st_x_plus / fs.curr.rho_u_stag[i + 1, j] -
+                                st_x_minus / fs.curr.rho_u_stag[i, j]) /
+                                   fs.dx +
+                               (st_y_plus / fs.curr.rho_v_stag[i, j + 1] -
+                                st_y_minus / fs.curr.rho_v_stag[i, j]) /
+                                   fs.dy);
+#endif
           }
         }
       }
 
       Index local_p_iter = 0;
-      if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
-        Igor::Warn("Pressure correction failed at t={}.", t);
-      }
+      ps.setup(fs);
+      ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter);
       p_iter += local_p_iter;
       {
         if (std::isnan(p_res) || std::any_of(delta_p.get_data(),
@@ -384,6 +393,7 @@ auto main() -> int {
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
+    interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     U_max   = max(fs.curr.U);
     V_max   = max(fs.curr.V);
@@ -398,5 +408,5 @@ auto main() -> int {
     monitor.write();
   }
 
-  Igor::Info("Solver finish successfully.");
+  Igor::Info("Solver finished successfully.");
 }

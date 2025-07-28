@@ -6,6 +6,7 @@
 #include <Igor/Timer.hpp>
 
 // #define FS_HYPRE_VERBOSE
+// #define FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
 
 #include "Curvature.hpp"
 #include "FS.hpp"

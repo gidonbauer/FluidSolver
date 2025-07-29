@@ -21,15 +21,15 @@ void smooth_vof_field(const Vector<Float, NX>& xm,
   // They used 4 in the paper but 16 seems to work better for me
   constexpr Index NUM_SMOOTHING_CELLS = 16;
   const Float SMOOTHING_LENGTH = NUM_SMOOTHING_CELLS * std::max(xm[1] - xm[0], ym[1] - ym[0]);
-  const auto smoothing_kernel  = [SMOOTHING_LENGTH](Float distance) {
-    IGOR_ASSERT(distance >= 0.0, "Distance must be positive but is {}", distance);
-    distance /= SMOOTHING_LENGTH;
-    if (distance >= 1.0) { return 0.0; }
-    return std::pow(1.0 - Igor::sqr(distance), 4.0);
+  const auto smoothing_kernel  = [SMOOTHING_LENGTH](Float sqr_distance) {
+    IGOR_ASSERT(sqr_distance >= 0.0, "Squared-distance must be positive but is {}", sqr_distance);
+    sqr_distance /= Igor::sqr(SMOOTHING_LENGTH);
+    if (sqr_distance >= 1.0) { return 0.0; }
+    return std::pow(1.0 - sqr_distance, 4.0);
   };
 
-  constexpr auto distance = [](Float x1, Float y1, Float x2, Float y2) {
-    return std::sqrt(Igor::sqr(x2 - x1) + Igor::sqr(y2 - y1));
+  constexpr auto sqr_distance = [](Float x1, Float y1, Float x2, Float y2) {
+    return Igor::sqr(x2 - x1) + Igor::sqr(y2 - y1);
   };
 
 #pragma omp parallel for collapse(2)
@@ -39,8 +39,9 @@ void smooth_vof_field(const Vector<Float, NX>& xm,
       for (Index di = -NUM_SMOOTHING_CELLS; di <= NUM_SMOOTHING_CELLS; ++di) {
         for (Index dj = -NUM_SMOOTHING_CELLS; dj <= NUM_SMOOTHING_CELLS; ++dj) {
           if (vof.is_valid_index(i + di, j + dj)) {
-            vof_smooth[i, j] += vof[i + di, j + dj] *
-                                smoothing_kernel(distance(xm[i], ym[j], xm[i + di], ym[j + dj]));
+            vof_smooth[i, j] +=
+                vof[i + di, j + dj] *
+                smoothing_kernel(sqr_distance(xm[i], ym[j], xm[i + di], ym[j + dj]));
           }
         }
       }

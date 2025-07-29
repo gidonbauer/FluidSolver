@@ -6,6 +6,7 @@
 #include <Igor/Math.hpp>
 
 #include "Container.hpp"
+#include "IR.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
@@ -36,6 +37,10 @@ struct FS {
   Matrix<Float, NX, NY> visc{};
 
   Matrix<Float, NX, NY> p{};
+
+  Float sigma{};                              // Surface tension
+  Matrix<Float, NX + 1, NY> p_jump_u_stag{};  // Pressure jump from surface tension
+  Matrix<Float, NX, NY + 1> p_jump_v_stag{};  // Pressure jump from surface tension
 
   State<Float, NX, NY> old{};
   State<Float, NX, NY> curr{};
@@ -221,7 +226,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
   for (Index i = 1; i < dmomUdt.extent(0) - 1; ++i) {
     for (Index j = 1; j < dmomUdt.extent(1) - 1; ++j) {
       dmomUdt[i, j] = (FX[i, j] - FX[i - 1, j]) / fs.dx +  //
-                      (FY[i, j] - FY[i, j - 1]) / fs.dy;
+                      (FY[i, j] - FY[i, j - 1]) / fs.dy +  //
+                      fs.p_jump_u_stag[i, j];
     }
   }
 
@@ -278,7 +284,8 @@ void calc_dmomdt(const FS<Float, NX, NY>& fs,
   for (Index i = 1; i < dmomVdt.extent(0) - 1; ++i) {
     for (Index j = 1; j < dmomVdt.extent(1) - 1; ++j) {
       dmomVdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx +  //
-                      (FY[i, j] - FY[i, j - 1]) / fs.dy;
+                      (FY[i, j] - FY[i, j - 1]) / fs.dy +          //
+                      fs.p_jump_v_stag[i, j];
     }
   }
 }
@@ -378,6 +385,40 @@ void calc_drhodt(const FS<Float, NX, NY>& fs,
     for (Index j = 1; j < drho_v_stagdt.extent(1) - 1; ++j) {
       drho_v_stagdt[i, j] = (FX[i + 1, j - 1] - FX[i, j - 1]) / fs.dx +  //
                             (FY[i, j] - FY[i, j - 1]) / fs.dy;
+    }
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+void calc_pressure_jump(const Matrix<Float, NX, NY>& vof,
+                        const Matrix<Float, NX, NY>& curv,
+                        FS<Float, NX, NY>& fs) noexcept {
+  std::fill_n(fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), 0.0);
+  std::fill_n(fs.p_jump_v_stag.get_data(), fs.p_jump_v_stag.size(), 0.0);
+  for (Index i = 1; i < fs.p_jump_u_stag.extent(0) - 1; ++i) {
+    for (Index j = 0; j < fs.p_jump_u_stag.extent(1); ++j) {
+      const auto minus_has_interface = static_cast<Float>(has_interface(vof, i - 1, j));
+      const auto plus_has_interface  = static_cast<Float>(has_interface(vof, i, j));
+      const auto curv_i =
+          (plus_has_interface + minus_has_interface) > 0.0
+              ? (curv[i, j] * plus_has_interface + curv[i - 1, j] * minus_has_interface) /
+                    (plus_has_interface + minus_has_interface)
+              : 0.0;
+      fs.p_jump_u_stag[i, j] = fs.sigma * curv_i * (vof[i, j] - vof[i - 1, j]) / fs.dx;
+    }
+  }
+
+  for (Index i = 0; i < fs.p_jump_v_stag.extent(0); ++i) {
+    for (Index j = 1; j < fs.p_jump_v_stag.extent(1) - 1; ++j) {
+      const auto minus_has_interface = static_cast<Float>(has_interface(vof, i, j - 1));
+      const auto plus_has_interface  = static_cast<Float>(has_interface(vof, i, j));
+      const auto curv_i =
+          (plus_has_interface + minus_has_interface) > 0.0
+              ? (curv[i, j] * plus_has_interface + curv[i, j - 1] * minus_has_interface) /
+                    (plus_has_interface + minus_has_interface)
+              : 0.0;
+      fs.p_jump_v_stag[i, j] = fs.sigma * curv_i * (vof[i, j] - vof[i, j - 1]) / fs.dy;
     }
   }
 }

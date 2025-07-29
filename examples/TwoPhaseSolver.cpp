@@ -39,10 +39,10 @@ constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
 
-constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;
+constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 1.0;
 constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.1;  // 0.25;
+constexpr Float R0              = 0.1;
 constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
@@ -107,8 +107,11 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{
-      .visc_gas = VISC_G, .visc_liquid = VISC_L, .rho_gas = RHO_G, .rho_liquid = RHO_L};
+  FS<Float, NX, NY> fs{.visc_gas    = VISC_G,
+                       .visc_liquid = VISC_L,
+                       .rho_gas     = RHO_G,
+                       .rho_liquid  = RHO_L,
+                       .sigma       = SURFACE_TENSION};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   InterfaceReconstruction<NX, NY> ir{};
@@ -128,6 +131,9 @@ auto main() -> int {
   Matrix<Float, NX + 1, NY> drhoUdt{};
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
+
+  Matrix<Float, NX + 1, NY> delta_pj_u_stag{};
+  Matrix<Float, NX, NY + 1> delta_pj_v_stag{};
 
   // Observation variables
   Float t       = 0.0;
@@ -303,54 +309,48 @@ auto main() -> int {
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
-      // TODO: Add capillary forces here.
+      // ===== Add capillary forces ================================================================
       calc_curvature(fs, ir, vof_old, curv);
 
-      for (Index i = 1; i < NX - 1; ++i) {
-        for (Index j = 1; j < NY - 1; ++j) {
-          if (has_interface(vof_old, i, j)) {
-#if 0
-            const auto dvofdx_minus =
-                1.0 / fs.curr.rho_u_stag[i, j] * (vof_old[i, j] - vof_old[i - 1, j]) / fs.dx;
-            const auto dvofdx_plus =
-                1.0 / fs.curr.rho_u_stag[i + 1, j] * (vof_old[i + 1, j] - vof_old[i, j]) / fs.dx;
-            const auto ddvofdxx = (dvofdx_plus - dvofdx_minus) / fs.dx;
+      // NOTE: Save old pressure jump in delta_pj_[uv]_stag
+      std::copy_n(fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), delta_pj_u_stag.get_data());
+      std::copy_n(fs.p_jump_v_stag.get_data(), fs.p_jump_v_stag.size(), delta_pj_v_stag.get_data());
+      calc_pressure_jump(vof, curv, fs);
+      // if (!to_npy(Igor::detail::format("{}/x.npy", OUTPUT_DIR), fs.x)) { return 1; }
+      // if (!to_npy(Igor::detail::format("{}/y.npy", OUTPUT_DIR), fs.y)) { return 1; }
+      // if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), fs.xm)) { return 1; }
+      // if (!to_npy(Igor::detail::format("{}/ym.npy", OUTPUT_DIR), fs.ym)) { return 1; }
+      // if (!to_npy(Igor::detail::format("{}/curv.npy", OUTPUT_DIR), curv)) { return 1; }
+      // if (!to_npy(Igor::detail::format("{}/PJ_u_stag.npy", OUTPUT_DIR), fs.p_jump_u_stag)) {
+      //   return 1;
+      // }
+      // if (!to_npy(Igor::detail::format("{}/PJ_v_stag.npy", OUTPUT_DIR), fs.p_jump_v_stag)) {
+      //   return 1;
+      // }
+      // Igor::Todo("Calculate capillary forces.");
 
-            const auto dvofdy_minus =
-                1.0 / fs.curr.rho_v_stag[i, j] * (vof_old[i, j] - vof_old[i, j - 1]) / fs.dy;
-            const auto dvofdy_plus =
-                1.0 / fs.curr.rho_v_stag[i, j + 1] * (vof_old[i, j + 1] - vof_old[i, j]) / fs.dy;
-            const auto ddvofdyy = (dvofdy_plus - dvofdy_minus) / fs.dy;
-
-            // const auto delta_gamma =
-            //     get_interface_length<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]) /
-            //     (fs.dx * fs.dy);
-            const auto delta_gamma =
-                get_interface_length<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]);
-
-            div[i, j] +=
-                dt * 2.0 * SURFACE_TENSION * -curv[i, j] * delta_gamma * (ddvofdxx + ddvofdyy);
-#else
-            const auto st_x_minus = 2.0 * SURFACE_TENSION * (curv[i, j] + curv[i - 1, j]) / 2.0 *
-                                    (vof_old[i, j] - vof_old[i - 1, j]) / fs.dx;
-            const auto st_x_plus = 2.0 * SURFACE_TENSION * (curv[i + 1, j] + curv[i, j]) / 2.0 *
-                                   (vof_old[i + 1, j] - vof_old[i, j]) / fs.dx;
-
-            const auto st_y_minus = 2.0 * SURFACE_TENSION * (curv[i, j] + curv[i, j - 1]) / 2.0 *
-                                    (vof_old[i, j] - vof_old[i, j - 1]) / fs.dx;
-            const auto st_y_plus = 2.0 * SURFACE_TENSION * (curv[i, j + 1] + curv[i, j]) / 2.0 *
-                                   (vof_old[i, j + 1] - vof_old[i, j]) / fs.dx;
-
-            div[i, j] += dt * ((st_x_plus / fs.curr.rho_u_stag[i + 1, j] -
-                                st_x_minus / fs.curr.rho_u_stag[i, j]) /
-                                   fs.dx +
-                               (st_y_plus / fs.curr.rho_v_stag[i, j + 1] -
-                                st_y_minus / fs.curr.rho_v_stag[i, j]) /
-                                   fs.dy);
-#endif
-          }
+      for (Index i = 0; i < NX + 1; ++i) {
+        for (Index j = 0; j < NY; ++j) {
+          delta_pj_u_stag[i, j] = fs.p_jump_u_stag[i, j] - delta_pj_u_stag[i, j];
         }
       }
+      for (Index i = 0; i < NX; ++i) {
+        for (Index j = 0; j < NY + 1; ++j) {
+          delta_pj_v_stag[i, j] = fs.p_jump_v_stag[i, j] - delta_pj_v_stag[i, j];
+        }
+      }
+
+      for (Index i = 0; i < NX; ++i) {
+        for (Index j = 0; j < NY; ++j) {
+          div[i, j] += dt * ((delta_pj_u_stag[i + 1, j] / fs.curr.rho_u_stag[i + 1, j] -
+                              delta_pj_u_stag[i, j] / fs.curr.rho_u_stag[i, j]) /
+                                 fs.dx +
+                             (delta_pj_v_stag[i, j + 1] / fs.curr.rho_v_stag[i, j + 1] -
+                              delta_pj_v_stag[i, j] / fs.curr.rho_v_stag[i, j]) /
+                                 fs.dy);
+        }
+      }
+      // ===== Add capillary forces ================================================================
 
       Index local_p_iter = 0;
       ps.setup(fs);

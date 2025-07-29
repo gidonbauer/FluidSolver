@@ -16,6 +16,10 @@
 #include "VOF.hpp"
 #include "VTKWriter.hpp"
 
+// TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
+//       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
+//       conditions.
+
 // = Config ========================================================================================
 using Float                     = double;
 
@@ -315,7 +319,7 @@ auto main() -> int {
       // NOTE: Save old pressure jump in delta_pj_[uv]_stag
       std::copy_n(fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), delta_pj_u_stag.get_data());
       std::copy_n(fs.p_jump_v_stag.get_data(), fs.p_jump_v_stag.size(), delta_pj_v_stag.get_data());
-      calc_pressure_jump(vof, curv, fs);
+      calc_pressure_jump(vof_old, curv, fs);
       // if (!to_npy(Igor::detail::format("{}/x.npy", OUTPUT_DIR), fs.x)) { return 1; }
       // if (!to_npy(Igor::detail::format("{}/y.npy", OUTPUT_DIR), fs.y)) { return 1; }
       // if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), fs.xm)) { return 1; }

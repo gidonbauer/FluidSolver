@@ -19,32 +19,32 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float              = double;
+using Float                     = double;
 
-constexpr Index NX       = 256;
-constexpr Index NY       = 256;
+constexpr Index NX              = 256;
+constexpr Index NY              = 256;
 
-constexpr Float X_MIN    = 0.0;
-constexpr Float X_MAX    = 1.0;
-constexpr Float Y_MIN    = 0.0;
-constexpr Float Y_MAX    = 1.0;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 1.0;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END    = 0.5;
-constexpr Float DT_MAX   = 1e-2;
-constexpr Float CFL_MAX  = 0.5;
-constexpr Float DT_WRITE = 1e-2;
+constexpr Float T_END           = 0.5;
+constexpr Float DT_MAX          = 1e-2;
+constexpr Float CFL_MAX         = 0.5;
+constexpr Float DT_WRITE        = 1e-2;
 
-constexpr Float U_DROP   = 1.0;
-constexpr Float VISC_G   = 1e-3;  // 1e-0;
-constexpr Float RHO_G    = 1.0;
-constexpr Float VISC_L   = 1e-3;
-constexpr Float RHO_L    = 1e9;
+constexpr Float U_DROP          = 1.0;
+constexpr Float VISC_G          = 1e-3;  // 1e-0;
+constexpr Float RHO_G           = 1.0;
+constexpr Float VISC_L          = 1e-3;
+constexpr Float RHO_L           = 1e9;
 
-// constexpr Float SURFACE_TENSION = 1.0 / 20.0;  // sigma
-constexpr Float CX  = 0.25;
-constexpr Float CY  = 0.5;
-constexpr Float R0  = 0.1;
-constexpr auto vof0 = [](Float x, Float y) {
+constexpr Float SURFACE_TENSION = 1.0 / 20.0;
+constexpr Float CX              = 0.25;
+constexpr Float CY              = 0.5;
+constexpr Float R0              = 0.1;
+constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
 
@@ -111,8 +111,11 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{
-      .visc_gas = VISC_G, .visc_liquid = VISC_L, .rho_gas = RHO_G, .rho_liquid = RHO_L};
+  FS<Float, NX, NY> fs{.visc_gas    = VISC_G,
+                       .visc_liquid = VISC_L,
+                       .rho_gas     = RHO_G,
+                       .rho_liquid  = RHO_L,
+                       .sigma       = SURFACE_TENSION};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   InterfaceReconstruction<NX, NY> ir{};
@@ -131,6 +134,8 @@ auto main() -> int {
   Matrix<Float, NX + 1, NY> drhoUdt{};
   Matrix<Float, NX, NY + 1> drhoVdt{};
   Matrix<Float, NX, NY> delta_p{};
+  Matrix<Float, NX + 1, NY> delta_pj_u_stag{};
+  Matrix<Float, NX, NY + 1> delta_pj_v_stag{};
 
   // Observation variables
   Float t       = 0.0;
@@ -300,31 +305,35 @@ auto main() -> int {
       apply_velocity_bconds(fs, bconds);
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-      // TODO: Add capillary forces here.
-#if 0
-      smooth_vof_field(fs.xm, fs.ym, vof_old, vof_smooth);
-      calc_curvature(fs.dx, fs.dy, vof_old, vof_smooth, curv);
+      // ===== Add capillary forces ================================================================
+      calc_curvature(fs, ir, vof_old, curv);
+
+      // NOTE: Save old pressure jump in delta_pj_[uv]_stag
+      std::copy_n(fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), delta_pj_u_stag.get_data());
+      std::copy_n(fs.p_jump_v_stag.get_data(), fs.p_jump_v_stag.size(), delta_pj_v_stag.get_data());
+      calc_pressure_jump(vof_old, curv, fs);
+      for (Index i = 0; i < NX + 1; ++i) {
+        for (Index j = 0; j < NY; ++j) {
+          delta_pj_u_stag[i, j] = fs.p_jump_u_stag[i, j] - delta_pj_u_stag[i, j];
+        }
+      }
+      for (Index i = 0; i < NX; ++i) {
+        for (Index j = 0; j < NY + 1; ++j) {
+          delta_pj_v_stag[i, j] = fs.p_jump_v_stag[i, j] - delta_pj_v_stag[i, j];
+        }
+      }
 
       for (Index i = 0; i < NX; ++i) {
         for (Index j = 0; j < NY; ++j) {
-          if (has_interface(vof_old, i, j)) {
-            const auto dkappadx = (-curv[i + 1, j] - -curv[i - 1, j]) / (2.0 * fs.dx);
-            const auto dkappady = (-curv[i, j + 1] - -curv[i, j - 1]) / (2.0 * fs.dy);
-
-            IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
-                        "Expected exactly one plane but got {}",
-                        ir.interface[i, j].getNumberOfPlanes());
-
-            const IRL::Normal n = ir.interface[i, j][0].normal();
-            IGOR_ASSERT(std::abs(n[2]) < 1e-12,
-                        "Expected z-component of normal to be 0 but is {:.6e}",
-                        n[2]);
-
-            div[i, j] += dt * 2.0 * SURFACE_TENSION * (n[0] * dkappadx + n[1] * dkappady);
-          }
+          div[i, j] += dt * ((delta_pj_u_stag[i + 1, j] / fs.curr.rho_u_stag[i + 1, j] -
+                              delta_pj_u_stag[i, j] / fs.curr.rho_u_stag[i, j]) /
+                                 fs.dx +
+                             (delta_pj_v_stag[i, j + 1] / fs.curr.rho_v_stag[i, j + 1] -
+                              delta_pj_v_stag[i, j] / fs.curr.rho_v_stag[i, j]) /
+                                 fs.dy);
         }
       }
-#endif
+      // ===== Add capillary forces ================================================================
 
       Index local_p_iter = 0;
       if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {

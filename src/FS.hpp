@@ -405,7 +405,7 @@ void calc_pressure_jump(const Matrix<Float, NX, NY>& vof,
               ? (curv[i, j] * plus_has_interface + curv[i - 1, j] * minus_has_interface) /
                     (plus_has_interface + minus_has_interface)
               : 0.0;
-      fs.p_jump_u_stag[i, j] = fs.sigma * curv_i * (vof[i, j] - vof[i - 1, j]) / fs.dx;
+      fs.p_jump_u_stag[i, j] = fs.sigma * -curv_i * (vof[i, j] - vof[i - 1, j]) / fs.dx;
     }
   }
 
@@ -418,7 +418,7 @@ void calc_pressure_jump(const Matrix<Float, NX, NY>& vof,
               ? (curv[i, j] * plus_has_interface + curv[i, j - 1] * minus_has_interface) /
                     (plus_has_interface + minus_has_interface)
               : 0.0;
-      fs.p_jump_v_stag[i, j] = fs.sigma * curv_i * (vof[i, j] - vof[i, j - 1]) / fs.dy;
+      fs.p_jump_v_stag[i, j] = fs.sigma * -curv_i * (vof[i, j] - vof[i, j - 1]) / fs.dy;
     }
   }
 }

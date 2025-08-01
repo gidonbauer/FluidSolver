@@ -20,6 +20,8 @@
 //       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
 //       conditions.
 
+// TODO: Why don't I get negative curvature values?
+
 // = Config ========================================================================================
 using Float                     = double;
 
@@ -138,6 +140,9 @@ auto main() -> int {
 
   Matrix<Float, NX + 1, NY> delta_pj_u_stag{};
   Matrix<Float, NX, NY + 1> delta_pj_v_stag{};
+  Matrix<Float, NX, NY> p_jump_i{};
+  Matrix<Float, NX, NY> p_jump_x_i{};
+  Matrix<Float, NX, NY> p_jump_y_i{};
 
   // Observation variables
   Float t       = 0.0;
@@ -152,6 +157,9 @@ auto main() -> int {
 
   Float div_max = 0.0;
   // Float div_L1        = 0.0;
+
+  Float curv_min      = 0.0;
+  Float curv_max      = 0.0;
 
   Float vof_min       = 0.0;
   Float vof_max       = 0.0;
@@ -173,6 +181,8 @@ auto main() -> int {
   vtk_writer.add_scalar("VOF", &vof);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
   vtk_writer.add_scalar("curvature", &curv);
+  vtk_writer.add_scalar("Pressure_jump", &p_jump_i);
+  vtk_writer.add_vector("Pressure_jump_vec", &p_jump_x_i, &p_jump_y_i);
   // vtk_writer.add_scalar("interface_length", &interface_length);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
@@ -189,15 +199,18 @@ auto main() -> int {
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
+  monitor.add_variable(&curv_min, "min(curv)");
+  monitor.add_variable(&curv_max, "max(curv)");
+
   monitor.add_variable(&vof_min, "min(vof)");
   monitor.add_variable(&vof_max, "max(vof)");
   // monitor.add_variable(&vof_integral, "int(vof)");
   monitor.add_variable(&vof_loss, "loss(vof)");
   // monitor.add_variable(&vof_vol_error, "max(vol. error)");
 
-  monitor.add_variable(&mass, "mass");
-  monitor.add_variable(&mom_x, "momentum (x)");
-  monitor.add_variable(&mom_y, "momentum (y)");
+  // monitor.add_variable(&mass, "mass");
+  // monitor.add_variable(&mom_x, "momentum (x)");
+  // monitor.add_variable(&mom_y, "momentum (y)");
   // = Output ======================================================================================
 
   // = Initialize VOF field ========================================================================
@@ -234,10 +247,15 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
+  interpolate_U(fs.p_jump_u_stag, p_jump_x_i);
+  interpolate_V(fs.p_jump_v_stag, p_jump_y_i);
+  interpolate_UV_staggered_field(fs.p_jump_u_stag, fs.p_jump_v_stag, p_jump_i);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  U_max   = max(fs.curr.U);
-  V_max   = max(fs.curr.V);
-  div_max = max(div);
+  U_max    = max(fs.curr.U);
+  V_max    = max(fs.curr.V);
+  div_max  = max(div);
+  curv_min = min(curv);
+  curv_max = max(curv);
   // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
@@ -398,10 +416,15 @@ auto main() -> int {
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
+    interpolate_U(fs.p_jump_u_stag, p_jump_x_i);
+    interpolate_V(fs.p_jump_v_stag, p_jump_y_i);
+    interpolate_UV_staggered_field(fs.p_jump_u_stag, fs.p_jump_v_stag, p_jump_i);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-    U_max   = max(fs.curr.U);
-    V_max   = max(fs.curr.V);
-    div_max = max(div);
+    U_max    = max(fs.curr.U);
+    V_max    = max(fs.curr.V);
+    div_max  = max(div);
+    curv_min = min(curv);
+    curv_max = max(curv);
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     // p_max = max(fs.p);
     calc_vof_stats(fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);

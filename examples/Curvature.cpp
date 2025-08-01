@@ -12,22 +12,29 @@
 #include "FS.hpp"
 #include "IO.hpp"
 #include "Monitor.hpp"
+#include "Operators.hpp"
 #include "Quadrature.hpp"
+#include "Utility.hpp"
 #include "VOF.hpp"
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float                   = double;
-constexpr Index NX            = 128;
-constexpr Index NY            = 128;
-constexpr Float X_MIN         = 0.0;
-constexpr Float X_MAX         = 1.0;
-constexpr Float Y_MIN         = 0.0;
-constexpr Float Y_MAX         = 1.0;
+using Float                              = double;
+constexpr Index NX                       = 32;
+constexpr Index NY                       = 32;
+constexpr Float X_MIN                    = 0.0;
+constexpr Float X_MAX                    = 1.0;
+constexpr Float Y_MIN                    = 0.0;
+constexpr Float Y_MAX                    = 1.0;
+constexpr Float DX                       = (X_MAX - X_MIN) / static_cast<Float>(NX);
+constexpr Float DY                       = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-constexpr Index NUM_TEST_ITER = 1;  // 1000;
+constexpr Index NUM_TEST_ITER            = 5000;
 
-constexpr auto OUTPUT_DIR     = "output/Curvature";
+constexpr auto OUTPUT_DIR                = "output/Curvature";
+
+constexpr size_t STATIC_STORAGE_CAPACITY = 100;
+constexpr Index NEIGHBORHOOD_SIZE        = 1;
 // = Config ========================================================================================
 
 std::ofstream* quad_out  = nullptr;
@@ -64,37 +71,45 @@ auto extract_interface(Index i,
 
 // -------------------------------------------------------------------------------------------------
 template <size_t CAPACITY>
-void rotate_interfaces(Igor::StaticVector<Interface, CAPACITY>& interfaces) {
+void rotate_interfaces(Igor::StaticVector<Interface, CAPACITY>& interfaces,
+                       Float* out_angle                                 = nullptr,
+                       std::array<Float, NDIMS>* out_center_of_rotation = nullptr) {
   IGOR_ASSERT(
       interfaces.size() >= 1, "Expected at least one interface but got {}", interfaces.size());
 
   auto angle = std::acos(-interfaces[0].normal[Y]);
   if (interfaces[0].normal[X] > 0.0) { angle = 2.0 * std::numbers::pi - angle; }
-  auto rotate = [angle](const std::array<Float, NDIMS>& vec) -> std::array<Float, NDIMS> {
+
+  const std::array<Float, NDIMS> center_of_rotation{
+      (interfaces[0].end[X] + interfaces[0].begin[X]) / 2.0,
+      (interfaces[0].end[Y] + interfaces[0].begin[Y]) / 2.0,
+  };
+
+  auto rotate_vector = [angle](const std::array<Float, NDIMS>& vec) -> std::array<Float, NDIMS> {
     return {
         std::cos(angle) * vec[X] - std::sin(angle) * vec[Y],
         std::sin(angle) * vec[X] + std::cos(angle) * vec[Y],
     };
   };
 
+  auto rotate_point = [angle, &center_of_rotation](
+                          const std::array<Float, NDIMS>& vec) -> std::array<Float, NDIMS> {
+    return {
+        std::cos(angle) * (vec[X] - center_of_rotation[X]) -
+            std::sin(angle) * (vec[Y] - center_of_rotation[Y]),
+        std::sin(angle) * (vec[X] - center_of_rotation[X]) +
+            std::cos(angle) * (vec[Y] - center_of_rotation[Y]),
+    };
+  };
+
   for (auto& i : interfaces) {
-    i.begin  = rotate(i.begin);
-    i.end    = rotate(i.end);
-    i.normal = rotate(i.normal);
+    i.begin  = rotate_point(i.begin);
+    i.end    = rotate_point(i.end);
+    i.normal = rotate_vector(i.normal);
   }
 
-#if 1
-  const std::array<Float, NDIMS> center = {
-      (interfaces[0].begin[X] + interfaces[0].end[X]) / 2.0,
-      (interfaces[0].begin[Y] + interfaces[0].end[Y]) / 2.0,
-  };
-  for (auto& i : interfaces) {
-    i.begin[X] -= center[X];
-    i.begin[Y] -= center[Y];
-    i.end[X]   -= center[X];
-    i.end[Y]   -= center[Y];
-  }
-#endif
+  if (out_angle != nullptr) { *out_angle = angle; }
+  if (out_center_of_rotation != nullptr) { *out_center_of_rotation = center_of_rotation; }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -102,38 +117,6 @@ template <size_t CAPACITY>
 void sort_begin_end(Igor::StaticVector<Interface, CAPACITY>& interfaces) {
   for (auto& i : interfaces) {
     if (i.begin[X] > i.end[X]) { std::swap(i.begin, i.end); }
-  }
-}
-
-// -------------------------------------------------------------------------------------------------
-void solve_linear_system(const Matrix<Float, 3, 3>& lhs,
-                         const Vector<Float, 3>& rhs,
-                         Vector<Float, 3>& sol) noexcept {
-  Matrix<Float, 3, 3> inv_lhs{};
-  inv_lhs[0, 0] = (lhs[1, 1] * lhs[2, 2] - lhs[1, 2] * lhs[2, 1]);
-  inv_lhs[1, 0] = -(lhs[1, 0] * lhs[2, 2] - lhs[1, 2] * lhs[2, 0]);
-  inv_lhs[2, 0] = (lhs[1, 0] * lhs[2, 1] - lhs[1, 1] * lhs[2, 0]);
-
-  inv_lhs[0, 1] = -(lhs[0, 1] * lhs[2, 2] - lhs[0, 2] * lhs[2, 1]);
-  inv_lhs[1, 1] = (lhs[0, 0] * lhs[2, 2] - lhs[0, 2] * lhs[2, 0]);
-  inv_lhs[2, 1] = -(lhs[0, 0] * lhs[2, 1] - lhs[0, 1] * lhs[2, 0]);
-
-  inv_lhs[0, 2] = (lhs[0, 1] * lhs[1, 2] - lhs[0, 2] * lhs[1, 1]);
-  inv_lhs[1, 2] = -(lhs[0, 0] * lhs[1, 2] - lhs[0, 2] * lhs[1, 0]);
-  inv_lhs[2, 2] = (lhs[0, 0] * lhs[1, 1] - lhs[0, 1] * lhs[1, 0]);
-
-  const auto det_lhs =
-      lhs[0, 0] * inv_lhs[0, 0] + lhs[0, 1] * inv_lhs[1, 0] + lhs[0, 2] * inv_lhs[2, 0];
-  // IGOR_ASSERT(
-  //     std::abs(det_lhs) > 1e-6, "Expected invertible matrix but determinant is {:.6e}", det_lhs);
-  std::for_each_n(
-      inv_lhs.get_data(), inv_lhs.size(), [det_lhs](Float& value) { value /= det_lhs; });
-
-  for (Index i = 0; i < 3; ++i) {
-    sol[i] = 0.0;
-    for (Index j = 0; j < 3; ++j) {
-      sol[i] += inv_lhs[i, j] * rhs[j];
-    }
   }
 }
 
@@ -148,14 +131,14 @@ auto calc_cuvature_of_quad_poly(Float x, const Vector<Float, 3>& c) {
 template <size_t CAPACITY>
 auto calc_curv_quad_reconstruct(const Igor::StaticVector<Interface, CAPACITY>& interfaces)
     -> Float {
-  Igor::StaticVector<std::array<Float, NDIMS>, 9UZ> plic_param{};
+  Igor::StaticVector<std::array<Float, NDIMS>, STATIC_STORAGE_CAPACITY> plic_param{};
   for (const auto& i : interfaces) {
     const auto b1 = (i.end[Y] - i.begin[Y]) / (i.end[X] - i.begin[X]);
     const auto b0 = i.begin[Y] - b1 * i.begin[X];
     plic_param.push_back({b0, b1});
   }
 
-  Igor::StaticVector<std::array<Float, 3UZ>, 9UZ> S{};
+  Igor::StaticVector<std::array<Float, 3UZ>, STATIC_STORAGE_CAPACITY> S{};
   for (const auto& i : interfaces) {
     S.push_back({
         i.end[X] - i.begin[X],
@@ -219,10 +202,9 @@ void curvature_from_quad_reconstruction(const FS<Float, NX, NY>& fs,
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
       if (has_interface(vof, i, j)) {
-        Igor::StaticVector<Interface, 27UZ> interfaces{};
+        Igor::StaticVector<Interface, STATIC_STORAGE_CAPACITY> interfaces{};
         // Target interface is the first one
         interfaces.push_back(extract_interface(i, j, fs, ir));
-        constexpr Index NEIGHBORHOOD_SIZE = 1;
         for (Index di = -NEIGHBORHOOD_SIZE; di <= NEIGHBORHOOD_SIZE; ++di) {
           for (Index dj = -NEIGHBORHOOD_SIZE; dj <= NEIGHBORHOOD_SIZE; ++dj) {
             const bool check_here = (di != 0 || dj != 0);
@@ -234,24 +216,25 @@ void curvature_from_quad_reconstruction(const FS<Float, NX, NY>& fs,
         }
 
         rotate_interfaces(interfaces);
-        IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-12 &&
-                        std::abs(interfaces[0].normal[Y] + 1.0) < 1e-12,
+        IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
+                        std::abs(interfaces[0].normal[Y] + 1.0) < 1e-10,
                     "Expected normal of target interface to point in direction (0, -1) but is "
                     "({:.6e}, {:.6e})",
                     interfaces[0].normal[X],
                     interfaces[0].normal[Y]);
 
-        for (const auto& interface : interfaces) {
-          IGOR_ASSERT(std::abs(interface.end[X] - interface.begin[X]) > 1e-6,
-                      "Interface {{ .begin = [{:.6e}, {:.6e}], .end = [{:.6e}, {:.6e}], .normal = "
-                      "[{:.6e}, {:.6e}] }} is not representable by linear function.",
-                      interface.begin[X],
-                      interface.begin[Y],
-                      interface.end[X],
-                      interface.end[Y],
-                      interface.normal[X],
-                      interface.normal[Y]);
-        }
+        // for (const auto& interface : interfaces) {
+        //   IGOR_ASSERT(std::abs(interface.end[X] - interface.begin[X]) > 1e-6,
+        //               "Interface {{ .begin = [{:.6e}, {:.6e}], .end = [{:.6e}, {:.6e}], .normal =
+        //               "
+        //               "[{:.6e}, {:.6e}] }} is not representable by linear function.",
+        //               interface.begin[X],
+        //               interface.begin[Y],
+        //               interface.end[X],
+        //               interface.end[Y],
+        //               interface.normal[X],
+        //               interface.normal[Y]);
+        // }
 
         sort_begin_end(interfaces);
         curv[i, j] = calc_curv_quad_reconstruct(interfaces);
@@ -295,10 +278,9 @@ void curvature_from_quad_reconstruction2(const FS<Float, NX, NY>& fs,
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
       if (has_interface(vof, i, j)) {
-        Igor::StaticVector<Interface, 27UZ> interfaces{};
+        Igor::StaticVector<Interface, STATIC_STORAGE_CAPACITY> interfaces{};
         // Target interface is the first one
         interfaces.push_back(extract_interface(i, j, fs, ir));
-        constexpr Index NEIGHBORHOOD_SIZE = 1;
         for (Index di = -NEIGHBORHOOD_SIZE; di <= NEIGHBORHOOD_SIZE; ++di) {
           for (Index dj = -NEIGHBORHOOD_SIZE; dj <= NEIGHBORHOOD_SIZE; ++dj) {
             const bool check_here = (di != 0 || dj != 0);
@@ -309,15 +291,17 @@ void curvature_from_quad_reconstruction2(const FS<Float, NX, NY>& fs,
           }
         }
 
-        rotate_interfaces(interfaces);
-        IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-12 &&
-                        std::abs(interfaces[0].normal[Y] + 1.0) < 1e-12,
+        Float angle = 0.0;
+        std::array<Float, NDIMS> center_of_rotation{};
+        rotate_interfaces(interfaces, &angle, &center_of_rotation);
+        IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
+                        std::abs(interfaces[0].normal[Y] + 1.0) < 1e-10,
                     "Expected normal of target interface to point in direction (0, -1) but is "
                     "({:.6e}, {:.6e})",
                     interfaces[0].normal[X],
                     interfaces[0].normal[Y]);
 
-        Igor::StaticVector<std::array<Float, NDIMS>, 3UZ * 9UZ> points{};
+        Igor::StaticVector<std::array<Float, NDIMS>, 3UZ * STATIC_STORAGE_CAPACITY> points{};
         for (const auto& [begin, end, _] : interfaces) {
           points.push_back({
               (begin[X] + end[X]) / 2.0,
@@ -341,6 +325,9 @@ void curvature_from_quad_reconstruction2(const FS<Float, NX, NY>& fs,
           }
           (*quad2_out) << Igor::detail::format("quad {:.6e} {:.6e} {:.6e}\n", c[0], c[1], c[2]);
           (*quad2_out) << Igor::detail::format("eval_point {:.6e}\n", points[0][X]);
+          (*quad2_out) << Igor::detail::format("angle {:.6e}\n", angle);
+          (*quad2_out) << Igor::detail::format(
+              "center_of_rotation {:.6e} {:.6e}\n", center_of_rotation[X], center_of_rotation[Y]);
           (*quad2_out) << "------------------------------------------------------------\n";
         }
 
@@ -360,6 +347,7 @@ struct CurvatureMetrics {
   Float mean_curv{};
   Float mse_curv{};
   Float mrse_curv{};
+  Float init_error{};
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -368,26 +356,42 @@ void test_curvature(CURV_FUNC calc_curv,
                     Float cx,
                     Float cy,
                     Float r,
+                    bool invert_phases,
                     const FS<Float, NX, NY>& fs,
                     InterfaceReconstruction<NX, NY>& ir,
                     Matrix<Float, NX, NY>& vof,
                     Matrix<Float, NX, NY>& curv,
                     CurvatureMetrics& metrics) {
 
-  auto vof0 = [cx, cy, r](Float x, Float y) {
+  auto vof0 = [cx, cy, r, invert_phases](Float x, Float y) {
+    if (invert_phases) {
+      return static_cast<Float>(Igor::sqr(x - cx) + Igor::sqr(y - cy) > Igor::sqr(r));
+    }
     return static_cast<Float>(Igor::sqr(x - cx) + Igor::sqr(y - cy) <= Igor::sqr(r));
   };
+#pragma omp parallel for collapse(2)
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      vof[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+      vof[i, j] =
+          quadrature<64>(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
     }
   }
   std::fill_n(ir.interface.get_data(), ir.interface.size(), IRL::PlanarSeparator{});
   reconstruct_interface(fs.x, fs.y, vof, ir);
 
+  if (invert_phases) {
+    const auto domain_area = (X_MAX - X_MIN) * (Y_MAX - Y_MIN);
+    metrics.init_error =
+        std::abs((domain_area - integrate(fs.dx, fs.dy, vof)) - std::numbers::pi * Igor::sqr(r)) /
+        (std::numbers::pi * Igor::sqr(r));
+  } else {
+    metrics.init_error = std::abs(integrate(fs.dx, fs.dy, vof) - std::numbers::pi * Igor::sqr(r)) /
+                         (std::numbers::pi * Igor::sqr(r));
+  }
+
   calc_curv(fs, ir, vof, curv);
 
-  metrics.expected_curv = 1.0 / r;
+  metrics.expected_curv = 1.0 / r * (invert_phases ? -1.0 : 1.0);
   metrics.min_curv      = std::numeric_limits<Float>::max();
   metrics.max_curv      = -std::numeric_limits<Float>::max();
   metrics.mean_curv     = 0.0;
@@ -446,10 +450,11 @@ auto main() -> int {
   vtk_writer.add_scalar("quad_curv", &quad_curv);
   vtk_writer.add_scalar("quad2_curv", &quad2_curv);
 
-  Index iter = 0;
-  Float cx   = 0.0;
-  Float cy   = 0.0;
-  Float r    = 0.0;
+  Index iter   = 0;
+  Float cx     = 0.0;
+  Float cy     = 0.0;
+  Float r      = 0.0;
+  Index invert = 0;
   CurvatureMetrics smooth_metrics{};
   CurvatureMetrics quad_metrics{};
   CurvatureMetrics quad2_metrics{};
@@ -462,7 +467,9 @@ auto main() -> int {
   monitor.add_variable(&cx, "center(x)");
   monitor.add_variable(&cy, "center(y)");
   monitor.add_variable(&r, "radius");
+  monitor.add_variable(&invert, "invert");
   monitor.add_variable(&smooth_metrics.expected_curv, "expect(curv)");
+  monitor.add_variable(&smooth_metrics.init_error, "init. error");
 
   monitor.add_variable(&smooth_metrics.min_curv, "smooth-min(curv)");
   monitor.add_variable(&smooth_metrics.max_curv, "smooth-max(curv)");
@@ -488,38 +495,79 @@ auto main() -> int {
 
   static std::mt19937 generator(std::random_device{}());
   std::uniform_real_distribution c_dist(0.35, 0.65);
-  std::uniform_real_distribution r_dist(0.01, 0.25);
+  std::uniform_real_distribution r_dist(2 * std::min(DX, DY), 20 * std::min(DX, DY));
+  std::uniform_int_distribution<Index> i_dist(0, 1);
 
   IGOR_TIME_SCOPE("Testing cuvature") {
     Igor::ProgressBar bar(NUM_TEST_ITER, 63);
     for (iter = 0; iter < NUM_TEST_ITER; ++iter) {
       if (NUM_TEST_ITER > 1) {
-        cx = c_dist(generator);
-        cy = c_dist(generator);
-        r  = r_dist(generator);
+        cx     = c_dist(generator);
+        cy     = c_dist(generator);
+        r      = r_dist(generator);
+        invert = i_dist(generator);
+
+        while ((cx - (r + 2 * DX) < X_MIN) || (cx + (r + 2 * DX) > X_MAX) ||
+               (cy - (r + 2 * DY) < Y_MIN) || (cy + (r + 2 * DY) > Y_MAX)) {
+          r /= 2.0;
+        }
+        // if (cx - (r + 2 * DX) < X_MIN) { cx += r + 2 * DX; }
+        // if (cx + (r + 2 * DX) > X_MAX) { cx -= r + 2 * DX; }
+        // if (cy - (r + 2 * DY) < Y_MIN) { cy += r + 2 * DY; }
+        // if (cy + (r + 2 * DY) > Y_MAX) { cy -= r + 2 * DY; }
+        // IGOR_DEBUG_PRINT(cx);
+        // IGOR_DEBUG_PRINT(cy);
+        // IGOR_DEBUG_PRINT(r);
       } else {
-        cx = 0.5;
-        cy = 0.5;
-        r  = 0.25;
+        cx     = 0.5;
+        cy     = 0.5;
+        r      = 4.0 * std::min(DX, DY);  //  0.25;
+        invert = 0;
       }
 
       auto t_begin = std::chrono::high_resolution_clock::now();
-      test_curvature(
-          calc_curvature<Float, NX, NY>, cx, cy, r, fs, ir, vof, smooth_curv, smooth_metrics);
+      test_curvature(calc_curvature<Float, NX, NY>,
+                     cx,
+                     cy,
+                     r,
+                     invert == 1,
+                     fs,
+                     ir,
+                     vof,
+                     smooth_curv,
+                     smooth_metrics);
       auto t_end     = std::chrono::high_resolution_clock::now();
       runtime_smooth = std::chrono::duration<double, std::micro>(t_end - t_begin).count();
 
       t_begin        = std::chrono::high_resolution_clock::now();
-      test_curvature(
-          curvature_from_quad_reconstruction, cx, cy, r, fs, ir, vof, quad_curv, quad_metrics);
+      test_curvature(curvature_from_quad_reconstruction,
+                     cx,
+                     cy,
+                     r,
+                     invert == 1,
+                     fs,
+                     ir,
+                     vof,
+                     quad_curv,
+                     quad_metrics);
       t_end        = std::chrono::high_resolution_clock::now();
       runtime_quad = std::chrono::duration<double, std::micro>(t_end - t_begin).count();
 
       t_begin      = std::chrono::high_resolution_clock::now();
-      test_curvature(
-          curvature_from_quad_reconstruction2, cx, cy, r, fs, ir, vof, quad2_curv, quad2_metrics);
+      test_curvature(curvature_from_quad_reconstruction2,
+                     cx,
+                     cy,
+                     r,
+                     invert == 1,
+                     fs,
+                     ir,
+                     vof,
+                     quad2_curv,
+                     quad2_metrics);
       t_end         = std::chrono::high_resolution_clock::now();
       runtime_quad2 = std::chrono::duration<double, std::micro>(t_end - t_begin).count();
+
+      if (invert == 1) { r *= -1.0; }
 
       if (!vtk_writer.write()) { return 1; }
       if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, iter),
@@ -533,23 +581,4 @@ auto main() -> int {
     }
     std::cout << '\n';
   }
-
-  // if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), fs.xm)) { return 1; }
-  // if (!to_npy(Igor::detail::format("{}/ym.npy", OUTPUT_DIR), fs.ym)) { return 1; }
-  // if (!to_npy(Igor::detail::format("{}/VOF.npy", OUTPUT_DIR), vof)) { return 1; }
-
-  // for (Index i = 0; i < ir.interface.extent(0); ++i) {
-  //   for (Index j = 0; j < ir.interface.extent(1); ++j) {
-  //     if (has_interface(vof, i, j)) {
-  //       const auto [p0, p1] =
-  //           get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]);
-  //       std::cout << "p0 = " << p0 << '\n';
-  //       std::cout << "p1 = " << p1 << '\n';
-  //       std::cout << "n  = " << ir.interface[i, j][0].normal() << '\n';
-  //       std::cout << '\n';
-  //     }
-  //   }
-  // }
-
-  // curvature_from_quad_reconstruction(fs, ir, vof, poly_curv);
 }

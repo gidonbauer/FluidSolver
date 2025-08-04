@@ -41,7 +41,7 @@ constexpr Float U_0             = 0.0;
 constexpr Float VISC_G          = 1e-3;  // 1e-0;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
-constexpr Float RHO_L           = 1e1;
+constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 1.0;
@@ -316,7 +316,7 @@ auto main() -> int {
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
       // ===== Add capillary forces ================================================================
-      calc_curvature_quad_regression(fs, vof);
+      calc_curvature_quad_volume_matching(fs, vof);
 
       // NOTE: Save old pressure jump in delta_p_jump_[uv]_stag
       std::copy_n(

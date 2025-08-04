@@ -13,6 +13,9 @@
 #include "Utility.hpp"
 #include "VOF.hpp"
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+namespace detail {
+
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 void smooth_vf_field(const Vector<Float, NX>& xm,
@@ -48,71 +51,6 @@ void smooth_vf_field(const Vector<Float, NX>& xm,
     }
   }
 }
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void calc_curvature_convolved_vf(const FS<Float, NX, NY>& fs,
-                                 const InterfaceReconstruction<NX, NY>& ir,
-                                 const Matrix<Float, NX, NY>& vf,
-                                 Matrix<Float, NX, NY>& curv) noexcept {
-  // Reference: Cummins, S. J., Francois, M. M., and Kothe, D. B. “Estimating curvature from volume
-  // fractions”. Computers & Structures. Frontier of Multi-Phase Flow Analysis and
-  // Fluid-StructureFrontier of MultiPhase Flow Analysis and Fluid-Structure 83.6 (2005), pp.
-  // 425–434.
-
-  static Matrix<Float, NX, NY> dvfdx{};
-  static Matrix<Float, NX, NY> dvfdy{};
-  static Matrix<Float, NX, NY> dvfdxx{};
-  static Matrix<Float, NX, NY> dvfdyy{};
-  static Matrix<Float, NX, NY> dvfdxy{};
-  static Matrix<Float, NX, NY> vf_smooth{};
-  static Matrix<Float, NX, NY> curv_centered{};
-
-  smooth_vf_field(fs.xm, fs.ym, vf, vf_smooth);
-
-  calc_grad_of_centered_points(vf_smooth, fs.dx, fs.dy, dvfdx, dvfdy);
-  calc_grad_of_centered_points(dvfdx, fs.dx, fs.dy, dvfdxx, dvfdxy);
-  calc_grad_of_centered_points(dvfdy, fs.dx, fs.dy, dvfdxy, dvfdyy);
-
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      const auto numer =
-          (dvfdxx[i, j] * Igor::sqr(dvfdy[i, j]) + dvfdyy[i, j] * Igor::sqr(dvfdx[i, j]) -
-           2.0 * dvfdx[i, j] * dvfdy[i, j] * dvfdxy[i, j]);
-      const auto denom    = std::pow(Igor::sqr(dvfdx[i, j]) + Igor::sqr(dvfdy[i, j]), 1.5);
-      curv_centered[i, j] = std::abs(denom) > 1e-8 ? -numer / denom : 0.0;
-    }
-  }
-
-#ifdef FS_CURV_NO_INTERPOLATION
-  (void)ir;
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (has_interface(vf, i, j)) {
-        curv[i, j] = curv_centered[i, j];
-      } else {
-        curv[i, j] = 0.0;
-      }
-    }
-  }
-#else
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (has_interface(vf, i, j)) {
-        const auto intersect =
-            get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]);
-        const auto center = (intersect[0] + intersect[1]) / 2.0;
-        curv[i, j]        = bilinear_interpolate(fs.xm, fs.ym, curv_centered, center[0], center[1]);
-      } else {
-        curv[i, j] = 0.0;
-      }
-    }
-  }
-#endif
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-namespace detail {
 
 constexpr size_t STATIC_STORAGE_CAPACITY = 100;
 
@@ -292,13 +230,13 @@ void calc_curvature_quad_volume_matching(const FS<Float, NX, NY>& fs, VOF<Float,
       if (has_interface(vof.vf_old, i, j)) {
         Igor::StaticVector<Interface<Float>, STATIC_STORAGE_CAPACITY> interfaces{};
         // Target interface is the first one
-        interfaces.push_back(extract_interface(i, j, fs, vof.ir));
+        interfaces.push_back(detail::extract_interface(i, j, fs, vof.ir));
         for (Index di = -1; di <= 1; ++di) {
           for (Index dj = -1; dj <= 1; ++dj) {
             const bool check_here = (di != 0 || dj != 0);
             if (check_here && vof.ir.interface.is_valid_index(i + di, j + dj) &&
                 has_interface(vof.vf_old, i + di, j + dj)) {
-              interfaces.push_back(extract_interface(i + di, j + dj, fs, vof.ir));
+              interfaces.push_back(detail::extract_interface(i + di, j + dj, fs, vof.ir));
             }
           }
         }
@@ -366,6 +304,64 @@ void calc_curvature_quad_regression(const FS<Float, NX, NY>& fs, VOF<Float, NX, 
       }
     }
   }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY>
+void calc_curvature_convolved_vf(const FS<Float, NX, NY>& fs, VOF<Float, NX, NY>& vof) noexcept {
+  // Reference: Cummins, S. J., Francois, M. M., and Kothe, D. B. “Estimating curvature from volume
+  // fractions”. Computers & Structures. Frontier of Multi-Phase Flow Analysis and
+  // Fluid-StructureFrontier of MultiPhase Flow Analysis and Fluid-Structure 83.6 (2005), pp.
+  // 425–434.
+
+  static Matrix<Float, NX, NY> dvfdx{};
+  static Matrix<Float, NX, NY> dvfdy{};
+  static Matrix<Float, NX, NY> dvfdxx{};
+  static Matrix<Float, NX, NY> dvfdyy{};
+  static Matrix<Float, NX, NY> dvfdxy{};
+  static Matrix<Float, NX, NY> vf_smooth{};
+  static Matrix<Float, NX, NY> curv_centered{};
+
+  detail::smooth_vf_field(fs.xm, fs.ym, vof.vf_old, vf_smooth);
+
+  calc_grad_of_centered_points(vf_smooth, fs.dx, fs.dy, dvfdx, dvfdy);
+  calc_grad_of_centered_points(dvfdx, fs.dx, fs.dy, dvfdxx, dvfdxy);
+  calc_grad_of_centered_points(dvfdy, fs.dx, fs.dy, dvfdxy, dvfdyy);
+
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      const auto numer =
+          (dvfdxx[i, j] * Igor::sqr(dvfdy[i, j]) + dvfdyy[i, j] * Igor::sqr(dvfdx[i, j]) -
+           2.0 * dvfdx[i, j] * dvfdy[i, j] * dvfdxy[i, j]);
+      const auto denom    = std::pow(Igor::sqr(dvfdx[i, j]) + Igor::sqr(dvfdy[i, j]), 1.5);
+      curv_centered[i, j] = std::abs(denom) > 1e-8 ? -numer / denom : 0.0;
+    }
+  }
+
+#ifdef FS_CURV_NO_INTERPOLATION
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      if (has_interface(vof.vf_old, i, j)) {
+        vof.curv[i, j] = curv_centered[i, j];
+      } else {
+        vof.curv[i, j] = 0.0;
+      }
+    }
+  }
+#else
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      if (has_interface(vof.vf_old, i, j)) {
+        const auto intersect =
+            get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, vof.ir.interface[i, j][0]);
+        const auto center = (intersect[0] + intersect[1]) / 2.0;
+        vof.curv[i, j]    = bilinear_interpolate(fs.xm, fs.ym, curv_centered, center[0], center[1]);
+      } else {
+        vof.curv[i, j] = 0.0;
+      }
+    }
+  }
+#endif
 }
 
 // -------------------------------------------------------------------------------------------------

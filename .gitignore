@@ -17,15 +17,8 @@ IB.dSYM
 *.env
 run.slurm
 
-output/
 output*/
 notes/
-python/*
-!python/verify_laminar_channel.py
-!python/verify_couette.py
-venv/
-*.ipynb
-sample.txt
 
 *.stdout
 *.stderr

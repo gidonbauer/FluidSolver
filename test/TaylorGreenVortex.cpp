@@ -110,9 +110,9 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  U_max   = max(fs.curr.U);
-  V_max   = max(fs.curr.V);
-  div_max = max(div);
+  U_max   = abs_max(fs.curr.U);
+  V_max   = abs_max(fs.curr.V);
+  div_max = abs_max(div);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -214,9 +214,9 @@ auto main() -> int {
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-    U_max   = max(fs.curr.U);
-    V_max   = max(fs.curr.V);
-    div_max = max(div);
+    U_max   = abs_max(fs.curr.U);
+    V_max   = abs_max(fs.curr.V);
+    div_max = abs_max(div);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
     }

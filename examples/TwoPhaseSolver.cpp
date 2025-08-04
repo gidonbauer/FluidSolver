@@ -41,7 +41,7 @@ constexpr Float U_0             = 0.0;
 constexpr Float VISC_G          = 1e-3;  // 1e-0;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
-constexpr Float RHO_L           = 1e3;
+constexpr Float RHO_L           = 1e1;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 1.0;
@@ -235,9 +235,9 @@ auto main() -> int {
   interpolate_V(fs.curr.V, Vi);
   interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  U_max    = max(fs.curr.U);
-  V_max    = max(fs.curr.V);
-  div_max  = max(div);
+  U_max    = abs_max(fs.curr.U);
+  V_max    = abs_max(fs.curr.V);
+  div_max  = abs_max(div);
   curv_min = min(vof.curv);
   curv_max = max(vof.curv);
   // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));

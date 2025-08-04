@@ -220,11 +220,11 @@ auto main() -> int {
   interpolate_V(fs.curr.V, Vi);
   interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  U_max   = max(fs.curr.U);
-  V_max   = max(fs.curr.V);
-  div_max = max(div);
+  U_max   = abs_max(fs.curr.U);
+  V_max   = abs_max(fs.curr.V);
+  div_max = abs_max(div);
   // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
-  // p_max = max(fs.p);
+  // p_max = abs_max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
   if (!vtk_writer.write(t)) { return 1; }
@@ -373,11 +373,11 @@ auto main() -> int {
     interpolate_V(fs.curr.V, Vi);
     interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-    U_max   = max(fs.curr.U);
-    V_max   = max(fs.curr.V);
-    div_max = max(div);
+    U_max   = abs_max(fs.curr.U);
+    V_max   = abs_max(fs.curr.V);
+    div_max = abs_max(div);
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
-    // p_max = max(fs.p);
+    // p_max = abs_max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {

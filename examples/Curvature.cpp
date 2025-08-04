@@ -521,12 +521,12 @@ auto main() -> int {
       } else {
         cx     = 0.5;
         cy     = 0.5;
-        r      = 4.0 * std::min(DX, DY);  //  0.25;
+        r      = 2.0 * std::min(DX, DY);  //  0.25;
         invert = 0;
       }
 
       auto t_begin = std::chrono::high_resolution_clock::now();
-      test_curvature(calc_curvature<Float, NX, NY>,
+      test_curvature(calc_curvature_convolved_vf<Float, NX, NY>,
                      cx,
                      cy,
                      r,

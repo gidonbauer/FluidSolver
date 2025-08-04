@@ -133,27 +133,25 @@ auto main() -> int {
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
 
-  Matrix<Float, NX, NY> vof{};
-  Matrix<Float, NX, NY> vof_next{};
-
-  InterfaceReconstruction<NX, NY> ir{};
+  VOF<Float, NX, NY> vof{};
   // = Allocate memory =============================================================================
 
   // = Setup grid and cell localizers ==============================================================
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   // Localize the cells
-  localize_cells(fs.x, fs.y, ir);
+  localize_cells(fs.x, fs.y, vof.ir);
   // = Setup grid and cell localizers ==============================================================
 
   // = Setup velocity and vof field ================================================================
-  for (Index i = 0; i < vof.extent(0); ++i) {
-    for (Index j = 0; j < vof.extent(1); ++j) {
+  for (Index i = 0; i < vof.vf.extent(0); ++i) {
+    for (Index j = 0; j < vof.vf.extent(1); ++j) {
       auto is_in = [](Float x, Float y) -> Float {
         return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
       };
 
-      vof[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+      vof.vf[i, j] =
+          quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
     }
   }
 
@@ -172,32 +170,31 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   if (!save_vof_state(
-          Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), fs.x, fs.y, vof, Ui, Vi)) {
+          Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), fs.x, fs.y, vof.vf, Ui, Vi)) {
     return 1;
   }
-  INIT_VOF_INT =
-      std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
-
-  const std::array<Float, 2> init_center_of_mass = calc_center_of_mass(fs.xm, fs.ym, vof);
+  INIT_VOF_INT                                   = integrate(fs.dx, fs.dy, vof.vf);
+  const std::array<Float, 2> init_center_of_mass = calc_center_of_mass(fs.xm, fs.ym, vof.vf);
   // = Setup velocity and vof field ================================================================
 
   Igor::ScopeTimer timer("ConstantVelocityVOF");
   Float max_volume_error = 0.0;
   for (Index iter = 0; iter < NITER; ++iter) {
+    std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
+
     // = Reconstruct the interface =================================================================
-    reconstruct_interface(fs.x, fs.y, vof, ir);
+    reconstruct_interface(fs.x, fs.y, vof.vf_old, vof.ir);
     if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, iter),
                         fs.x,
                         fs.y,
-                        ir.interface)) {
+                        vof.ir.interface)) {
       return 1;
     }
 
     // = Advect cells ==============================================================================
-    advect_cells(fs, vof, Ui, Vi, DT, ir, vof_next, &max_volume_error);
-    std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
+    advect_cells(fs, Ui, Vi, DT, vof, &max_volume_error);
 
-    const auto center_of_mass = calc_center_of_mass(fs.xm, fs.ym, vof);
+    const auto center_of_mass = calc_center_of_mass(fs.xm, fs.ym, vof.vf);
     const std::array<Float, 2> expected_center_of_mass{
         init_center_of_mass[0] + static_cast<Float>(iter + 1) * DT * U0,
         init_center_of_mass[1] + static_cast<Float>(iter + 1) * DT * V0,
@@ -222,7 +219,7 @@ auto main() -> int {
       if (!save_vof_state(Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, iter + 1),
                           fs.x,
                           fs.y,
-                          vof,
+                          vof.vf,
                           Ui,
                           Vi)) {
         return 1;
@@ -232,6 +229,6 @@ auto main() -> int {
       Igor::Warn("Advected cells expanded: max. volume error = {:.6e}", max_volume_error);
       return 1;
     }
-    if (!check_vof(vof)) { return 1; }
+    if (!check_vof(vof.vf)) { return 1; }
   }
 }

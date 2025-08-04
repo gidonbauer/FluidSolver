@@ -159,14 +159,11 @@ auto main() -> int {
   // = Allocate memory =============================================================================
   FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
 
-  InterfaceReconstruction<NX, NY> ir{};
-
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
   Matrix<Float, NX, NY> div{};
 
-  Matrix<Float, NX, NY> vof{};
-  Matrix<Float, NX, NY> vof_next{};
+  VOF<Float, NX, NY> vof{};
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   // = Allocate memory =============================================================================
@@ -175,27 +172,28 @@ auto main() -> int {
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   // Localize the cells
-  localize_cells(fs.x, fs.y, ir);
+  localize_cells(fs.x, fs.y, vof.ir);
   // = Setup grid and cell localizers ==============================================================
 
   // = Setup velocity and vof field ================================================================
-  for (Index i = 0; i < vof.extent(0); ++i) {
-    for (Index j = 0; j < vof.extent(1); ++j) {
+  for (Index i = 0; i < vof.vf.extent(0); ++i) {
+    for (Index j = 0; j < vof.vf.extent(1); ++j) {
       auto is_in = [](Float x, Float y) -> Float {
         return Igor::sqr(x - std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
                Igor::sqr(0.5);
       };
 
-      vof[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+      vof.vf[i, j] =
+          quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
     }
   }
-  reconstruct_interface(fs.x, fs.y, vof, ir);
+  reconstruct_interface(fs.x, fs.y, vof.vf, vof.ir);
 
   set_velocity(fs.x, fs.y, fs.xm, fs.ym, 0.0, fs.curr.U, fs.curr.V);
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  calc_rho_and_visc(vof, fs);
+  calc_rho_and_visc(vof.vf, fs);
   Float max_div = std::transform_reduce(
       div.get_data(),
       div.get_data() + div.size(),
@@ -204,11 +202,10 @@ auto main() -> int {
       [](Float a) { return std::abs(a); });
 
   if (!save_vof_state(
-          Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), fs.x, fs.y, vof, Ui, Vi)) {
+          Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), fs.x, fs.y, vof.vf, Ui, Vi)) {
     return 1;
   }
-  INIT_VOF_INT =
-      std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
+  INIT_VOF_INT = integrate(fs.dx, fs.dy, vof.vf);
   // = Setup velocity and vof field ================================================================
 
   Float t                = 0.0;
@@ -230,7 +227,7 @@ auto main() -> int {
   monitor.add_variable(&vof_loss_prct, "loss(vof) [%]");
   monitor.add_variable(&max_div, "max(div)");
 
-  get_vof_stats(vof, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
+  get_vof_stats(vof.vf, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
   if (!check_vof(vof_min, vof_max, vof_integral, max_volume_error)) { return 1; }
 
   Index counter = 0;
@@ -238,21 +235,21 @@ auto main() -> int {
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
+    std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
 
     // = Reconstruct the interface =================================================================
-    reconstruct_interface(fs.x, fs.y, vof, ir);
+    reconstruct_interface(fs.x, fs.y, vof.vf, vof.ir);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, counter),
                           fs.x,
                           fs.y,
-                          ir.interface)) {
+                          vof.ir.interface)) {
         return 1;
       }
     }
 
     // = Advect cells ==============================================================================
-    advect_cells(fs, vof, Ui, Vi, dt, ir, vof_next, &max_volume_error);
-    std::copy_n(vof_next.get_data(), vof_next.size(), vof.get_data());
+    advect_cells(fs, Ui, Vi, dt, vof, &max_volume_error);
 
     // = Update velocity field according to analytical solution ====================================
     t += dt;
@@ -274,7 +271,7 @@ auto main() -> int {
         if (!save_vof_state(Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, counter + 1),
                             fs.x,
                             fs.y,
-                            vof,
+                            vof.vf,
                             Ui,
                             Vi)) {
           return 1;
@@ -283,7 +280,7 @@ auto main() -> int {
 
       counter += 1;
     }
-    get_vof_stats(vof, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
+    get_vof_stats(vof.vf, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
     if (!check_vof(vof_min, vof_max, vof_integral, max_volume_error)) { return 1; }
     monitor.write();
   }

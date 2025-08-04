@@ -391,34 +391,34 @@ void calc_drhodt(const FS<Float, NX, NY>& fs,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-void calc_pressure_jump(const Matrix<Float, NX, NY>& vof,
+void calc_pressure_jump(const Matrix<Float, NX, NY>& vf,
                         const Matrix<Float, NX, NY>& curv,
                         FS<Float, NX, NY>& fs) noexcept {
   std::fill_n(fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), 0.0);
   std::fill_n(fs.p_jump_v_stag.get_data(), fs.p_jump_v_stag.size(), 0.0);
   for (Index i = 1; i < fs.p_jump_u_stag.extent(0) - 1; ++i) {
     for (Index j = 0; j < fs.p_jump_u_stag.extent(1); ++j) {
-      const auto minus_has_interface = static_cast<Float>(has_interface(vof, i - 1, j));
-      const auto plus_has_interface  = static_cast<Float>(has_interface(vof, i, j));
+      const auto minus_has_interface = static_cast<Float>(has_interface(vf, i - 1, j));
+      const auto plus_has_interface  = static_cast<Float>(has_interface(vf, i, j));
       const auto curv_i =
           (plus_has_interface + minus_has_interface) > 0.0
               ? (curv[i, j] * plus_has_interface + curv[i - 1, j] * minus_has_interface) /
                     (plus_has_interface + minus_has_interface)
               : 0.0;
-      fs.p_jump_u_stag[i, j] = fs.sigma * curv_i * (vof[i, j] - vof[i - 1, j]) / fs.dx;
+      fs.p_jump_u_stag[i, j] = fs.sigma * curv_i * (vf[i, j] - vf[i - 1, j]) / fs.dx;
     }
   }
 
   for (Index i = 0; i < fs.p_jump_v_stag.extent(0); ++i) {
     for (Index j = 1; j < fs.p_jump_v_stag.extent(1) - 1; ++j) {
-      const auto minus_has_interface = static_cast<Float>(has_interface(vof, i, j - 1));
-      const auto plus_has_interface  = static_cast<Float>(has_interface(vof, i, j));
+      const auto minus_has_interface = static_cast<Float>(has_interface(vf, i, j - 1));
+      const auto plus_has_interface  = static_cast<Float>(has_interface(vf, i, j));
       const auto curv_i =
           (plus_has_interface + minus_has_interface) > 0.0
               ? (curv[i, j] * plus_has_interface + curv[i, j - 1] * minus_has_interface) /
                     (plus_has_interface + minus_has_interface)
               : 0.0;
-      fs.p_jump_v_stag[i, j] = fs.sigma * curv_i * (vof[i, j] - vof[i, j - 1]) / fs.dy;
+      fs.p_jump_v_stag[i, j] = fs.sigma * curv_i * (vf[i, j] - vf[i, j - 1]) / fs.dy;
     }
   }
 }
@@ -542,12 +542,12 @@ constexpr void calc_rho_and_visc(FS<Float, NX, NY>& fs) noexcept {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vof, FS<Float, NX, NY>& fs) noexcept {
+constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vf, FS<Float, NX, NY>& fs) noexcept {
   // = Density on U-staggered mesh =================================================================
   for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
     for (Index j = 0; j < fs.curr.rho_u_stag.extent(1); ++j) {
-      const auto rho_minus     = vof[i - 1, j] * fs.rho_liquid + (1.0 - vof[i - 1, j]) * fs.rho_gas;
-      const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
+      const auto rho_minus     = vf[i - 1, j] * fs.rho_liquid + (1.0 - vf[i - 1, j]) * fs.rho_gas;
+      const auto rho_plus      = vf[i, j] * fs.rho_liquid + (1.0 - vf[i, j]) * fs.rho_gas;
       fs.curr.rho_u_stag[i, j] = (rho_minus + rho_plus) / 2.0;
     }
   }
@@ -559,8 +559,8 @@ constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vof, FS<Float, NX,
   // = Density on V-staggered mesh =================================================================
   for (Index i = 0; i < fs.curr.rho_v_stag.extent(0); ++i) {
     for (Index j = 1; j < fs.curr.rho_v_stag.extent(1) - 1; ++j) {
-      const auto rho_minus     = vof[i, j - 1] * fs.rho_liquid + (1.0 - vof[i, j - 1]) * fs.rho_gas;
-      const auto rho_plus      = vof[i, j] * fs.rho_liquid + (1.0 - vof[i, j]) * fs.rho_gas;
+      const auto rho_minus     = vf[i, j - 1] * fs.rho_liquid + (1.0 - vf[i, j - 1]) * fs.rho_gas;
+      const auto rho_plus      = vf[i, j] * fs.rho_liquid + (1.0 - vf[i, j]) * fs.rho_gas;
       fs.curr.rho_v_stag[i, j] = (rho_minus + rho_plus) / 2.0;
     }
   }
@@ -572,7 +572,7 @@ constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY>& vof, FS<Float, NX,
   // = Viscosity on centered mesh ==================================================================
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      fs.visc[i, j] = vof[i, j] * fs.visc_liquid + (1.0 - vof[i, j]) * fs.visc_gas;
+      fs.visc[i, j] = vf[i, j] * fs.visc_liquid + (1.0 - vf[i, j]) * fs.visc_gas;
     }
   }
 }

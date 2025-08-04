@@ -53,8 +53,6 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
 
-// TODO: Test case moving drop through stationary flow field
-
 constexpr FlowBConds<Float> bconds{
     //        LEFT              RIGHT           BOTTOM            TOP
     .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::NEUMANN, BCond::NEUMANN},
@@ -118,11 +116,7 @@ auto main() -> int {
                        .sigma       = SURFACE_TENSION};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
-  InterfaceReconstruction<NX, NY> ir{};
-  Matrix<Float, NX, NY> vof_old{};
-  Matrix<Float, NX, NY> vof{};
-  Matrix<Float, NX, NY> vof_smooth{};
-  Matrix<Float, NX, NY> curv{};
+  VOF<Float, NX, NY> vof{};
 
   Matrix<Float, NX, NY> Ui{};
   Matrix<Float, NX, NY> Vi{};
@@ -168,9 +162,9 @@ auto main() -> int {
   vtk_writer.add_scalar("viscosity", &fs.visc);
   vtk_writer.add_scalar("pressure", &fs.p);
   vtk_writer.add_scalar("divergence", &div);
-  vtk_writer.add_scalar("VOF", &vof);
+  vtk_writer.add_scalar("VOF", &vof.vf);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
-  vtk_writer.add_scalar("curvature", &curv);
+  vtk_writer.add_scalar("curvature", &vof.curv);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -198,28 +192,28 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize VOF field ========================================================================
-  for (Index i = 0; i < vof.extent(0); ++i) {
-    for (Index j = 0; j < vof.extent(1); ++j) {
-      vof[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+  for (Index i = 0; i < vof.vf.extent(0); ++i) {
+    for (Index j = 0; j < vof.vf.extent(1); ++j) {
+      vof.vf[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
     }
   }
-  const Float init_vof_integral = integrate(fs.dx, fs.dy, vof);
-  localize_cells(fs.x, fs.y, ir);
-  reconstruct_interface(fs.x, fs.y, vof, ir);
+  const Float init_vof_integral = integrate(fs.dx, fs.dy, vof.vf);
+  localize_cells(fs.x, fs.y, vof.ir);
+  reconstruct_interface(fs.x, fs.y, vof.vf, vof.ir);
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
   for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
     for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      const auto U_minus = U_DROP * vof[i - 1, j];
-      const auto U_plus  = U_DROP * vof[i, j];
+      const auto U_minus = U_DROP * vof.vf[i - 1, j];
+      const auto U_plus  = U_DROP * vof.vf[i, j];
       fs.curr.U[i, j]    = (U_minus + U_plus) / 2.0;
     }
   }
 
   apply_velocity_bconds(fs, bconds);
 
-  calc_rho_and_visc(vof, fs);
+  calc_rho_and_visc(vof.vf, fs);
   PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   interpolate_U(fs.curr.U, Ui);
@@ -231,7 +225,7 @@ auto main() -> int {
   div_max = max(div);
   // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
   // p_max = max(fs.p);
-  calc_vof_stats(fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
+  calc_vof_stats(fs, vof.vf, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
@@ -244,17 +238,17 @@ auto main() -> int {
 
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
-    std::copy_n(vof.get_data(), vof.size(), vof_old.get_data());
+    std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
 
     // = Update VOF field ==========================================================================
-    reconstruct_interface(fs.x, fs.y, vof_old, ir);
+    reconstruct_interface(fs.x, fs.y, vof.vf_old, vof.ir);
     // TODO: Calculate viscosity from new VOF field
-    calc_rho_and_visc(vof_old, fs);
+    calc_rho_and_visc(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
-    advect_cells(fs, vof_old, Ui, Vi, dt, ir, vof, &vof_vol_error);
+    advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
 
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
@@ -306,12 +300,12 @@ auto main() -> int {
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // ===== Add capillary forces ================================================================
-      calc_curvature(fs, ir, vof_old, curv);
+      calc_curvature_quad_regression(fs, vof);
 
       // NOTE: Save old pressure jump in delta_pj_[uv]_stag
       std::copy_n(fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), delta_pj_u_stag.get_data());
       std::copy_n(fs.p_jump_v_stag.get_data(), fs.p_jump_v_stag.size(), delta_pj_v_stag.get_data());
-      calc_pressure_jump(vof_old, curv, fs);
+      calc_pressure_jump(vof.vf_old, vof.curv, fs);
       for (Index i = 0; i < NX + 1; ++i) {
         for (Index j = 0; j < NY; ++j) {
           delta_pj_u_stag[i, j] = fs.p_jump_u_stag[i, j] - delta_pj_u_stag[i, j];
@@ -384,7 +378,7 @@ auto main() -> int {
     div_max = max(div);
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     // p_max = max(fs.p);
-    calc_vof_stats(fs, vof, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
+    calc_vof_stats(fs, vof.vf, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
@@ -392,7 +386,7 @@ auto main() -> int {
     monitor.write();
   }
 
-  const auto [cx, cy]    = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof);
+  const auto [cx, cy]    = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
   const auto cx_expected = CX + T_END * U_DROP;
   const auto cy_expected = CY;
 

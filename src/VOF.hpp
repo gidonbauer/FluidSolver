@@ -11,6 +11,16 @@
 #include "IR.hpp"
 #include "Operators.hpp"
 
+template <typename Float, Index NX, Index NY>
+struct VOF {
+  InterfaceReconstruction<NX, NY> ir{};
+
+  Matrix<Float, NX, NY> vf_old{};
+  Matrix<Float, NX, NY> vf{};
+
+  Matrix<Float, NX, NY> curv{};
+};
+
 static constexpr std::array CUBOID_OFFSETS{
     std::array<Index, 3>{1, 0, 0},  // 0
     std::array<Index, 3>{1, 1, 0},  // 1
@@ -126,30 +136,30 @@ void localize_cells(const Vector<Float, NX + 1>& x,
 template <typename Float, Index NX, Index NY>
 void reconstruct_interface(const Vector<Float, NX + 1>& x,
                            const Vector<Float, NY + 1>& y,
-                           const Matrix<Float, NX, NY>& vof,
+                           const Matrix<Float, NX, NY>& vf,
                            InterfaceReconstruction<NX, NY>& ir) {
   constexpr IRL::UnsignedIndex_t NEIGHBORHOOD_SIZE = 9;
 
   // Reset ir.interface
   std::fill_n(ir.interface.get_data(), ir.interface.size(), IRL::PlanarSeparator{});
 
-  for (Index i = 1; i < vof.extent(0) - 1; ++i) {
-    for (Index j = 1; j < vof.extent(1) - 1; ++j) {
+  for (Index i = 1; i < vf.extent(0) - 1; ++i) {
+    for (Index j = 1; j < vf.extent(1) - 1; ++j) {
       // Calculate the interface; skip if does not contain an interface
-      if (!has_interface(vof, i, j)) { continue; }
+      if (!has_interface(vf, i, j)) { continue; }
 
       IRL::ELVIRANeighborhood neighborhood{};
       neighborhood.resize(NEIGHBORHOOD_SIZE);
       std::array<IRL::RectangularCuboid, NEIGHBORHOOD_SIZE> cells{};
-      std::array<Float, NEIGHBORHOOD_SIZE> cells_vof{};
+      std::array<Float, NEIGHBORHOOD_SIZE> cells_vf{};
 
       size_t counter = 0;
       for (Index di = -1; di <= 1; ++di) {
         for (Index dj = -1; dj <= 1; ++dj) {
           cells[counter] = IRL::RectangularCuboid::fromBoundingPts(
               IRL::Pt{x[i + di], y[j + dj], -0.5}, IRL::Pt{x[i + di + 1], y[j + dj + 1], 0.5});
-          cells_vof[counter] = vof[i + di, j + dj];
-          neighborhood.setMember(&cells[counter], &cells_vof[counter], di, dj);
+          cells_vf[counter] = vf[i + di, j + dj];
+          neighborhood.setMember(&cells[counter], &cells_vf[counter], di, dj);
           counter += 1;
         }
       }
@@ -166,12 +176,10 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
 void advect_cells(const FS<Float, NX, NY>& fs,
-                  const Matrix<Float, NX, NY>& vof_old,
                   [[maybe_unused]] const Matrix<Float, NX, NY>& Ui,
                   [[maybe_unused]] const Matrix<Float, NX, NY>& Vi,
                   Float dt,
-                  const InterfaceReconstruction<NX, NY>& ir,
-                  Matrix<Float, NX, NY>& vof,
+                  VOF<Float, NX, NY>& vof,
                   Float* max_volume_error = nullptr) {
   constexpr Index NEIGHBORHOOD_OFFSET = 1;
 
@@ -181,19 +189,19 @@ void advect_cells(const FS<Float, NX, NY>& fs,
     for (Index j = 0; j < NY; ++j) {
       // Early exit of loop iteration if we are entirely inside or outside of liquid phase
       {
-        Float neighborhood_vof_sum = 0.0;
+        Float neighborhood_vf_sum = 0.0;
         for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
              ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
              ++ii) {
           for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
                jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
                ++jj) {
-            neighborhood_vof_sum += vof_old[ii, jj];
+            neighborhood_vf_sum += vof.vf_old[ii, jj];
           }
         }
-        if (neighborhood_vof_sum < VOF_LOW) { continue; }
-        if (neighborhood_vof_sum >= Igor::sqr(2.0 * NEIGHBORHOOD_OFFSET + 1.0) * VOF_HIGH) {
-          vof[i, j] = 1.0;
+        if (neighborhood_vf_sum < VOF_LOW) { continue; }
+        if (neighborhood_vf_sum >= Igor::sqr(2.0 * NEIGHBORHOOD_OFFSET + 1.0) * VOF_HIGH) {
+          vof.vf[i, j] = 1.0;
           continue;
         }
       }
@@ -286,15 +294,15 @@ void advect_cells(const FS<Float, NX, NY>& fs,
         for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
              jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
              ++jj) {
-          if (vof_old[ii, jj] > VOF_LOW) {
+          if (vof.vf_old[ii, jj] > VOF_LOW) {
             overlap_vol += IRL::getVolumeMoments<IRL::Volume, IRL::RecursiveSimplexCutting>(
                 advected_cell,
-                IRL::LocalizedSeparator(&ir.cell_localizer[ii, jj], &ir.interface[ii, jj]));
+                IRL::LocalizedSeparator(&vof.ir.cell_localizer[ii, jj], &vof.ir.interface[ii, jj]));
           }
         }
       }
 
-      vof[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
+      vof.vf[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
     }
   }
 

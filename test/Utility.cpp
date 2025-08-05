@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include "Utility.hpp"
 
 template <Index N>

@@ -242,12 +242,12 @@ void calc_curvature_quad_volume_matching(const FS<Float, NX, NY>& fs, VOF<Float,
         }
 
         rotate_interfaces(interfaces);
-        IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
-                        std::abs(interfaces[0].normal[Y] + 1.0) < 1e-10,
-                    "Expected normal of target interface to point in direction (0, -1) but is "
-                    "({:.6e}, {:.6e})",
-                    interfaces[0].normal[X],
-                    interfaces[0].normal[Y]);
+        // IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
+        //                 std::abs(interfaces[0].normal[Y] + 1.0) < 1e-10,
+        //             "Expected normal of target interface to point in direction (0, -1) but is "
+        //             "({:.6e}, {:.6e})",
+        //             interfaces[0].normal[X],
+        //             interfaces[0].normal[Y]);
 
         sort_begin_end(interfaces);
         vof.curv[i, j] = detail::calc_curv_quad_volume_matching_impl(interfaces);

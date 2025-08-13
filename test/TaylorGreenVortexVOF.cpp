@@ -187,7 +187,7 @@ auto main() -> int {
           quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
     }
   }
-  reconstruct_interface(fs.x, fs.y, vof.vf, vof.ir);
+  reconstruct_interface(fs, vof.vf, vof.ir);
 
   set_velocity(fs.x, fs.y, fs.xm, fs.ym, 0.0, fs.curr.U, fs.curr.V);
   interpolate_U(fs.curr.U, Ui);
@@ -238,7 +238,7 @@ auto main() -> int {
     std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
 
     // = Reconstruct the interface =================================================================
-    reconstruct_interface(fs.x, fs.y, vof.vf, vof.ir);
+    reconstruct_interface(fs, vof.vf, vof.ir);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, counter),
                           fs.x,

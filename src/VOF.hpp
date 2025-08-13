@@ -134,8 +134,7 @@ void localize_cells(const Vector<Float, NX + 1>& x,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
-void reconstruct_interface(const Vector<Float, NX + 1>& x,
-                           const Vector<Float, NY + 1>& y,
+void reconstruct_interface(const FS<Float, NX, NY>& fs,
                            const Matrix<Float, NX, NY>& vf,
                            InterfaceReconstruction<NX, NY>& ir) {
   constexpr IRL::UnsignedIndex_t NEIGHBORHOOD_SIZE = 9;
@@ -143,8 +142,8 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
   // Reset ir.interface
   std::fill_n(ir.interface.get_data(), ir.interface.size(), IRL::PlanarSeparator{});
 
-  for (Index i = 1; i < vf.extent(0) - 1; ++i) {
-    for (Index j = 1; j < vf.extent(1) - 1; ++j) {
+  for (Index i = 0; i < vf.extent(0); ++i) {
+    for (Index j = 0; j < vf.extent(1); ++j) {
       // Calculate the interface; skip if does not contain an interface
       if (!has_interface(vf, i, j)) { continue; }
 
@@ -156,9 +155,18 @@ void reconstruct_interface(const Vector<Float, NX + 1>& x,
       size_t counter = 0;
       for (Index di = -1; di <= 1; ++di) {
         for (Index dj = -1; dj <= 1; ++dj) {
-          cells[counter] = IRL::RectangularCuboid::fromBoundingPts(
-              IRL::Pt{x[i + di], y[j + dj], -0.5}, IRL::Pt{x[i + di + 1], y[j + dj + 1], 0.5});
-          cells_vf[counter] = vf[i + di, j + dj];
+          const Float x_lo = fs.xm[i] + (di - 0.5) * fs.dx;
+          const Float x_hi = fs.xm[i] + (di + 0.5) * fs.dx;
+          const Float y_lo = fs.ym[j] + (dj - 0.5) * fs.dy;
+          const Float y_hi = fs.ym[j] + (dj + 0.5) * fs.dy;
+          const Float z_lo = -0.5;
+          const Float z_hi = 0.5;
+
+          cells[counter]   = IRL::RectangularCuboid::fromBoundingPts(IRL::Pt{x_lo, y_lo, z_lo},
+                                                                   IRL::Pt{x_hi, y_hi, z_hi});
+          // TODO: Assume that vf is always zero outside of the domain, i.e. Dirichlet Boundary
+          //       conditions
+          cells_vf[counter] = vf.is_valid_index(i + di, j + dj) ? vf[i + di, j + dj] : 0.0;
           neighborhood.setMember(&cells[counter], &cells_vf[counter], di, dj);
           counter += 1;
         }
@@ -310,19 +318,19 @@ void advect_cells(const FS<Float, NX, NY>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-[[nodiscard]] constexpr auto get_interface_length(Index i,
-                                                  Index j,
-                                                  const Vector<Float, NX + 1>& x,
-                                                  const Vector<Float, NY + 1>& y,
-                                                  const IRL::Plane& plane) noexcept -> Float {
-  const auto [p1, p2] = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
-  IGOR_ASSERT(
-      std::abs(p1[2]) < 1e-12, "Expected z-component of p1 to be zero but is {:.6e}", p1[2]);
-  IGOR_ASSERT(
-      std::abs(p2[2]) < 1e-12, "Expected z-component of p2 to be zero but is {:.6e}", p2[2]);
-  return std::sqrt(Igor::sqr(p1[0] - p2[0]) + Igor::sqr(p1[1] - p2[1]));
-}
+// template <typename Float, Index NX, Index NY>
+// [[nodiscard]] constexpr auto get_interface_length(Index i,
+//                                                   Index j,
+//                                                   const Vector<Float, NX + 1>& x,
+//                                                   const Vector<Float, NY + 1>& y,
+//                                                   const IRL::Plane& plane) noexcept -> Float {
+//   const auto [p1, p2] = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
+//   IGOR_ASSERT(
+//       std::abs(p1[2]) < 1e-12, "Expected z-component of p1 to be zero but is {:.6e}", p1[2]);
+//   IGOR_ASSERT(
+//       std::abs(p2[2]) < 1e-12, "Expected z-component of p2 to be zero but is {:.6e}", p2[2]);
+//   return std::sqrt(Igor::sqr(p1[0] - p2[0]) + Igor::sqr(p1[1] - p2[1]));
+// }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY>
@@ -388,7 +396,6 @@ auto save_interface(const std::string& filename,
                     const Vector<Float, NY + 1>& y,
                     const Matrix<IRL::PlanarSeparator, NX, NY>& interface) -> bool {
   // - Find intersection points of planar separator and grid =======================================
-  // TODO: Implement a proper algorithm for this and handle the edge cases
   static std::vector<IRL::Pt> points{};
   points.resize(0);
 

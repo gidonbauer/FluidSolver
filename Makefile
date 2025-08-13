@@ -12,7 +12,7 @@ HEADERS = src/Container.hpp          \
           src/Utility.hpp            \
           src/Curvature.hpp
 
-TARGETS = IncompSolver VOF Curvature TwoPhaseSolver IB
+TARGETS = IncompSolver VOF Curvature TwoPhaseSolver IB PhaseChange
 
 include Makefiles/compiler_flags.mk
 include Makefiles/libs.mk

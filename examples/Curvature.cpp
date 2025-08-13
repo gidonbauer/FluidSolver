@@ -70,7 +70,7 @@ void test_curvature(CURV_FUNC calc_curv,
     }
   }
   std::fill_n(vof.ir.interface.get_data(), vof.ir.interface.size(), IRL::PlanarSeparator{});
-  reconstruct_interface(fs.x, fs.y, vof.vf, vof.ir);
+  reconstruct_interface(fs, vof.vf, vof.ir);
 
   if (invert_phases) {
     const auto domain_area = (X_MAX - X_MIN) * (Y_MAX - Y_MIN);

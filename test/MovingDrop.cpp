@@ -199,7 +199,7 @@ auto main() -> int {
   }
   const Float init_vof_integral = integrate(fs.dx, fs.dy, vof.vf);
   localize_cells(fs.x, fs.y, vof.ir);
-  reconstruct_interface(fs.x, fs.y, vof.vf, vof.ir);
+  reconstruct_interface(fs, vof.vf, vof.ir);
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
@@ -241,7 +241,7 @@ auto main() -> int {
     std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
 
     // = Update VOF field ==========================================================================
-    reconstruct_interface(fs.x, fs.y, vof.vf_old, vof.ir);
+    reconstruct_interface(fs, vof.vf_old, vof.ir);
     // TODO: Calculate viscosity from new VOF field
     calc_rho_and_visc(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);

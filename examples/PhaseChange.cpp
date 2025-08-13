@@ -31,27 +31,22 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 10.0;
+constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-2;
-constexpr Float CFL_MAX         = 0.9;
+constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 5e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-3;
+constexpr Float VISC_G          = 1e-0;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
-constexpr Float CX              = 1.0;
-constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.1;
-constexpr auto vof0             = [](Float x, Float y) {
-  return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
-};
+constexpr auto vof0             = [](Float x, Float _) { return static_cast<Float>(x > 1.0); };
 
-constexpr Float WEBER_NUMBER    = RHO_L * Igor::sqr(U_BCOND) * 2.0 * R0 / SURFACE_TENSION;
+constexpr Float WEBER_NUMBER = RHO_L * Igor::sqr(U_BCOND) * 2.0 * (Y_MAX - Y_MIN) / SURFACE_TENSION;
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -66,7 +61,7 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
-constexpr auto OUTPUT_DIR = "output/TwoPhaseSolver/";
+constexpr auto OUTPUT_DIR = "output/PhaseChange/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------

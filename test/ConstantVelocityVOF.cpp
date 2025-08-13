@@ -183,7 +183,7 @@ auto main() -> int {
     std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
 
     // = Reconstruct the interface =================================================================
-    reconstruct_interface(fs.x, fs.y, vof.vf_old, vof.ir);
+    reconstruct_interface(fs, vof.vf_old, vof.ir);
     if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, iter),
                         fs.x,
                         fs.y,

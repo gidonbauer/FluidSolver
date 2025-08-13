@@ -25,3 +25,10 @@ ifdef EIGEN_DIR
 else
   ${error "Need to define the path to Eigen linear algebra library in `EIGEN_DIR`."}
 endif
+
+ifdef HDF_DIR
+  HDF5_INC = -I${HDF_DIR}/include
+  HDF5_LIB = -L${HDF_DIR}/lib -lhdf5_hl_cpp -lhdf5_hl -lhdf5
+else
+  HDF5_INC = -DFS_DISABLE_HDF
+endif

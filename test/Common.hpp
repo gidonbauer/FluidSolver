@@ -8,7 +8,7 @@
 // - Simpson's rule to integrate a function in 1D --------------------------------------------------
 template <typename Float, Index N>
 [[nodiscard]] constexpr auto
-simpsons_rule_1d(const Vector<Float, N>& f, Float x_min, Float x_max) noexcept -> Float {
+simpsons_rule_1d(const Vector<Float, N, 0>& f, Float x_min, Float x_max) noexcept -> Float {
   static_assert(N > 0 && N % 2 == 1, "n must be an odd number larger than zero");
   Float res = 0;
   for (Index i = 1; i <= (N - 1) / 2; ++i) {

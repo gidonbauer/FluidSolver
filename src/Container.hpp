@@ -86,6 +86,8 @@ class Vector {
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index { return ARRAY_SIZE; }
 
+  [[nodiscard]] constexpr auto n_ghost() const noexcept -> Index { return NGHOST; }
+
   [[nodiscard]] constexpr auto extent([[maybe_unused]] Index r) const noexcept -> Index {
     IGOR_ASSERT(r >= 0 && r < 1, "Dimension {} is out of bounds for Vector", r);
     return N;
@@ -189,6 +191,7 @@ class Matrix {
   }
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index { return ARRAY_SIZE; }
+  [[nodiscard]] constexpr auto n_ghost() const noexcept -> Index { return NGHOST; }
 
   [[nodiscard]] constexpr auto extent(Index r) const noexcept -> Index {
     IGOR_ASSERT(r >= 0 && r < 2, "Dimension {} is out of bounds for Vector", r);
@@ -234,6 +237,14 @@ template <typename CT>
   return std::reduce(c.get_data(), c.get_data() + c.size(), *c.get_data(), [](Float a, Float b) {
     return std::min(a, b);
   });
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename CT, typename Float>
+constexpr void fill(CT& c, Float value) noexcept {
+  static_assert(std::is_same_v<Float, std::remove_cvref_t<decltype(*c.get_data())>>,
+                "Incompatible type of value and Contained");
+  std::fill_n(c.get_data(), c.size(), value);
 }
 
 #endif  // FLUID_SOLVER_CONTAINER_HPP_

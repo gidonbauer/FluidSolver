@@ -8,7 +8,7 @@
 
 #include "FS.hpp"
 
-template <typename Float, Index NX, Index NY>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 class PS {
   static_assert(std::is_same_v<Float, double>, "HYPRE requires Float=double");
 
@@ -29,7 +29,7 @@ class PS {
   bool m_is_setup = false;
 
  public:
-  constexpr PS(const FS<Float, NX, NY>& fs, Float tol, HYPRE_Int max_iter) noexcept
+  constexpr PS(const FS<Float, NX, NY, NGHOST>& fs, Float tol, HYPRE_Int max_iter) noexcept
       : m_tol(tol),
         m_max_iter(max_iter) {
     HYPRE_Initialize();
@@ -64,14 +64,14 @@ class PS {
 
  public:
   // -----------------------------------------------------------------------------------------------
-  void setup(const FS<Float, NX, NY>& fs) noexcept {
+  void setup(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
     if (m_is_setup) { destroy(); }
 
     // = Create structured grid ====================================================================
     {
       HYPRE_StructGridCreate(COMM, NDIMS, &m_grid);
-      std::array<HYPRE_Int, 2> ilower = {0, 0};
-      std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
+      std::array<HYPRE_Int, 2> ilower = {-NGHOST, -NGHOST};
+      std::array<HYPRE_Int, 2> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
       HYPRE_StructGridSetExtents(m_grid, ilower.data(), iupper.data());
       HYPRE_StructGridAssemble(m_grid);
     }
@@ -132,25 +132,25 @@ class PS {
 
  private:
   // -----------------------------------------------------------------------------------------------
-  void setup_system_matrix(const FS<Float, NX, NY>& fs) noexcept {
-    static Matrix<std::array<Float, STENCIL_SIZE>, NX, NY, Layout::F> stencil_values{};
+  void setup_system_matrix(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
+    static Matrix<std::array<Float, STENCIL_SIZE>, NX, NY, NGHOST, Layout::F> stencil_values{};
     enum : size_t { S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP };
     std::array<HYPRE_Int, STENCIL_SIZE> stencil_indices{S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP};
 
     const Float vol = fs.dx * fs.dy;
 
-    for (Index i = 0; i < NX; ++i) {
-      for (Index j = 0; j < NY; ++j) {
+    for (Index i = -NGHOST; i < NX + NGHOST; ++i) {
+      for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
         std::array<Float, STENCIL_SIZE>& s = stencil_values[i, j];
         std::fill(s.begin(), s.end(), 0.0);
 
         // = x-components ==========================================================================
-        if (i == 0) {
+        if (i == -NGHOST) {
           // On left
           s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
           s[S_LEFT]   += 0.0;
           s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
-        } else if (i == NX - 1) {
+        } else if (i == NX + NGHOST - 1) {
           // On right
           s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
           s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
@@ -164,12 +164,12 @@ class PS {
         }
 
         // = y-components ==========================================================================
-        if (j == 0) {
+        if (j == -NGHOST) {
           // On bottom
           s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
           s[S_BOTTOM] += 0.0;
           s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
-        } else if (j == NY - 1) {
+        } else if (j == NY + NGHOST - 1) {
           // On top
           s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
           s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
@@ -184,9 +184,9 @@ class PS {
       }
     }
 
-#if 1
-    for (Index i = 0; i < NX; ++i) {
-      for (Index j = 0; j < NY; ++j) {
+#if 0
+    for (Index i = -NGHOST; i < NX + NGHOST; ++i) {
+      for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
         std::array<HYPRE_Int, NDIMS> index{i, j};
         HYPRE_StructMatrixSetValues(m_matrix,
                                     index.data(),
@@ -196,8 +196,8 @@ class PS {
       }
     }
 #else
-    std::array<HYPRE_Int, NDIMS> ilower = {0, 0};
-    std::array<HYPRE_Int, NDIMS> iupper = {NX - 1, NY - 1};
+    std::array<HYPRE_Int, NDIMS> ilower = {-NGHOST, -NGHOST};
+    std::array<HYPRE_Int, NDIMS> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
     HYPRE_StructMatrixSetBoxValues(m_matrix,
                                    ilower.data(),
                                    iupper.data(),
@@ -209,10 +209,10 @@ class PS {
 
  public:
   // -------------------------------------------------------------------------------------------------
-  auto solve(const FS<Float, NX, NY>& fs,
-             const Matrix<Float, NX, NY>& div,
+  auto solve(const FS<Float, NX, NY, NGHOST>& fs,
+             const Matrix<Float, NX, NY, NGHOST>& div,
              Float dt,
-             Matrix<Float, NX, NY>& resP,
+             Matrix<Float, NX, NY, NGHOST>& resP,
              Float* pressure_residual = nullptr,
              Index* num_iter          = nullptr) -> bool {
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
@@ -222,25 +222,25 @@ class PS {
 
     const auto vol = fs.dx * fs.dy;
 
-    static Matrix<Float, NX, NY, Layout::F> rhs_values{};
+    static Matrix<Float, NX, NY, NGHOST, Layout::F> rhs_values{};
 
     // = Set initial guess to zero =================================================================
-    std::array<HYPRE_Int, 2> ilower = {0, 0};
-    std::array<HYPRE_Int, 2> iupper = {NX - 1, NY - 1};
+    std::array<HYPRE_Int, 2> ilower = {-NGHOST, -NGHOST};
+    std::array<HYPRE_Int, 2> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
     std::fill_n(rhs_values.get_data(), rhs_values.size(), 0.0);
     HYPRE_StructVectorSetBoxValues(m_sol, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Set right-hand side =======================================================================
     Float mean_rhs = 0.0;
-    for (Index i = 0; i < resP.extent(0); ++i) {
-      for (Index j = 0; j < resP.extent(1); ++j) {
+    for (Index i = -NGHOST; i < resP.extent(0) + NGHOST; ++i) {
+      for (Index j = -NGHOST; j < resP.extent(1) + NGHOST; ++j) {
         rhs_values[i, j]  = -vol * div[i, j] / dt;
         mean_rhs         += rhs_values[i, j];
       }
     }
     mean_rhs /= static_cast<Float>(rhs_values.size());
-    for (Index i = 0; i < resP.extent(0); ++i) {
-      for (Index j = 0; j < resP.extent(1); ++j) {
+    for (Index i = -NGHOST; i < resP.extent(0) + NGHOST; ++i) {
+      for (Index j = -NGHOST; j < resP.extent(1) + NGHOST; ++j) {
         rhs_values[i, j] -= mean_rhs;
       }
     }
@@ -253,8 +253,8 @@ class PS {
     HYPRE_StructGMRESGetFinalRelativeResidualNorm(m_solver, &final_residual);
     HYPRE_StructGMRESGetNumIterations(m_solver, &local_num_iter);
 
-    for (Index i = 0; i < resP.extent(0); ++i) {
-      for (Index j = 0; j < resP.extent(1); ++j) {
+    for (Index i = -NGHOST; i < resP.extent(0) + NGHOST; ++i) {
+      for (Index j = -NGHOST; j < resP.extent(1) + NGHOST; ++j) {
         std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
         HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP[i, j]);
       }

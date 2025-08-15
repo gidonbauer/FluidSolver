@@ -108,28 +108,16 @@ auto main() -> int {
   // = Setup grid and cell localizers ==============================================================
 
   // = Setup velocity and vof field ================================================================
-  for (Index i = 0; i < vof.vf.extent(0); ++i) {
-    for (Index j = 0; j < vof.vf.extent(1); ++j) {
-      auto is_in = [](Float x, Float y) -> Float {
-        return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
-      };
+  for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
+    auto is_in = [](Float x, Float y) -> Float {
+      return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
+    };
 
-      vof.vf[i, j] =
-          quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
-    }
-  }
+    vof.vf[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+  });
 
-  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      fs.curr.U[i, j] = U0;
-    }
-  }
-
-  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-      fs.curr.V[i, j] = V0;
-    }
-  }
+  fill(fs.curr.U, U0);
+  fill(fs.curr.V, V0);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);

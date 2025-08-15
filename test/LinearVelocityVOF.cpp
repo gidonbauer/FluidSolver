@@ -1,5 +1,4 @@
 #include <numeric>
-#include <optional>
 
 #include <Igor/Logging.hpp>
 #include <Igor/Math.hpp>
@@ -11,11 +10,14 @@
 #include "Operators.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
+#include "VTKWriter.hpp"
 
 // = Config ========================================================================================
 using Float               = double;
 constexpr Index NX        = 128;
 constexpr Index NY        = 128;
+constexpr Index NGHOST    = 1;
+
 constexpr Float X_MIN     = 0.0;
 constexpr Float X_MAX     = 1.0;
 constexpr Float Y_MIN     = 0.0;
@@ -23,7 +25,7 @@ constexpr Float Y_MAX     = 1.0;
 constexpr auto DX         = (X_MAX - X_MIN) / static_cast<Float>(NX);
 constexpr auto DY         = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-Float INIT_VOF_INT        = 0.0;  // NOLINT
+Float INIT_VF_INT         = 0.0;  // NOLINT
 
 constexpr Float DT        = 5e-3;
 constexpr Index NITER     = 120;
@@ -32,52 +34,11 @@ constexpr auto OUTPUT_DIR = "test/output/LinearVelocityVOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-auto save_vof_state(const std::string& filename,
-                    const Vector<Float, NX + 1>& x,
-                    const Vector<Float, NY + 1>& y,
-                    const Matrix<Float, NX, NY>& vof,
-                    const Matrix<Float, NX, NY>& Ui,
-                    const Matrix<Float, NX, NY>& Vi) -> bool {
-  std::ofstream out(filename);
-  if (!out) {
-    Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
-    return false;
-  }
+auto check_vof(const Matrix<Float, NX, NY, NGHOST>& vf) noexcept -> bool {
+  const auto [min, max] = std::minmax_element(vf.get_data(), vf.get_data() + vf.size());
+  const auto integral   = integrate<true>(DX, DY, vf);
 
-  // = Write VTK header ============================================================================
-  out << "# vtk DataFile Version 2.0\n";
-  out << "VOF field\n";
-  out << "BINARY\n";
-
-  // = Write grid ==================================================================================
-  out << "DATASET STRUCTURED_GRID\n";
-  out << "DIMENSIONS " << x.size() << ' ' << y.size() << " 1\n";
-  out << "POINTS " << x.size() * y.size() << " double\n";
-  for (Index j = 0; j < y.size(); ++j) {
-    for (Index i = 0; i < x.size(); ++i) {
-      constexpr double zk = 0.0;
-      out.write(detail::interpret_as_big_endian_bytes(x[i]).data(), sizeof(x[i]));
-      out.write(detail::interpret_as_big_endian_bytes(y[j]).data(), sizeof(y[j]));
-      out.write(detail::interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
-    }
-  }
-  out << "\n\n";
-
-  // = Write cell data =============================================================================
-  out << "CELL_DATA " << vof.size() << '\n';
-  detail::write_scalar_vtk(out, vof, "VOF");
-  detail::write_vector_vtk(out, Ui, Vi, "velocity");
-
-  return out.good();
-}
-
-// -------------------------------------------------------------------------------------------------
-auto check_vof(const Matrix<Float, NX, NY>& vof) noexcept -> bool {
-  const auto [min, max] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
-  const auto integral =
-      std::reduce(vof.get_data(), vof.get_data() + vof.size(), 0.0, std::plus<>{}) * DX * DY;
-
-  constexpr Float EPS = 1e-12;
+  constexpr Float EPS   = 1e-12;
   if (std::abs(*min) > EPS) {
     Igor::Warn("Expected minimum VOF value to be 0 but is {:.6e}", *min);
     return false;
@@ -88,11 +49,11 @@ auto check_vof(const Matrix<Float, NX, NY>& vof) noexcept -> bool {
     return false;
   }
 
-  if (std::abs(integral - INIT_VOF_INT) > EPS) {
+  if (std::abs(integral - INIT_VF_INT) > EPS) {
     Igor::Warn("Expected integral of vof to be {:.6e} but is {:.6e}: error = {:.6e}",
-               INIT_VOF_INT,
+               INIT_VF_INT,
                integral,
-               std::abs(integral - INIT_VOF_INT));
+               std::abs(integral - INIT_VF_INT));
     return false;
   }
 
@@ -105,13 +66,19 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{};
+  FS<Float, NX, NY, NGHOST> fs{};
 
-  Matrix<Float, NX, NY> Ui{};
-  Matrix<Float, NX, NY> Vi{};
+  Matrix<Float, NX, NY, NGHOST> Ui{};
+  Matrix<Float, NX, NY, NGHOST> Vi{};
 
-  VOF<Float, NX, NY> vof{};
+  VOF<Float, NX, NY, NGHOST> vof{};
   // = Allocate memory =============================================================================
+
+  // = Output ======================================================================================
+  VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  data_writer.add_scalar("VOF", &vof.vf);
+  data_writer.add_vector("velocity", &Ui, &Vi);
+  // = Output ======================================================================================
 
   // = Setup grid and cell localizers ==============================================================
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
@@ -121,36 +88,21 @@ auto main() -> int {
   // = Setup grid and cell localizers ==============================================================
 
   // = Setup velocity and vof field ================================================================
-  for (Index i = 0; i < vof.vf.extent(0); ++i) {
-    for (Index j = 0; j < vof.vf.extent(1); ++j) {
-      auto is_in = [](Float x, Float y) -> Float {
-        return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
-      };
+  for_each_a(vof.vf, [&](Index i, Index j) {
+    auto is_in = [](Float x, Float y) -> Float {
+      return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
+    };
 
-      vof.vf[i, j] =
-          quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
-    }
-  }
+    vof.vf[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+  });
 
-  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      fs.curr.U[i, j] = fs.ym[j];
-    }
-  }
-
-  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-      fs.curr.V[i, j] = fs.xm[i];
-    }
-  }
+  for_each_a(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = fs.ym[j]; });
+  for_each_a(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = fs.xm[i]; });
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
-  if (!save_vof_state(
-          Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, 0), fs.x, fs.y, vof.vf, Ui, Vi)) {
-    return 1;
-  }
-  INIT_VOF_INT = integrate(fs.dx, fs.dy, vof.vf);
+  if (!data_writer.write(0.0)) { return 1; }
+  INIT_VF_INT = integrate<true>(fs.dx, fs.dy, vof.vf);
   // = Setup velocity and vof field ================================================================
 
   Igor::ScopeTimer timer("LinearVelocityVOF");
@@ -173,14 +125,7 @@ auto main() -> int {
     // Don't save last state because we don't have a reconstruction for that and it messes with the
     // visualization
     if (iter < NITER - 1) {
-      if (!save_vof_state(Igor::detail::format("{}/vof_{:06d}.vtk", OUTPUT_DIR, iter + 1),
-                          fs.x,
-                          fs.y,
-                          vof.vf,
-                          Ui,
-                          Vi)) {
-        return 1;
-      }
+      if (!data_writer.write(iter + 1)) { return 1; }
     }
     if (max_volume_error > 5e-10) {
       Igor::Warn("Advected cells expanded: max. volume error = {:.6e}", max_volume_error);

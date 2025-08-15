@@ -264,6 +264,18 @@ auto main() -> int {
       });
       apply_neumann_bconds(fs.curr.rho_u_stag);
       apply_neumann_bconds(fs.curr.rho_v_stag);
+      if (std::any_of(fs.curr.rho_u_stag.get_data(),
+                      fs.curr.rho_u_stag.get_data() + fs.curr.rho_u_stag.size(),
+                      [](Float x) { return std::abs(x) < 1e-8; })) {
+        Igor::Warn("t={}, subiter={}: Zero in rho_u_stag", t, sub_iter);
+        return 1;
+      }
+      if (std::any_of(fs.curr.rho_v_stag.get_data(),
+                      fs.curr.rho_v_stag.get_data() + fs.curr.rho_v_stag.size(),
+                      [](Float x) { return std::abs(x) < 1e-8; })) {
+        Igor::Warn("t={}, subiter={}: Zero in rho_v_stag", t, sub_iter);
+        return 1;
+      }
       ps.setup(fs);
 
       // = Update flow field =======================================================================
@@ -282,6 +294,12 @@ auto main() -> int {
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // ===== Add capillary forces ================================================================
       calc_curvature_quad_regression(fs, vof);
+      if (std::any_of(vof.curv.get_data(), vof.curv.get_data() + vof.curv.size(), [](Float x) {
+            return std::isnan(x);
+          })) {
+        Igor::Warn("t={}, subiter={}: NaN value in curvature.", t, sub_iter);
+        return 1;
+      }
 
       // NOTE: Save old pressure jump in delta_pj_[uv]_stag
       std::copy_n(fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), delta_pj_u_stag.get_data());
@@ -309,13 +327,11 @@ auto main() -> int {
         Igor::Warn("Pressure correction failed at t={}.", t);
       }
       p_iter += local_p_iter;
-      {
-        if (std::isnan(p_res) || std::any_of(delta_p.get_data(),
-                                             delta_p.get_data() + delta_p.size(),
-                                             [](Float x) { return std::isnan(x); })) {
-          Igor::Warn("t={}, subiter={}: NaN value in pressure correction.", t, sub_iter);
-          return 1;
-        }
+      if (std::isnan(p_res) || std::any_of(delta_p.get_data(),
+                                           delta_p.get_data() + delta_p.size(),
+                                           [](Float x) { return std::isnan(x); })) {
+        Igor::Warn("t={}, subiter={}: NaN value in pressure correction.", t, sub_iter);
+        return 1;
       }
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);

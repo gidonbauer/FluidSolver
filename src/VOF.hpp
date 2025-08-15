@@ -316,7 +316,7 @@ void advect_cells(const FS<Float, NX, NY, NGHOST>& fs,
                   VOF<Float, NX, NY, NGHOST>& vof,
                   Float* max_volume_error = nullptr) {
   Float local_max_volume_error = 0.0;
-  for_each_i(vof.vf, [&](Index i, Index j) {
+  for_each_i<Exec::ParallelDynamic>(vof.vf, [&](Index i, Index j) {
     const auto local_volume_error = advect_single_cell(i, j, fs, Ui, Vi, dt, vof);
 #pragma omp critical
     { local_max_volume_error = std::max(local_max_volume_error, local_volume_error); }

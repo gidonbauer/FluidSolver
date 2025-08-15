@@ -13,7 +13,7 @@ constexpr Index FS_PARALLEL_THRESHOLD_COUNT = FS_PARALLEL_THRESHOLD;
 #endif  // FS_PARALLEL_THRESHOLD
 
 // -------------------------------------------------------------------------------------------------
-enum class Exec : uint8_t { Serial, Parallel };
+enum class Exec : uint8_t { Serial, Parallel, ParallelDynamic };
 
 // -------------------------------------------------------------------------------------------------
 template <typename FUNC>
@@ -33,6 +33,13 @@ FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
   } else if constexpr (EXEC == Exec::Parallel) {
 
 #pragma omp parallel for if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
+    for (Index i = I_MIN; i < I_MAX; ++i) {
+      f(i);
+    }
+
+  } else if constexpr (EXEC == Exec::ParallelDynamic) {
+
+#pragma omp parallel for schedule(dynamic) if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
     for (Index i = I_MIN; i < I_MAX; ++i) {
       f(i);
     }
@@ -85,6 +92,16 @@ FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
       }
     }
 
+  } else if constexpr (EXEC == Exec::ParallelDynamic && LAYOUT == Layout::C) {
+
+#pragma omp parallel for collapse(2)                                                               \
+    schedule(dynamic) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
+    for (Index i = I_MIN; i < I_MAX; ++i) {
+      for (Index j = J_MIN; j < J_MAX; ++j) {
+        f(i, j);
+      }
+    }
+
   } else if constexpr (EXEC == Exec::Serial && LAYOUT == Layout::F) {
 
     for (Index j = J_MIN; j < J_MAX; ++j) {
@@ -97,6 +114,16 @@ FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
 
 #pragma omp parallel for collapse(2) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) >                       \
                                              FS_PARALLEL_THRESHOLD_COUNT)
+    for (Index j = J_MIN; j < J_MAX; ++j) {
+      for (Index i = I_MIN; i < I_MAX; ++i) {
+        f(i, j);
+      }
+    }
+
+  } else if constexpr (EXEC == Exec::ParallelDynamic && LAYOUT == Layout::F) {
+
+#pragma omp parallel for collapse(2)                                                               \
+    schedule(dynamic) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
     for (Index j = J_MIN; j < J_MAX; ++j) {
       for (Index i = I_MIN; i < I_MAX; ++i) {
         f(i, j);

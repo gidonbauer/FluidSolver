@@ -6,24 +6,25 @@
 #include "Operators.hpp"
 #include "Quadrature.hpp"
 
-using Float           = double;
-constexpr Float X_MIN = 2.0;
-constexpr Float X_MAX = 4.0;
-constexpr Float Y_MIN = -1.0;
-constexpr Float Y_MAX = 3.0;
+using Float            = double;
+constexpr Float X_MIN  = 2.0;
+constexpr Float X_MAX  = 4.0;
+constexpr Float Y_MIN  = -1.0;
+constexpr Float Y_MAX  = 3.0;
 
-constexpr Index NX    = 200;
-constexpr Index NY    = 300;
+constexpr Index NX     = 200;
+constexpr Index NY     = 300;
+constexpr Index NGHOST = 1;
 
 // -------------------------------------------------------------------------------------------------
 auto test_eval_grid_at() noexcept -> bool {
   Igor::ScopeTimer timer("EvalGridAt");
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{};
+  FS<Float, NX, NY, NGHOST> fs{};
 
-  Matrix<Float, NX, NY> Ui{};
-  Matrix<Float, NX, NY> Vi{};
+  Matrix<Float, NX, NY, NGHOST> Ui{};
+  Matrix<Float, NX, NY, NGHOST> Vi{};
   // = Allocate memory =============================================================================
 
   // = Initialize grid =============================================================================
@@ -88,111 +89,120 @@ auto test_eval_grid_at() noexcept -> bool {
 auto test_gradient_centered_points() noexcept -> bool {
   Igor::ScopeTimer timer("GradientCenteredPoints");
 
-  FS<Float, NX, NY> fs{};
+  FS<Float, NX, NY, NGHOST + 4> fs{};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
-  Matrix<Float, NX, NY> f{};
-  Matrix<Float, NX, NY> dfdx{};
-  Matrix<Float, NX, NY> dfdy{};
-  Matrix<Float, NX, NY> dfdxx{};
-  Matrix<Float, NX, NY> dfdyy{};
-  Matrix<Float, NX, NY> dfdxy{};
-  Matrix<Float, NX, NY> dfdyx{};
+  Matrix<Float, NX, NY, NGHOST + 4> f{};
+  Matrix<Float, NX, NY, NGHOST + 4> dfdx{};
+  Matrix<Float, NX, NY, NGHOST + 4> dfdy{};
+  Matrix<Float, NX, NY, NGHOST + 4> dfdxx{};
+  Matrix<Float, NX, NY, NGHOST + 4> dfdyy{};
+  Matrix<Float, NX, NY, NGHOST + 4> dfdxy{};
+  Matrix<Float, NX, NY, NGHOST + 4> dfdyx{};
 
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      const Float x = fs.xm[i] - 0.5;
-      const Float y = fs.ym[j] - 0.5;
-      f[i, j]       = x * x + x * y + y * y;
-    }
-  }
+  for_each_a<Exec::Parallel>(f, [&](Index i, Index j) {
+    const Float x = fs.xm[i] - 0.5;
+    const Float y = fs.ym[j] - 0.5;
+    f[i, j]       = x * x + x * y + y * y;
+  });
 
   calc_grad_of_centered_points(f, fs.dx, fs.dy, dfdx, dfdy);
   calc_grad_of_centered_points(dfdx, fs.dx, fs.dy, dfdxx, dfdxy);
   calc_grad_of_centered_points(dfdy, fs.dx, fs.dy, dfdyx, dfdyy);
 
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      const Float x              = fs.xm[i] - 0.5;
-      const Float y              = fs.ym[j] - 0.5;
-      const Float dfdx_expected  = 2.0 * x + y;
-      const Float dfdy_expected  = x + 2.0 * y;
-      const Float dfdxx_expected = 2.0;
-      const Float dfdyy_expected = 2.0;
-      const Float dfdxy_expected = 1.0;
-      const Float dfdyx_expected = 1.0;
+  bool all_success = true;
+  for_each_a(f, [&](Index i, Index j) {
+    const Float x              = fs.xm[i] - 0.5;
+    const Float y              = fs.ym[j] - 0.5;
+    const Float dfdx_expected  = 2.0 * x + y;
+    const Float dfdy_expected  = x + 2.0 * y;
+    const Float dfdxx_expected = 2.0;
+    const Float dfdyy_expected = 2.0;
+    const Float dfdxy_expected = 1.0;
+    const Float dfdyx_expected = 1.0;
 
-      constexpr Float EPS        = 2e-10;
+    constexpr Float EPS        = 2e-10;
 
-      if (std::abs(dfdx[i, j] - dfdx_expected) > EPS) {
-        Igor::Warn(
-            "Incorrect derivative at ({}, {}), expected dfdx={:.6e} but is {:.6e}: error={:.6e}",
-            fs.xm[i],
-            fs.ym[j],
-            dfdx_expected,
-            dfdx[i, j],
-            std::abs(dfdx_expected - dfdx[i, j]));
-        return false;
-      }
-
-      if (std::abs(dfdy[i, j] - dfdy_expected) > EPS) {
-        Igor::Warn(
-            "Incorrect derivative at ({}, {}), expected dfdy={:.6e} but is {:.6e}: error={:.6e}",
-            fs.xm[i],
-            fs.ym[j],
-            dfdy_expected,
-            dfdy[i, j],
-            std::abs(dfdy_expected - dfdy[i, j]));
-        return false;
-      }
-
-      if (std::abs(dfdxx[i, j] - dfdxx_expected) > EPS) {
-        Igor::Warn(
-            "Incorrect derivative at ({}, {}), expected dfdxx={:.6e} but is {:.6e}: error={:.6e}",
-            fs.xm[i],
-            fs.ym[j],
-            dfdxx_expected,
-            dfdxx[i, j],
-            std::abs(dfdxx_expected - dfdxx[i, j]));
-        return false;
-      }
-
-      if (std::abs(dfdyy[i, j] - dfdyy_expected) > EPS) {
-        Igor::Warn(
-            "Incorrect derivative at ({}, {}), expected dfdyy={:.6e} but is {:.6e}: error={:.6e}",
-            fs.xm[i],
-            fs.ym[j],
-            dfdyy_expected,
-            dfdyy[i, j],
-            std::abs(dfdyy_expected - dfdyy[i, j]));
-        return false;
-      }
-
-      if (std::abs(dfdxy[i, j] - dfdxy_expected) > EPS) {
-        Igor::Warn(
-            "Incorrect derivative at ({}, {}), expected dfdxy={:.6e} but is {:.6e}: error={:.6e}",
-            fs.xm[i],
-            fs.ym[j],
-            dfdxy_expected,
-            dfdxy[i, j],
-            std::abs(dfdxy_expected - dfdxy[i, j]));
-        return false;
-      }
-
-      if (std::abs(dfdyx[i, j] - dfdyx_expected) > EPS) {
-        Igor::Warn(
-            "Incorrect derivative at ({}, {}), expected dfdyx={:.6e} but is {:.6e}: error={:.6e}",
-            fs.xm[i],
-            fs.ym[j],
-            dfdyx_expected,
-            dfdyx[i, j],
-            std::abs(dfdyx_expected - dfdyx[i, j]));
-        return false;
-      }
+    if (std::abs(dfdx[i, j] - dfdx_expected) > EPS) {
+      Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdx={:.6e} but is {:.6e}: "
+                 "error={:.6e}",
+                 i,
+                 j,
+                 fs.xm[i],
+                 fs.ym[j],
+                 dfdx_expected,
+                 dfdx[i, j],
+                 std::abs(dfdx_expected - dfdx[i, j]));
+      all_success = false;
     }
-  }
 
-  return true;
+    if (std::abs(dfdy[i, j] - dfdy_expected) > EPS) {
+      Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdy={:.6e} but is {:.6e}: "
+                 "error={:.6e}",
+                 i,
+                 j,
+                 fs.xm[i],
+                 fs.ym[j],
+                 dfdy_expected,
+                 dfdy[i, j],
+                 std::abs(dfdy_expected - dfdy[i, j]));
+      all_success = false;
+    }
+
+    if (std::abs(dfdxx[i, j] - dfdxx_expected) > EPS) {
+      Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdxx={:.6e} but is {:.6e}: "
+                 "error={:.6e}",
+                 i,
+                 j,
+                 fs.xm[i],
+                 fs.ym[j],
+                 dfdxx_expected,
+                 dfdxx[i, j],
+                 std::abs(dfdxx_expected - dfdxx[i, j]));
+      all_success = false;
+    }
+
+    if (std::abs(dfdyy[i, j] - dfdyy_expected) > EPS) {
+      Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdyy={:.6e} but is {:.6e}: "
+                 "error={:.6e}",
+                 i,
+                 j,
+                 fs.xm[i],
+                 fs.ym[j],
+                 dfdyy_expected,
+                 dfdyy[i, j],
+                 std::abs(dfdyy_expected - dfdyy[i, j]));
+      all_success = false;
+    }
+
+    if (std::abs(dfdxy[i, j] - dfdxy_expected) > EPS) {
+      Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdxy={:.6e} but is {:.6e}: "
+                 "error={:.6e}",
+                 i,
+                 j,
+                 fs.xm[i],
+                 fs.ym[j],
+                 dfdxy_expected,
+                 dfdxy[i, j],
+                 std::abs(dfdxy_expected - dfdxy[i, j]));
+      all_success = false;
+    }
+
+    if (std::abs(dfdyx[i, j] - dfdyx_expected) > EPS) {
+      Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdyx={:.6e} but is {:.6e}: "
+                 "error={:.6e}",
+                 i,
+                 j,
+                 fs.xm[i],
+                 fs.ym[j],
+                 dfdyx_expected,
+                 dfdyx[i, j],
+                 std::abs(dfdyx_expected - dfdyx[i, j]));
+      all_success = false;
+    }
+  });
+
+  return all_success;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -200,7 +210,7 @@ auto test_staggered_integral() -> bool {
   Igor::ScopeTimer timer("StaggeredIntegral");
   bool res = true;
 
-  FS<Float, NX, NY> fs{};
+  FS<Float, NX, NY, NGHOST> fs{};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
   auto rho  = [](Float x, Float y) { return 12.0 * x + x * y * y; };
@@ -274,13 +284,16 @@ auto main() -> int {
   bool test_success = true;
 
   test_success      = test_eval_grid_at();
-  success           = success && test_success;
+  if (!test_success) { Igor::Warn("EvalGridAt failed."); }
+  success      = success && test_success;
 
-  test_success      = test_gradient_centered_points();
-  success           = success && test_success;
+  test_success = test_gradient_centered_points();
+  if (!test_success) { Igor::Warn("GradientCenteredPoints failed."); }
+  success      = success && test_success;
 
-  test_success      = test_staggered_integral();
-  success           = success && test_success;
+  test_success = test_staggered_integral();
+  if (!test_success) { Igor::Warn("StaggeredIntegral failed."); }
+  success = success && test_success;
 
   return success ? 0 : 1;
 }

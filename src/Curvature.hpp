@@ -17,11 +17,11 @@
 namespace detail {
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void smooth_vf_field(const Vector<Float, NX>& xm,
-                     const Vector<Float, NY>& ym,
-                     const Matrix<Float, NX, NY>& vf,
-                     Matrix<Float, NX, NY>& vf_smooth) noexcept {
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void smooth_vf_field(const Vector<Float, NX, NGHOST>& xm,
+                     const Vector<Float, NY, NGHOST>& ym,
+                     const Matrix<Float, NX, NY, NGHOST>& vf,
+                     Matrix<Float, NX, NY, NGHOST>& vf_smooth) noexcept {
   // They used 4 in the paper but 16 seems to work better for me
   constexpr Index NUM_SMOOTHING_CELLS = 4;  // 16;
   const Float SMOOTHING_LENGTH = NUM_SMOOTHING_CELLS * std::max(xm[1] - xm[0], ym[1] - ym[0]);
@@ -64,10 +64,10 @@ struct Interface {
 };
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 auto extract_interface(Index i,
                        Index j,
-                       const FS<Float, NX, NY>& fs,
+                       const FS<Float, NX, NY, NGHOST>& fs,
                        const InterfaceReconstruction<NX, NY>& ir) -> Interface<Float> {
   IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
               "Expected exactly one plane but got {}",
@@ -219,108 +219,107 @@ void solve_linear_least_squares(
 // Reference: A Paraboloid Fitting Technique for  Calculating Curvature from Piecewise-Linear
 //            Interface Reconstructions on 3D  Unstructured Meshes by Z. Jibben, N. N. Carlson, and
 //            M. M. Francois
-template <typename Float, Index NX, Index NY>
-void calc_curvature_quad_volume_matching(const FS<Float, NX, NY>& fs, VOF<Float, NX, NY>& vof) {
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void calc_curvature_quad_volume_matching(const FS<Float, NX, NY, NGHOST>& fs,
+                                         VOF<Float, NX, NY, NGHOST>& vof) {
   using detail::Interface;
   using detail::STATIC_STORAGE_CAPACITY;
   using detail::X, detail::Y;
 
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (has_interface(vof.vf_old, i, j)) {
-        Igor::StaticVector<Interface<Float>, STATIC_STORAGE_CAPACITY> interfaces{};
-        // Target interface is the first one
-        interfaces.push_back(detail::extract_interface(i, j, fs, vof.ir));
-        for (Index di = -1; di <= 1; ++di) {
-          for (Index dj = -1; dj <= 1; ++dj) {
-            const bool check_here = (di != 0 || dj != 0);
-            if (check_here && vof.ir.interface.is_valid_index(i + di, j + dj) &&
-                has_interface(vof.vf_old, i + di, j + dj)) {
-              interfaces.push_back(detail::extract_interface(i + di, j + dj, fs, vof.ir));
-            }
+  for_each_i<Exec::Parallel>(vof.curv, [&](Index i, Index j) {
+    if (has_interface(vof.vf_old, i, j)) {
+      Igor::StaticVector<Interface<Float>, STATIC_STORAGE_CAPACITY> interfaces{};
+      // Target interface is the first one
+      interfaces.push_back(detail::extract_interface(i, j, fs, vof.ir));
+      for (Index di = -1; di <= 1; ++di) {
+        for (Index dj = -1; dj <= 1; ++dj) {
+          const bool check_here = (di != 0 || dj != 0);
+          if (check_here && vof.ir.interface.is_valid_index(i + di, j + dj) &&
+              has_interface(vof.vf_old, i + di, j + dj)) {
+            interfaces.push_back(detail::extract_interface(i + di, j + dj, fs, vof.ir));
           }
         }
-
-        rotate_interfaces(interfaces);
-        // IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
-        //                 std::abs(interfaces[0].normal[Y] + 1.0) < 1e-10,
-        //             "Expected normal of target interface to point in direction (0, -1) but is "
-        //             "({:.6e}, {:.6e})",
-        //             interfaces[0].normal[X],
-        //             interfaces[0].normal[Y]);
-
-        sort_begin_end(interfaces);
-        vof.curv[i, j] = detail::calc_curv_quad_volume_matching_impl(interfaces);
-      } else {
-        vof.curv[i, j] = 0.0;
       }
+
+      rotate_interfaces(interfaces);
+      // IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
+      //                 std::abs(interfaces[0].normal[Y] + 1.0) < 1e-10,
+      //             "Expected normal of target interface to point in direction (0, -1) but is "
+      //             "({:.6e}, {:.6e})",
+      //             interfaces[0].normal[X],
+      //             interfaces[0].normal[Y]);
+
+      sort_begin_end(interfaces);
+      vof.curv[i, j] = detail::calc_curv_quad_volume_matching_impl(interfaces);
+    } else {
+      vof.curv[i, j] = 0.0;
     }
-  }
+  });
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void calc_curvature_quad_regression(const FS<Float, NX, NY>& fs, VOF<Float, NX, NY>& vof) {
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void calc_curvature_quad_regression(const FS<Float, NX, NY, NGHOST>& fs,
+                                    VOF<Float, NX, NY, NGHOST>& vof) {
   using detail::Interface;
   using detail::STATIC_STORAGE_CAPACITY;
   using detail::X, detail::Y, detail::NDIMS;
 
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (has_interface(vof.vf_old, i, j)) {
-        Igor::StaticVector<Interface<Float>, STATIC_STORAGE_CAPACITY> interfaces{};
-        // Target interface is the first one
-        interfaces.push_back(detail::extract_interface(i, j, fs, vof.ir));
-        for (Index di = -1; di <= 1; ++di) {
-          for (Index dj = -1; dj <= 1; ++dj) {
-            const bool check_here = (di != 0 || dj != 0);
-            if (check_here && vof.ir.interface.is_valid_index(i + di, j + dj) &&
-                has_interface(vof.vf_old, i + di, j + dj)) {
-              interfaces.push_back(detail::extract_interface(i + di, j + dj, fs, vof.ir));
-            }
+  for_each_i<Exec::Parallel>(vof.curv, [&](Index i, Index j) {
+    if (has_interface(vof.vf_old, i, j)) {
+      Igor::StaticVector<Interface<Float>, STATIC_STORAGE_CAPACITY> interfaces{};
+      // Target interface is the first one
+      interfaces.push_back(detail::extract_interface(i, j, fs, vof.ir));
+      for (Index di = -1; di <= 1; ++di) {
+        for (Index dj = -1; dj <= 1; ++dj) {
+          const bool check_here = (di != 0 || dj != 0);
+          if (check_here && vof.ir.interface.is_valid_index(i + di, j + dj) &&
+              has_interface(vof.vf_old, i + di, j + dj)) {
+            interfaces.push_back(detail::extract_interface(i + di, j + dj, fs, vof.ir));
           }
         }
-
-        detail::rotate_interfaces(interfaces);
-        IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
-                        std::abs(interfaces[0].normal[Y] + 1.0) < 1e-10,
-                    "Expected normal of target interface to point in direction (0, -1) but is "
-                    "({:.6e}, {:.6e})",
-                    interfaces[0].normal[X],
-                    interfaces[0].normal[Y]);
-
-        Igor::StaticVector<std::array<Float, NDIMS>, 3UZ * STATIC_STORAGE_CAPACITY> points{};
-        for (const auto& [begin, end, _] : interfaces) {
-          points.push_back({
-              (begin[X] + end[X]) / 2.0,
-              (begin[Y] + end[Y]) / 2.0,
-          });
-        }
-        Vector<Float, 3> c{};
-        detail::solve_linear_least_squares(points, c);
-        vof.curv[i, j] = detail::calc_cuvature_of_quad_poly(points[0][X], c);
-      } else {
-        vof.curv[i, j] = 0.0;
       }
+
+      detail::rotate_interfaces(interfaces);
+      IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
+                      std::abs(interfaces[0].normal[Y] + 1.0) < 1e-10,
+                  "Expected normal of target interface to point in direction (0, -1) but is "
+                  "({:.6e}, {:.6e})",
+                  interfaces[0].normal[X],
+                  interfaces[0].normal[Y]);
+
+      Igor::StaticVector<std::array<Float, NDIMS>, 3UZ * STATIC_STORAGE_CAPACITY> points{};
+      for (const auto& [begin, end, _] : interfaces) {
+        points.push_back({
+            (begin[X] + end[X]) / 2.0,
+            (begin[Y] + end[Y]) / 2.0,
+        });
+      }
+      Vector<Float, 3> c{};
+      detail::solve_linear_least_squares(points, c);
+      vof.curv[i, j] = detail::calc_cuvature_of_quad_poly(points[0][X], c);
+    } else {
+      vof.curv[i, j] = 0.0;
     }
-  }
+  });
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void calc_curvature_convolved_vf(const FS<Float, NX, NY>& fs, VOF<Float, NX, NY>& vof) noexcept {
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void calc_curvature_convolved_vf(const FS<Float, NX, NY, NGHOST>& fs,
+                                 VOF<Float, NX, NY, NGHOST>& vof) noexcept {
   // Reference: Cummins, S. J., Francois, M. M., and Kothe, D. B. “Estimating curvature from volume
   // fractions”. Computers & Structures. Frontier of Multi-Phase Flow Analysis and
   // Fluid-StructureFrontier of MultiPhase Flow Analysis and Fluid-Structure 83.6 (2005), pp.
   // 425–434.
 
-  static Matrix<Float, NX, NY> dvfdx{};
-  static Matrix<Float, NX, NY> dvfdy{};
-  static Matrix<Float, NX, NY> dvfdxx{};
-  static Matrix<Float, NX, NY> dvfdyy{};
-  static Matrix<Float, NX, NY> dvfdxy{};
-  static Matrix<Float, NX, NY> vf_smooth{};
-  static Matrix<Float, NX, NY> curv_centered{};
+  static Matrix<Float, NX, NY, NGHOST> dvfdx{};
+  static Matrix<Float, NX, NY, NGHOST> dvfdy{};
+  static Matrix<Float, NX, NY, NGHOST> dvfdxx{};
+  static Matrix<Float, NX, NY, NGHOST> dvfdyy{};
+  static Matrix<Float, NX, NY, NGHOST> dvfdxy{};
+  static Matrix<Float, NX, NY, NGHOST> vf_smooth{};
+  static Matrix<Float, NX, NY, NGHOST> curv_centered{};
 
   detail::smooth_vf_field(fs.xm, fs.ym, vof.vf_old, vf_smooth);
 
@@ -328,44 +327,38 @@ void calc_curvature_convolved_vf(const FS<Float, NX, NY>& fs, VOF<Float, NX, NY>
   calc_grad_of_centered_points(dvfdx, fs.dx, fs.dy, dvfdxx, dvfdxy);
   calc_grad_of_centered_points(dvfdy, fs.dx, fs.dy, dvfdxy, dvfdyy);
 
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      const auto numer =
-          (dvfdxx[i, j] * Igor::sqr(dvfdy[i, j]) + dvfdyy[i, j] * Igor::sqr(dvfdx[i, j]) -
-           2.0 * dvfdx[i, j] * dvfdy[i, j] * dvfdxy[i, j]);
-      const auto denom    = std::pow(Igor::sqr(dvfdx[i, j]) + Igor::sqr(dvfdy[i, j]), 1.5);
-      curv_centered[i, j] = std::abs(denom) > 1e-8 ? -numer / denom : 0.0;
-    }
-  }
+  for_each_i<Exec::Parallel>(curv_centered, [&](Index i, Index j) {
+    const auto numer =
+        (dvfdxx[i, j] * Igor::sqr(dvfdy[i, j]) + dvfdyy[i, j] * Igor::sqr(dvfdx[i, j]) -
+         2.0 * dvfdx[i, j] * dvfdy[i, j] * dvfdxy[i, j]);
+    const auto denom    = std::pow(Igor::sqr(dvfdx[i, j]) + Igor::sqr(dvfdy[i, j]), 1.5);
+    curv_centered[i, j] = std::abs(denom) > 1e-8 ? -numer / denom : 0.0;
+  });
 
 #ifdef FS_CURV_NO_INTERPOLATION
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (has_interface(vof.vf_old, i, j)) {
-        vof.curv[i, j] = curv_centered[i, j];
-      } else {
-        vof.curv[i, j] = 0.0;
-      }
+  for_each_i<Exec::Parallel>(vof.curv, [&](Index i, Index j) {
+    if (has_interface(vof.vf_old, i, j)) {
+      vof.curv[i, j] = curv_centered[i, j];
+    } else {
+      vof.curv[i, j] = 0.0;
     }
-  }
+  });
 #else
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (has_interface(vof.vf_old, i, j)) {
-        const auto intersect =
-            get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, vof.ir.interface[i, j][0]);
-        const auto center = (intersect[0] + intersect[1]) / 2.0;
-        vof.curv[i, j]    = bilinear_interpolate(fs.xm, fs.ym, curv_centered, center[0], center[1]);
-      } else {
-        vof.curv[i, j] = 0.0;
-      }
+  for_each_i<Exec::Parallel>(vof.curv, [&](Index i, Index j) {
+    if (has_interface(vof.vf_old, i, j)) {
+      const auto intersect =
+          get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, vof.ir.interface[i, j][0]);
+      const auto center = (intersect[0] + intersect[1]) / 2.0;
+      vof.curv[i, j]    = bilinear_interpolate(fs.xm, fs.ym, curv_centered, center[0], center[1]);
+    } else {
+      vof.curv[i, j] = 0.0;
     }
-  }
+  });
 #endif
 }
 
 // -------------------------------------------------------------------------------------------------
-// template <typename Float, Index NX, Index NY>
+// template <typename Float, Index NX, Index NY, Index NGHOST>
 // void calc_surface_length(const FS<Float, NX, NY>& fs,
 //                          const InterfaceReconstruction<NX, NY>& ir,
 //                          Matrix<Float, NX, NY>& surface_length) noexcept {

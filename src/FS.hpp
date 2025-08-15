@@ -257,10 +257,11 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
+// TODO: Update this the save way calc_dmomdt was updated.
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
-                 Matrix<Float, NX + 1, NY>& drho_u_stagdt,
-                 Matrix<Float, NX, NY + 1>& drho_v_stagdt) {
+                 Matrix<Float, NX + 1, NY, NGHOST>& drho_u_stagdt,
+                 Matrix<Float, NX, NY + 1, NGHOST>& drho_v_stagdt) {
   static Matrix<Float, NX, NY> FX{};
   static Matrix<Float, NX, NY> FY{};
   std::fill_n(drho_u_stagdt.get_data(), drho_u_stagdt.size(), 0.0);
@@ -474,7 +475,7 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
         break;
       case BCond::NEUMANN:
         for (Index j = NY; j < NY + NGHOST; ++j) {
-          fs.curr.U[i, j] = fs.curr.U[i, NY + j];
+          fs.curr.U[i, j] = fs.curr.U[i, NY];
         }
         break;
       case BCond::PERIODIC:
@@ -568,22 +569,32 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
 }
 
 // -------------------------------------------------------------------------------------------------
-// template <typename Float, Index NX, Index NY, Index NGHOST>
-// constexpr void apply_neumann_bconds(Matrix<Float, NX, NY, NGHOST>& field) noexcept {
-//   for (Index j = 0; j < field.extent(1); ++j) {
-//     // LEFT
-//     field[0, j] = field[1, j];
-//     // RIGHT
-//     field[field.extent(0) - 1, j] = field[field.extent(0) - 2, j];
-//   }
-//
-//   for (Index i = 0; i < field.extent(0); ++i) {
-//     // BOTTOM
-//     field[i, 0] = field[i, 1];
-//     // TOP
-//     field[i, field.extent(1) - 1] = field[i, field.extent(1) - 2];
-//   }
-// }
+template <typename Float, Index NX, Index NY, Index NGHOST>
+constexpr void apply_neumann_bconds(Matrix<Float, NX, NY, NGHOST>& field) noexcept {
+  static_assert(NGHOST > 0, "Expected at least one ghost cell.");
+
+  for_each<-NGHOST, NY + NGHOST, Exec::Parallel>([&](Index j) {
+    // LEFT
+    for (Index i = -NGHOST; i < 0; ++i) {
+      field[i, j] = field[0, j];
+    }
+    // RIGHT
+    for (Index i = NX; i < NX + NGHOST; ++i) {
+      field[i, j] = field[NX - 1, j];
+    }
+  });
+
+  for_each<-NGHOST, NX + NGHOST, Exec::Parallel>([&](Index i) {
+    // BOTTOM
+    for (Index j = -NGHOST; j < 0; ++j) {
+      field[i, j] = field[i, 0];
+    }
+    // TOP
+    for (Index j = NY + 1; j < NY + NGHOST; ++j) {
+      field[i, j] = field[i, NY - 1];
+    }
+  });
+}
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>

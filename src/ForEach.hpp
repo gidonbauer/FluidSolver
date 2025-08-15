@@ -2,6 +2,7 @@
 #define FLUID_SOLVER_FOR_EACH_HPP_
 
 #include "Container.hpp"
+#include "Macros.hpp"
 
 #ifndef FS_PARALLEL_THRESHOLD
 constexpr Index FS_PARALLEL_THRESHOLD_COUNT = 1000;
@@ -24,14 +25,21 @@ concept ForEachFunc1D = requires(FUNC f) {
 template <Index I_MIN, Index I_MAX, Exec EXEC = Exec::Serial, ForEachFunc1D FUNC>
 FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
   if constexpr (EXEC == Exec::Serial) {
+
     for (Index i = I_MIN; i < I_MAX; ++i) {
       f(i);
     }
-  } else {
+
+  } else if constexpr (EXEC == Exec::Parallel) {
+
 #pragma omp parallel for if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
     for (Index i = I_MIN; i < I_MAX; ++i) {
       f(i);
     }
+
+  } else {
+    Igor::Panic("Unreachable: EXEC={}", static_cast<int>(EXEC));
+    std::unreachable();
   }
 }
 

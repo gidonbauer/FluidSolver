@@ -23,22 +23,23 @@ struct InterfaceReconstruction {
   Matrix<IRL::PlanarLocalizer, NX, NY> cell_localizer;
 };
 
-inline constexpr double VOF_LOW  = 1e-8;
-inline constexpr double VOF_HIGH = 1.0 - VOF_LOW;
+inline constexpr double VF_LOW  = 1e-8;
+inline constexpr double VF_HIGH = 1.0 - VF_LOW;
 
-template <typename Float, Index NX, Index NY>
-constexpr auto has_interface(const Matrix<Float, NX, NY>& vof, Index i, Index j) noexcept -> bool {
-  return VOF_LOW < vof[i, j] && vof[i, j] < VOF_HIGH;
+template <typename Float, Index NX, Index NY, Index NGHOST>
+constexpr auto has_interface(const Matrix<Float, NX, NY, NGHOST>& vf, Index i, Index j) noexcept
+    -> bool {
+  return VF_LOW < vf[i, j] && vf[i, j] < VF_HIGH;
 }
 
-template <typename Float, Index NX, Index NY>
-constexpr auto has_interface_in_neighborhood(const Matrix<Float, NX, NY>& vof,
+template <typename Float, Index NX, Index NY, Index NGHOST>
+constexpr auto has_interface_in_neighborhood(const Matrix<Float, NX, NY, NGHOST>& vf,
                                              Index i,
                                              Index j,
                                              Index neighborhood_size) noexcept -> bool {
   for (Index di = -neighborhood_size; di <= neighborhood_size; ++di) {
     for (Index dj = -neighborhood_size; dj <= neighborhood_size; ++dj) {
-      if (vof.is_valid_index(i + di, j + dj) && has_interface(vof, i + di, j + dj)) { return true; }
+      if (vf.is_valid_index(i + di, j + dj) && has_interface(vf, i + di, j + dj)) { return true; }
     }
   }
   return false;

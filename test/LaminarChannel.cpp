@@ -72,10 +72,10 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
                          Float& mass_error) {
   inflow  = 0;
   outflow = 0;
-  for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
+  for_each_a(fs.ym, [&](Index j) {
     inflow  += fs.curr.rho_u_stag[-NGHOST, j] * fs.curr.U[-NGHOST, j];
     outflow += fs.curr.rho_u_stag[NX + NGHOST, j] * fs.curr.U[NX + NGHOST, j];
-  }
+  });
   mass_error = outflow - inflow;
 }
 
@@ -146,8 +146,8 @@ auto main() -> int {
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
-  for_each_i(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_INIT; });
-  for_each_i(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_INIT; });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.curr.U, Ui);
@@ -183,12 +183,12 @@ auto main() -> int {
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for_each_i(fs.curr.U, [&](Index i, Index j) {
+      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
         if (std::isnan(drhoUdt[i, j])) { Igor::Panic("NaN value in drhoUdt[{}, {}]", i, j); }
         fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
                           fs.curr.rho_u_stag[i, j];
       });
-      for_each_i(fs.curr.V, [&](Index i, Index j) {
+      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
         if (std::isnan(drhoVdt[i, j])) { Igor::Panic("NaN value in drhoVdt[{}, {}]", i, j); }
         fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
                           fs.curr.rho_v_stag[i, j];
@@ -197,10 +197,10 @@ auto main() -> int {
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
-      for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
+      for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
         fs.curr.U[NX + NGHOST, j] -=
             mass_error / (fs.curr.rho_u_stag[NX + NGHOST, j] * static_cast<Float>(NY + 2 * NGHOST));
-      }
+      });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
@@ -221,13 +221,13 @@ auto main() -> int {
       }
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for_each_a(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
 
-      for_each_i(fs.curr.U, [&](Index i, Index j) {
+      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
         fs.curr.U[i, j] -=
             (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / fs.curr.rho_u_stag[i, j];
       });
-      for_each_i(fs.curr.V, [&](Index i, Index j) {
+      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
         fs.curr.V[i, j] -=
             (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / fs.curr.rho_v_stag[i, j];
       });

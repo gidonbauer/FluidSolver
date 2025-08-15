@@ -139,63 +139,49 @@ class PS {
 
     const Float vol = fs.dx * fs.dy;
 
-    for (Index i = -NGHOST; i < NX + NGHOST; ++i) {
-      for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
-        std::array<Float, STENCIL_SIZE>& s = stencil_values[i, j];
-        std::fill(s.begin(), s.end(), 0.0);
+    for_each_a<Exec::Parallel>(stencil_values, [&](Index i, Index j) {
+      std::array<Float, STENCIL_SIZE>& s = stencil_values[i, j];
+      std::fill(s.begin(), s.end(), 0.0);
 
-        // = x-components ==========================================================================
-        if (i == -NGHOST) {
-          // On left
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
-          s[S_LEFT]   += 0.0;
-          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
-        } else if (i == NX + NGHOST - 1) {
-          // On right
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
-          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
-          s[S_RIGHT]  += 0.0;
-        } else {
-          // In interior (x)
-          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]) +
-                                 -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]));
-          s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
-          s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
-        }
-
-        // = y-components ==========================================================================
-        if (j == -NGHOST) {
-          // On bottom
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
-          s[S_BOTTOM] += 0.0;
-          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
-        } else if (j == NY + NGHOST - 1) {
-          // On top
-          s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
-          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
-          s[S_TOP]    += 0.0;
-        } else {
-          // In interior (y)
-          s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]) +
-                                 -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]));
-          s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
-          s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
-        }
+      // = x-components ==========================================================================
+      if (i == -NGHOST) {
+        // On left
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
+        s[S_LEFT]   += 0.0;
+        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
+      } else if (i == NX + NGHOST - 1) {
+        // On right
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
+        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
+        s[S_RIGHT]  += 0.0;
+      } else {
+        // In interior (x)
+        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]) +
+                               -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]));
+        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
+        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
       }
-    }
 
-#if 0
-    for (Index i = -NGHOST; i < NX + NGHOST; ++i) {
-      for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
-        std::array<HYPRE_Int, NDIMS> index{i, j};
-        HYPRE_StructMatrixSetValues(m_matrix,
-                                    index.data(),
-                                    STENCIL_SIZE,
-                                    stencil_indices.data(),
-                                    stencil_values[i, j].data());
+      // = y-components ==========================================================================
+      if (j == -NGHOST) {
+        // On bottom
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
+        s[S_BOTTOM] += 0.0;
+        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
+      } else if (j == NY + NGHOST - 1) {
+        // On top
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
+        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
+        s[S_TOP]    += 0.0;
+      } else {
+        // In interior (y)
+        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]) +
+                               -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]));
+        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
+        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
       }
-    }
-#else
+    });
+
     std::array<HYPRE_Int, NDIMS> ilower = {-NGHOST, -NGHOST};
     std::array<HYPRE_Int, NDIMS> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
     HYPRE_StructMatrixSetBoxValues(m_matrix,
@@ -204,7 +190,6 @@ class PS {
                                    STENCIL_SIZE,
                                    stencil_indices.data(),
                                    stencil_values.get_data()->data());
-#endif
   }
 
  public:
@@ -232,18 +217,12 @@ class PS {
 
     // = Set right-hand side =======================================================================
     Float mean_rhs = 0.0;
-    for (Index i = -NGHOST; i < resP.extent(0) + NGHOST; ++i) {
-      for (Index j = -NGHOST; j < resP.extent(1) + NGHOST; ++j) {
-        rhs_values[i, j]  = -vol * div[i, j] / dt;
-        mean_rhs         += rhs_values[i, j];
-      }
-    }
+    for_each_a(rhs_values, [&](Index i, Index j) {
+      rhs_values[i, j]  = -vol * div[i, j] / dt;
+      mean_rhs         += rhs_values[i, j];
+    });
     mean_rhs /= static_cast<Float>(rhs_values.size());
-    for (Index i = -NGHOST; i < resP.extent(0) + NGHOST; ++i) {
-      for (Index j = -NGHOST; j < resP.extent(1) + NGHOST; ++j) {
-        rhs_values[i, j] -= mean_rhs;
-      }
-    }
+    for_each_a<Exec::Parallel>(rhs_values, [&](Index i, Index j) { rhs_values[i, j] -= mean_rhs; });
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Solve the system ==========================================================================
@@ -253,12 +232,10 @@ class PS {
     HYPRE_StructGMRESGetFinalRelativeResidualNorm(m_solver, &final_residual);
     HYPRE_StructGMRESGetNumIterations(m_solver, &local_num_iter);
 
-    for (Index i = -NGHOST; i < resP.extent(0) + NGHOST; ++i) {
-      for (Index j = -NGHOST; j < resP.extent(1) + NGHOST; ++j) {
-        std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
-        HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP[i, j]);
-      }
-    }
+    for_each_a<Exec::Parallel>(resP, [&](Index i, Index j) {
+      std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
+      HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP[i, j]);
+    });
 
     if (pressure_residual != nullptr) { *pressure_residual = final_residual; }
     if (num_iter != nullptr) { *num_iter = local_num_iter; }

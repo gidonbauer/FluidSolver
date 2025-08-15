@@ -94,18 +94,6 @@ constexpr void save_old_state(const State<Float, NX, NY, NGHOST>& curr,
 }
 
 // -------------------------------------------------------------------------------------------------
-// TODO: Clipped Neumann?
-enum class BCond : uint8_t { DIRICHLET, NEUMANN };
-enum : Index { LEFT, RIGHT, BOTTOM, TOP, NSIDES };
-
-template <typename Float>
-struct FlowBConds {
-  std::array<BCond, NSIDES> types;
-  std::array<Float, NSIDES> U;
-  std::array<Float, NSIDES> V;
-};
-
-// -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 auto adjust_dt(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max) -> Float {
   Float CFLc_x = 0.0;
@@ -402,6 +390,18 @@ void calc_pressure_jump(const Matrix<Float, NX, NY, NGHOST>& vf,
 }
 
 // -------------------------------------------------------------------------------------------------
+// TODO: Clipped Neumann?
+enum class BCond : uint8_t { DIRICHLET, NEUMANN, PERIODIC };
+enum : Index { LEFT, RIGHT, BOTTOM, TOP, NSIDES };
+
+template <typename Float>
+struct FlowBConds {
+  std::array<BCond, NSIDES> types;
+  std::array<Float, NSIDES> U;
+  std::array<Float, NSIDES> V;
+};
+
+// -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float>& bconds) {
   // = Boundary conditions for U-component of velocity =============================================
@@ -418,6 +418,11 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
           fs.curr.U[i, j] = fs.curr.U[0, j];
         }
         break;
+      case BCond::PERIODIC:
+        for (Index i = -NGHOST; i < 0; ++i) {
+          fs.curr.U[i, j] = fs.curr.U[NX + i, j];
+        }
+        break;
     }
 
     // RIGHT
@@ -430,6 +435,11 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::NEUMANN:
         for (Index i = NX + 1; i < NX + 1 + NGHOST; ++i) {
           fs.curr.U[i, j] = fs.curr.U[NX, j];
+        }
+        break;
+      case BCond::PERIODIC:
+        for (Index i = NX + 1; i < NX + 1 + NGHOST; ++i) {
+          fs.curr.U[i, j] = fs.curr.U[0 + i - NX, j];
         }
         break;
     }
@@ -448,6 +458,11 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
           fs.curr.U[i, j] = fs.curr.U[i, 0];
         }
         break;
+      case BCond::PERIODIC:
+        for (Index j = -NGHOST; j < 0; ++j) {
+          fs.curr.U[i, j] = fs.curr.U[i, NY - 1];
+        }
+        break;
     }
 
     // TOP
@@ -459,7 +474,12 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
         break;
       case BCond::NEUMANN:
         for (Index j = NY; j < NY + NGHOST; ++j) {
-          fs.curr.U[i, j] = fs.curr.U[i, NY - 1];
+          fs.curr.U[i, j] = fs.curr.U[i, NY + j];
+        }
+        break;
+      case BCond::PERIODIC:
+        for (Index j = NY; j < NY + NGHOST; ++j) {
+          fs.curr.U[i, j] = fs.curr.U[i, 0 + j - NY];
         }
         break;
     }
@@ -479,6 +499,11 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
           fs.curr.V[i, j] = fs.curr.V[0, j];
         }
         break;
+      case BCond::PERIODIC:
+        for (Index i = -NGHOST; i < 0; ++i) {
+          fs.curr.V[i, j] = fs.curr.V[NX + i, j];
+        }
+        break;
     }
 
     // RIGHT
@@ -491,6 +516,11 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::NEUMANN:
         for (Index i = NX; i < NX + NGHOST; ++i) {
           fs.curr.V[i, j] = fs.curr.V[NX - 1, j];
+        }
+        break;
+      case BCond::PERIODIC:
+        for (Index i = NX; i < NX + NGHOST; ++i) {
+          fs.curr.V[i, j] = fs.curr.V[0 + i - NX, j];
         }
         break;
     }
@@ -509,6 +539,11 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
           fs.curr.V[i, j] = fs.curr.V[i, 0];
         }
         break;
+      case BCond::PERIODIC:
+        for (Index j = -NGHOST; j < 0; ++j) {
+          fs.curr.V[i, j] = fs.curr.V[i, NY + j];
+        }
+        break;
     }
 
     // TOP
@@ -521,6 +556,11 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::NEUMANN:
         for (Index j = NY + 1; j < NY + 1 + NGHOST; ++j) {
           fs.curr.V[i, j] = fs.curr.V[i, NY];
+        }
+        break;
+      case BCond::PERIODIC:
+        for (Index j = NY + 1; j < NY + 1 + NGHOST; ++j) {
+          fs.curr.V[i, j] = fs.curr.V[i, 0 + j - NY];
         }
         break;
     }

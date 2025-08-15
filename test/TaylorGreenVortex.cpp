@@ -18,6 +18,7 @@ using Float                     = double;
 
 constexpr Index NX              = 128;
 constexpr Index NY              = 128;
+constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
 constexpr Float X_MAX           = 2.0 * std::numbers::pi_v<Float>;
@@ -38,6 +39,13 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 constexpr Index NUM_SUBITER     = 2;
 
 constexpr auto OUTPUT_DIR       = "test/output/TaylorGreenVortex/";
+
+constexpr FlowBConds<Float> bconds{
+    //        LEFT             RIGHT            BOTTOM           TOP
+    .types = {BCond::PERIODIC, BCond::PERIODIC, BCond::PERIODIC, BCond::PERIODIC},
+    .U     = {},
+    .V     = {},
+};
 // = Config ========================================================================================
 
 auto F(Float t) -> Float { return std::exp(-2.0 * VISC / RHO * t); }
@@ -50,17 +58,18 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
+  FS<Float, NX, NY, NGHOST> fs{
+      .visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
   calc_rho_and_visc(fs);
 
-  Matrix<Float, NX, NY> Ui{};
-  Matrix<Float, NX, NY> Vi{};
-  Matrix<Float, NX, NY> div{};
+  Matrix<Float, NX, NY, NGHOST> Ui{};
+  Matrix<Float, NX, NY, NGHOST> Vi{};
+  Matrix<Float, NX, NY, NGHOST> div{};
 
-  Matrix<Float, NX + 1, NY> drhoUdt{};
-  Matrix<Float, NX, NY + 1> drhoVdt{};
-  Matrix<Float, NX, NY> delta_p{};
+  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Matrix<Float, NX, NY, NGHOST> delta_p{};
 
   Float t       = 0.0;
   Float dt      = DT_MAX;
@@ -83,29 +92,20 @@ auto main() -> int {
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
-  VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
   vtk_writer.add_scalar("pressure", &fs.p);
   vtk_writer.add_scalar("divergence", &div);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
   // = Output ======================================================================================
 
-  PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   // = Initialize flow field =======================================================================
-  std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
-
-  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      fs.curr.U[i, j] = u_analytical(fs.x[i], fs.ym[j], 0.0);
-    }
-  }
-  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-      fs.curr.V[i, j] = v_analytical(fs.xm[i], fs.y[j], 0.0);
-    }
-  }
-
-  // apply_velocity_bconds(fs, bconds);
+  for_each_i<Exec::Parallel>(
+      fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = u_analytical(fs.x[i], fs.ym[j], 0.0); });
+  for_each_i<Exec::Parallel>(
+      fs.curr.U, [&](Index i, Index j) { fs.curr.V[i, j] = v_analytical(fs.xm[i], fs.y[j], 0.0); });
+  apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
@@ -133,57 +133,19 @@ auto main() -> int {
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-        for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-          fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                            fs.curr.rho_u_stag[i, j];
-        }
-      }
-      for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-        for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-          fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                            fs.curr.rho_v_stag[i, j];
-        }
-      }
+      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
+                          fs.curr.rho_u_stag[i, j];
+      });
+      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
+                          fs.curr.rho_v_stag[i, j];
+      });
 
       // Boundary conditions
-      // apply_velocity_bconds(fs, bconds);
-      // Use custom Dirichlet boundary conditions
-      {
-        for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-          // LEFT
-          fs.curr.U[0, j] = u_analytical(fs.x[0], fs.ym[j], t);
-          // RIGHT
-          fs.curr.U[fs.curr.U.extent(0) - 1, j] =
-              u_analytical(fs.x[fs.curr.U.extent(0) - 1], fs.ym[j], t);
-        }
-
-        for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-          // BOTTOM
-          fs.curr.U[i, 0] = u_analytical(fs.x[i], fs.ym[0], t);
-          // TOP
-          fs.curr.U[i, fs.curr.U.extent(1) - 1] =
-              u_analytical(fs.x[i], fs.ym[fs.curr.U.extent(1) - 1], t);
-        }
-
-        for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-          // LEFT
-          fs.curr.V[0, j] = v_analytical(fs.xm[0], fs.y[j], t);
-          // RIGHT
-          fs.curr.V[fs.curr.V.extent(0) - 1, j] =
-              v_analytical(fs.xm[fs.curr.V.extent(0) - 1], fs.y[j], t);
-        }
-
-        for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-          // BOTTOM
-          fs.curr.V[i, 0] = v_analytical(fs.xm[i], fs.y[0], t);
-          // TOP
-          fs.curr.V[i, fs.curr.V.extent(1) - 1] =
-              v_analytical(fs.xm[i], fs.y[fs.curr.V.extent(1) - 1], t);
-        }
-      }
-
+      apply_velocity_bconds(fs, bconds);
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+
       Index local_p_iter = 0;
       if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
@@ -192,22 +154,14 @@ auto main() -> int {
       p_iter += local_p_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for (Index i = 0; i < fs.p.extent(0); ++i) {
-        for (Index j = 0; j < fs.p.extent(1); ++j) {
-          fs.p[i, j] += delta_p[i, j];
-        }
-      }
+      for_each_a(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
 
-      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-          fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / RHO;
-        }
-      }
-      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-          fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / RHO;
-        }
-      }
+      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+        fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / RHO;
+      });
+      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+        fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / RHO;
+      });
     }
 
     t += dt;
@@ -235,6 +189,13 @@ auto main() -> int {
   const auto vol       = fs.dx * fs.dy;
 
   // Test U
+  if (std::any_of(fs.curr.U.get_data(), fs.curr.U.get_data() + fs.curr.U.size(), [](Float value) {
+        return std::isnan(value);
+      })) {
+    Igor::Warn("NaN value in U.");
+    any_test_failed = true;
+  }
+
   Float L1_error_U = 0.0;
   for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
     for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
@@ -242,11 +203,18 @@ auto main() -> int {
     }
   }
   if (L1_error_U > TOL) {
-    Igor::Warn("U profile is incorrect: L1 error = {}", L1_error_U);
+    Igor::Warn("U profile is incorrect: L1 error = {:.6e}", L1_error_U);
     any_test_failed = true;
   }
 
   // Test V
+  if (std::any_of(fs.curr.V.get_data(), fs.curr.V.get_data() + fs.curr.V.size(), [](Float value) {
+        return std::isnan(value);
+      })) {
+    Igor::Warn("NaN value in V.");
+    any_test_failed = true;
+  }
+
   Float L1_error_V = 0.0;
   for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
     for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
@@ -254,7 +222,7 @@ auto main() -> int {
     }
   }
   if (L1_error_V > TOL) {
-    Igor::Warn("V profile is incorrect: L1 error = {}", L1_error_V);
+    Igor::Warn("V profile is incorrect: L1 error = {:.6e}", L1_error_V);
     any_test_failed = true;
   }
 

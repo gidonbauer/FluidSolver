@@ -146,17 +146,8 @@ auto main() -> int {
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
-  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      fs.curr.U[i, j] = U_INIT;
-    }
-  }
-  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-      fs.curr.V[i, j] = 0.0;
-    }
-  }
-
+  for_each_i(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_INIT; });
+  for_each_i(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.curr.U, Ui);
@@ -192,26 +183,16 @@ auto main() -> int {
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-        for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-          if (std::isnan(drhoUdt[i, j])) {
-            Igor::Warn("NaN value in drhoUdt[{}, {}]", i, j);
-            return 1;
-          }
-          fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                            fs.curr.rho_u_stag[i, j];
-        }
-      }
-      for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-        for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-          if (std::isnan(drhoVdt[i, j])) {
-            Igor::Warn("NaN value in drhoVdt[{}, {}]", i, j);
-            return 1;
-          }
-          fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                            fs.curr.rho_v_stag[i, j];
-        }
-      }
+      for_each_i(fs.curr.U, [&](Index i, Index j) {
+        if (std::isnan(drhoUdt[i, j])) { Igor::Panic("NaN value in drhoUdt[{}, {}]", i, j); }
+        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
+                          fs.curr.rho_u_stag[i, j];
+      });
+      for_each_i(fs.curr.V, [&](Index i, Index j) {
+        if (std::isnan(drhoVdt[i, j])) { Igor::Panic("NaN value in drhoVdt[{}, {}]", i, j); }
+        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
+                          fs.curr.rho_v_stag[i, j];
+      });
 
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
@@ -240,24 +221,16 @@ auto main() -> int {
       }
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for (Index i = -NGHOST; i < fs.p.extent(0) + NGHOST; ++i) {
-        for (Index j = -NGHOST; j < fs.p.extent(1) + NGHOST; ++j) {
-          fs.p[i, j] += delta_p[i, j];
-        }
-      }
+      for_each_a(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
 
-      for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-        for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-          fs.curr.U[i, j] -=
-              (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / fs.curr.rho_u_stag[i, j];
-        }
-      }
-      for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-        for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-          fs.curr.V[i, j] -=
-              (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / fs.curr.rho_v_stag[i, j];
-        }
-      }
+      for_each_i(fs.curr.U, [&](Index i, Index j) {
+        fs.curr.U[i, j] -=
+            (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / fs.curr.rho_u_stag[i, j];
+      });
+      for_each_i(fs.curr.V, [&](Index i, Index j) {
+        fs.curr.V[i, j] -=
+            (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / fs.curr.rho_v_stag[i, j];
+      });
     }
     t += dt;
 
@@ -287,11 +260,6 @@ auto main() -> int {
     }
     monitor.write();
   }
-
-  Igor::Debug("U[{}, {}] = {:.6e}", NX / 2, -NGHOST, fs.curr.U[NX / 2, -NGHOST]);
-  Igor::Debug("U[{},  {}] = {:.6e}", NX / 2, 0, fs.curr.U[NX / 2, 0]);
-  Igor::Debug("U[{}, {}] = {:.6e}", NX / 2, NY - 1, fs.curr.U[NX / 2, NY - 1]);
-  Igor::Debug("U[{}, {}] = {:.6e}", NX / 2, NY, fs.curr.U[NX / 2, NY]);
 
   if (failed) {
     Igor::Warn("LaminarChannel failed.");
@@ -341,7 +309,7 @@ auto main() -> int {
     constexpr Float TOL = 2e-4;
     auto u_analytical   = [&](Float y, Float dpdx) -> Float {
       // NOTE: Adjustment due to the ghost cells, the dirichlet boundary condition is now enforced
-      // in the ghost cell
+      //       in the ghost cell
       return dpdx / (2 * VISC) * (y * y - y - (fs.dy / 2.0 + Igor::sqr(fs.dy / 2.0)));
       // return dpdx / (2 * VISC) * (y * y - y);
     };

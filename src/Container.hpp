@@ -247,4 +247,50 @@ constexpr void fill(CT& c, Float value) noexcept {
   std::fill_n(c.get_data(), c.size(), value);
 }
 
+// -------------------------------------------------------------------------------------------------
+enum class ExecutionPolicy : uint8_t { SERIAL, PARALLEL };
+
+template <typename FUNC>
+concept ForEachFunc = requires(FUNC f) {
+  { f(std::declval<Index>(), std::declval<Index>()) } -> std::same_as<void>;
+};
+
+template <ExecutionPolicy EXEC = ExecutionPolicy::SERIAL, ForEachFunc FUNC>
+inline void for_each(Index i_min, Index i_max, Index j_min, Index j_max, FUNC&& f) noexcept {
+  if constexpr (EXEC == ExecutionPolicy::SERIAL) {
+    for (Index i = i_min; i < i_max; ++i) {
+      for (Index j = j_min; j < j_max; ++j) {
+        f(i, j);
+      }
+    }
+  } else {
+#pragma omp parallel for collapse(2)
+    for (Index i = i_min; i < i_max; ++i) {
+      for (Index j = j_min; j < j_max; ++j) {
+        f(i, j);
+      }
+    }
+  }
+}
+
+template <ExecutionPolicy EXEC = ExecutionPolicy::SERIAL,
+          typename Float,
+          Index NX,
+          Index NY,
+          Index NGHOST,
+          ForEachFunc FUNC>
+inline void for_each_i(const Matrix<Float, NX, NY, NGHOST>& _, FUNC&& f) noexcept {
+  for_each<EXEC>(0, NX, 0, NY, std::forward<FUNC&&>(f));
+}
+
+template <ExecutionPolicy EXEC = ExecutionPolicy::SERIAL,
+          typename Float,
+          Index NX,
+          Index NY,
+          Index NGHOST,
+          ForEachFunc FUNC>
+inline void for_each_a(const Matrix<Float, NX, NY, NGHOST>& _, FUNC&& f) noexcept {
+  for_each<EXEC>(-NGHOST, NX + NGHOST, -NGHOST, NY + NGHOST, std::forward<FUNC&&>(f));
+}
+
 #endif  // FLUID_SOLVER_CONTAINER_HPP_

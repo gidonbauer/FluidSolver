@@ -247,4 +247,10 @@ constexpr void fill(CT& c, Float value) noexcept {
   std::fill_n(c.get_data(), c.size(), value);
 }
 
+// -------------------------------------------------------------------------------------------------
+template <typename CT>
+constexpr void copy(const CT& src, CT& dst) noexcept {
+  std::copy_n(src.get_data(), src.size(), dst.get_data());
+}
+
 #endif  // FLUID_SOLVER_CONTAINER_HPP_

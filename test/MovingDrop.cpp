@@ -302,8 +302,8 @@ auto main() -> int {
       }
 
       // NOTE: Save old pressure jump in delta_pj_[uv]_stag
-      std::copy_n(fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), delta_pj_u_stag.get_data());
-      std::copy_n(fs.p_jump_v_stag.get_data(), fs.p_jump_v_stag.size(), delta_pj_v_stag.get_data());
+      copy(fs.p_jump_u_stag, delta_pj_u_stag);
+      copy(fs.p_jump_v_stag, delta_pj_v_stag);
       calc_pressure_jump(vof.vf_old, vof.curv, fs);
       for_each_a<Exec::Parallel>(delta_pj_u_stag, [&](Index i, Index j) {
         delta_pj_u_stag[i, j] = fs.p_jump_u_stag[i, j] - delta_pj_u_stag[i, j];

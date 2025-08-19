@@ -13,6 +13,8 @@ TwoPhaseSolver
 TwoPhaseSolver.dSYM
 IB
 IB.dSYM
+PhaseChange
+PhaseChange.dSYM
 
 *.env
 run.slurm

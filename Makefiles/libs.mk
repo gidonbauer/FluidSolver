@@ -27,8 +27,8 @@ else
 endif
 
 ifdef HDF_DIR
-  HDF5_INC = -I${HDF_DIR}/include
-  HDF5_LIB = -L${HDF_DIR}/lib -lhdf5_hl_cpp -lhdf5_hl -lhdf5
+  HDF_INC = -I${HDF_DIR}/include
+  HDF_LIB = -L${HDF_DIR}/lib -lhdf5_hl_cpp -lhdf5_hl -lhdf5
 else
-  HDF5_INC = -DFS_DISABLE_HDF
+  HDF_INC = -DFS_DISABLE_HDF
 endif

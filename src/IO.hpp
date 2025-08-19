@@ -10,6 +10,7 @@
 #include <Igor/Logging.hpp>
 
 #include "Container.hpp"
+#include "FS.hpp"
 
 namespace detail {
 
@@ -214,32 +215,8 @@ template <typename Float>
 }
 
 // -------------------------------------------------------------------------------------------------
-template <std::floating_point Float, Index N>
-[[nodiscard]] auto to_npy(const std::string& filename, const Vector<Float, N>& vector) -> bool {
-  std::ofstream out(filename, std::ios::binary | std::ios::out);
-  if (!out) {
-    Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
-    return false;
-  }
-
-  if (!detail::write_npy_header<Float, 1UZ>(out, {vector.size()}, Layout::C, filename)) {
-    return false;
-  }
-
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-  if (!out.write(
-          reinterpret_cast<const char*>(vector.get_data()),
-          static_cast<std::streamsize>(static_cast<size_t>(vector.size()) * sizeof(Float)))) {
-    Igor::Warn("Could not write data to `{}`: {}", filename, std::strerror(errno));
-    return false;
-  }
-
-  return true;
-}
-
-// -------------------------------------------------------------------------------------------------
-template <std::floating_point Float, Index M, Index N, Layout LAYOUT>
-[[nodiscard]] auto to_npy(const std::string& filename, const Matrix<Float, M, N, LAYOUT>& matrix)
+template <std::floating_point Float, Index N, Index NGHOST>
+[[nodiscard]] auto to_npy(const std::string& filename, const Vector<Float, N, NGHOST>& vector)
     -> bool {
   std::ofstream out(filename, std::ios::binary | std::ios::out);
   if (!out) {
@@ -247,18 +224,46 @@ template <std::floating_point Float, Index M, Index N, Layout LAYOUT>
     return false;
   }
 
-  if (!detail::write_npy_header<Float, 2UZ>(
-          out, {matrix.extent(0), matrix.extent(1)}, LAYOUT, filename)) {
+  if (!detail::write_npy_header<Float, 1UZ>(
+          out, {vector.extent(0) + 2 * NGHOST}, Layout::C, filename)) {
     return false;
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  if (!out.write(
+          reinterpret_cast<const char*>(vector.get_data()),
+          static_cast<std::streamsize>(static_cast<size_t>(vector.size()) * sizeof(Float)))) {
+    Igor::Warn("Could not write data to `{}`: {}", filename, std::strerror(errno));
+    return false;
+  }
+  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+template <std::floating_point Float, Index M, Index N, Index NGHOST, Layout LAYOUT>
+[[nodiscard]] auto to_npy(const std::string& filename,
+                          const Matrix<Float, M, N, NGHOST, LAYOUT>& matrix) -> bool {
+  std::ofstream out(filename, std::ios::binary | std::ios::out);
+  if (!out) {
+    Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
+    return false;
+  }
+
+  if (!detail::write_npy_header<Float, 2UZ>(
+          out, {matrix.extent(0) + 2 * NGHOST, matrix.extent(1) + 2 * NGHOST}, LAYOUT, filename)) {
+    return false;
+  }
+
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
   if (!out.write(
           reinterpret_cast<const char*>(matrix.get_data()),
           static_cast<std::streamsize>(static_cast<size_t>(matrix.size()) * sizeof(Float)))) {
     Igor::Warn("Could not write data to `{}`: {}", filename, std::strerror(errno));
     return false;
   }
+  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
   return true;
 }
@@ -278,6 +283,47 @@ template <std::floating_point Float, Index M, Index N, Layout LAYOUT>
     Igor::Warn("Could not create directory `{}`: {}", directory_name, ec.message());
     return false;
   }
+
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+template <std::floating_point Float, Index M, Index N, Index NGHOST>
+[[nodiscard]] auto to_npy(const std::string& directory, const FS<Float, M, N, NGHOST>& fs) -> bool {
+  if (!init_output_directory(directory)) { return false; }
+
+  if (!to_npy(Igor::detail::format("{}/x.npy", directory), fs.x)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/xm.npy", directory), fs.xm)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/y.npy", directory), fs.y)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/ym.npy", directory), fs.ym)) { return false; }
+
+  if (!to_npy(Igor::detail::format("{}/visc.npy", directory), fs.visc)) { return false; }
+
+  if (!to_npy(Igor::detail::format("{}/p.npy", directory), fs.p)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/p_jump_u_stag.npy", directory), fs.p_jump_u_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/p_jump_v_stag.npy", directory), fs.p_jump_v_stag)) {
+    return false;
+  }
+
+  if (!to_npy(Igor::detail::format("{}/rho_u_stag.npy", directory), fs.curr.rho_u_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/rho_v_stag.npy", directory), fs.curr.rho_v_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/U.npy", directory), fs.curr.U)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/V.npy", directory), fs.curr.V)) { return false; }
+
+  if (!to_npy(Igor::detail::format("{}/rho_u_stag_old.npy", directory), fs.old.rho_u_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/rho_v_stag_old.npy", directory), fs.old.rho_v_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/U_old.npy", directory), fs.old.U)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/V_old.npy", directory), fs.old.V)) { return false; }
 
   return true;
 }

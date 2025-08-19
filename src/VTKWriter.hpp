@@ -10,18 +10,18 @@
 
 // TODO: Save as unstructured grid in VTKHDF file format
 // (https://docs.vtk.org/en/latest/design_documents/VTKFileFormats.html)
-template <typename Float, Index NX, Index NY>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 class VTKWriter {
   std::string m_output_dir;
 
-  const Vector<Float, NX + 1>* m_x;
-  const Vector<Float, NY + 1>* m_y;
+  const Vector<Float, NX + 1, NGHOST>* m_x;
+  const Vector<Float, NY + 1, NGHOST>* m_y;
 
   std::vector<std::string> m_scalar_names;
-  std::vector<const Matrix<Float, NX, NY>*> m_scalar_values{};
+  std::vector<const Matrix<Float, NX, NY, NGHOST>*> m_scalar_values{};
 
   std::vector<std::string> m_vector_names;
-  std::vector<std::array<const Matrix<Float, NX, NY>*, 2>> m_vector_values{};
+  std::vector<std::array<const Matrix<Float, NX, NY, NGHOST>*, 2>> m_vector_values{};
 
   // -----------------------------------------------------------------------------------------------
   void write_header(std::ofstream& out, Float t) {
@@ -32,10 +32,10 @@ class VTKWriter {
 
     // = Write grid ==========
     out << "DATASET STRUCTURED_GRID\n";
-    out << "DIMENSIONS " << m_x->size() << ' ' << m_y->size() << " 1\n";
-    out << "POINTS " << m_x->size() * m_y->size() << " double\n";
-    for (Index j = 0; j < m_y->size(); ++j) {
-      for (Index i = 0; i < m_x->size(); ++i) {
+    out << "DIMENSIONS " << m_x->extent(0) << ' ' << m_y->extent(0) << " 1\n";
+    out << "POINTS " << m_x->extent(0) * m_y->extent(0) << " double\n";
+    for (Index j = 0; j < m_y->extent(0); ++j) {
+      for (Index i = 0; i < m_x->extent(0); ++i) {
         constexpr double zk = 0.0;
         out.write(detail::interpret_as_big_endian_bytes((*m_x)[i]).data(), sizeof((*m_x)[i]));
         out.write(detail::interpret_as_big_endian_bytes((*m_y)[j]).data(), sizeof((*m_y)[j]));
@@ -49,8 +49,9 @@ class VTKWriter {
   }
 
   // -----------------------------------------------------------------------------------------------
-  void
-  write_scalar(std::ofstream& out, const Matrix<Float, NX, NY>& scalar, const std::string& name) {
+  void write_scalar(std::ofstream& out,
+                    const Matrix<Float, NX, NY, NGHOST>& scalar,
+                    const std::string& name) {
     out << "SCALARS " << name << " double 1\n";
     out << "LOOKUP_TABLE default\n";
     for (Index j = 0; j < scalar.extent(1); ++j) {
@@ -63,8 +64,8 @@ class VTKWriter {
 
   // -----------------------------------------------------------------------------------------------
   void write_vector(std::ofstream& out,
-                    const Matrix<Float, NX, NY>& x_comp,
-                    const Matrix<Float, NX, NY>& y_comp,
+                    const Matrix<Float, NX, NY, NGHOST>& x_comp,
+                    const Matrix<Float, NX, NY, NGHOST>& y_comp,
                     const std::string& name) {
     out << "VECTORS " << name << " double\n";
     for (Index j = 0; j < x_comp.extent(1); ++j) {
@@ -80,8 +81,8 @@ class VTKWriter {
 
  public:
   constexpr VTKWriter(std::string output_dir,
-                      const Vector<Float, NX + 1>* x,
-                      const Vector<Float, NY + 1>* y)
+                      const Vector<Float, NX + 1, NGHOST>* x,
+                      const Vector<Float, NY + 1, NGHOST>* y)
       : m_output_dir(std::move(output_dir)),
         m_x(x),
         m_y(y) {
@@ -95,15 +96,15 @@ class VTKWriter {
   constexpr auto operator=(VTKWriter&& other) noexcept -> VTKWriter&      = delete;
   constexpr ~VTKWriter() noexcept                                         = default;
 
-  constexpr void add_scalar(std::string name, const Matrix<Float, NX, NY>* value) {
+  constexpr void add_scalar(std::string name, const Matrix<Float, NX, NY, NGHOST>* value) {
     IGOR_ASSERT(value != nullptr, "value cannot be a nullptr.");
     m_scalar_names.emplace_back(std::move(name));
     m_scalar_values.push_back(value);
   }
 
   constexpr void add_vector(std::string name,
-                            const Matrix<Float, NX, NY>* x_value,
-                            const Matrix<Float, NX, NY>* y_value) {
+                            const Matrix<Float, NX, NY, NGHOST>* x_value,
+                            const Matrix<Float, NX, NY, NGHOST>* y_value) {
     IGOR_ASSERT(x_value != nullptr, "x_value cannot be a nullptr.");
     IGOR_ASSERT(y_value != nullptr, "y_value cannot be a nullptr.");
     m_vector_names.emplace_back(std::move(name));

@@ -14,8 +14,7 @@
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
-// #include "VTKWriter.hpp"
-#include "XDMFWriter.hpp"
+#include "VTKWriter.hpp"
 
 // TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
 //       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
@@ -33,27 +32,22 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 10.0;
+constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-2;
-constexpr Float CFL_MAX         = 0.9;
+constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 5e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-3;
+constexpr Float VISC_G          = 1e-0;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
-constexpr Float CX              = 1.0;
-constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.1;
-constexpr auto vof0             = [](Float x, Float y) {
-  return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
-};
+constexpr auto vof0             = [](Float x, Float _) { return static_cast<Float>(x > 1.0); };
 
-constexpr Float WEBER_NUMBER    = RHO_L * Igor::sqr(U_BCOND) * 2.0 * R0 / SURFACE_TENSION;
+constexpr Float WEBER_NUMBER = RHO_L * Igor::sqr(U_BCOND) * 2.0 * (Y_MAX - Y_MIN) / SURFACE_TENSION;
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -68,7 +62,7 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
-constexpr auto OUTPUT_DIR = "output/TwoPhaseSolver/";
+constexpr auto OUTPUT_DIR = "output/PhaseChange/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -161,19 +155,14 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  // VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  XDMFWriter<Float, NX, NY, NGHOST> data_writer(
-      Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
-      Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
-      &fs.x,
-      &fs.y);
-  data_writer.add_scalar("density", &rhoi);
-  data_writer.add_scalar("viscosity", &fs.visc);
-  data_writer.add_scalar("pressure", &fs.p);
-  data_writer.add_scalar("divergence", &div);
-  data_writer.add_scalar("VOF", &vof.vf);
-  data_writer.add_vector("velocity", &Ui, &Vi);
-  data_writer.add_scalar("curvature", &vof.curv);
+  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  vtk_writer.add_scalar("density", &rhoi);
+  vtk_writer.add_scalar("viscosity", &fs.visc);
+  vtk_writer.add_scalar("pressure", &fs.p);
+  vtk_writer.add_scalar("divergence", &div);
+  vtk_writer.add_scalar("VOF", &vof.vf);
+  vtk_writer.add_vector("velocity", &Ui, &Vi);
+  vtk_writer.add_scalar("curvature", &vof.curv);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -207,7 +196,7 @@ auto main() -> int {
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
     vof.vf[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
   });
-  const Float init_vf_integral = integrate<true>(fs.dx, fs.dy, vof.vf);
+  const Float init_vf_integral = integrate(fs.dx, fs.dy, vof.vf);
   localize_cells(fs.x, fs.y, vof.ir);
   reconstruct_interface(fs, vof.vf, vof.ir);
   // = Initialize VOF field ========================================================================
@@ -233,7 +222,7 @@ auto main() -> int {
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
-  if (!data_writer.write(t)) { return 1; }
+  if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -244,7 +233,7 @@ auto main() -> int {
 
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
-    std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
+    copy(vof.vf, vof.vf_old);
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);
@@ -281,7 +270,6 @@ auto main() -> int {
         fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
                           fs.curr.rho_v_stag[i, j];
       });
-      // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
       // Correct the outflow
@@ -356,7 +344,7 @@ auto main() -> int {
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!data_writer.write(t)) { return 1; }
+      if (!vtk_writer.write(t)) { return 1; }
     }
     monitor.write();
   }

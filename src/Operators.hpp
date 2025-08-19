@@ -4,104 +4,96 @@
 #include <Igor/Logging.hpp>
 
 #include "Container.hpp"
+#include "ForEach.hpp"
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void interpolate_U(const Matrix<Float, NX + 1, NY>& U, Matrix<Float, NX, NY>& Ui) {
-  for (Index i = 0; i < Ui.extent(0); ++i) {
-    for (Index j = 0; j < Ui.extent(1); ++j) {
-      Ui[i, j] = (U[i, j] + U[i + 1, j]) / 2;
-    }
-  }
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void interpolate_U(const Matrix<Float, NX + 1, NY, NGHOST>& U, Matrix<Float, NX, NY, NGHOST>& Ui) {
+  for_each_a<Exec::Parallel>(Ui, [&](Index i, Index j) { Ui[i, j] = (U[i, j] + U[i + 1, j]) / 2; });
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void interpolate_V(const Matrix<Float, NX, NY + 1>& V, Matrix<Float, NX, NY>& Vi) {
-  for (Index i = 0; i < Vi.extent(0); ++i) {
-    for (Index j = 0; j < Vi.extent(1); ++j) {
-      Vi[i, j] = (V[i, j] + V[i, j + 1]) / 2;
-    }
-  }
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void interpolate_V(const Matrix<Float, NX, NY + 1, NGHOST>& V, Matrix<Float, NX, NY, NGHOST>& Vi) {
+  for_each_a<Exec::Parallel>(Vi, [&](Index i, Index j) { Vi[i, j] = (V[i, j] + V[i, j + 1]) / 2; });
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void interpolate_UV_staggered_field(const Matrix<Float, NX + 1, NY>& u_stag,
-                                    const Matrix<Float, NX, NY + 1>& v_stag,
-                                    Matrix<Float, NX, NY>& interp) noexcept {
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      interp[i, j] = (u_stag[i, j] + u_stag[i + 1, j] + v_stag[i, j] + v_stag[i, j + 1]) / 4.0;
-    }
-  }
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void interpolate_UV_staggered_field(const Matrix<Float, NX + 1, NY, NGHOST>& u_stag,
+                                    const Matrix<Float, NX, NY + 1, NGHOST>& v_stag,
+                                    Matrix<Float, NX, NY, NGHOST>& interp) noexcept {
+  for_each_a<Exec::Parallel>(interp, [&](Index i, Index j) {
+    interp[i, j] = (u_stag[i, j] + u_stag[i + 1, j] + v_stag[i, j] + v_stag[i, j + 1]) / 4.0;
+  });
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void calc_divergence(const Matrix<Float, NX + 1, NY>& U,
-                     const Matrix<Float, NX, NY + 1>& V,
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void calc_divergence(const Matrix<Float, NX + 1, NY, NGHOST>& U,
+                     const Matrix<Float, NX, NY + 1, NGHOST>& V,
                      Float dx,
                      Float dy,
-                     Matrix<Float, NX, NY>& div) {
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      div[i, j] = (U[i + 1, j] - U[i, j]) / dx + (V[i, j + 1] - V[i, j]) / dy;
-    }
+                     Matrix<Float, NX, NY, NGHOST>& div) {
+  for_each_a<Exec::Parallel>(div, [&](Index i, Index j) {
+    div[i, j] = (U[i + 1, j] - U[i, j]) / dx + (V[i, j + 1] - V[i, j]) / dy;
+  });
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void calc_mid_time(Matrix<Float, NX, NY, NGHOST>& current,
+                   const Matrix<Float, NX, NY, NGHOST>& old) {
+  for_each_a<Exec::Parallel>(
+      current, [&](Index i, Index j) { current[i, j] = 0.5 * (current[i, j] + old[i, j]); });
+}
+
+// -------------------------------------------------------------------------------------------------
+template <bool INCLUDE_GHOST = false, typename Float, Index NX, Index NY, Index NGHOST>
+constexpr auto integrate(Float dx, Float dy, const Matrix<Float, NX, NY, NGHOST>& field) noexcept
+    -> Float {
+  Float integral = 0.0;
+  if (INCLUDE_GHOST) {
+    for_each_a(field, [&](Index i, Index j) { integral += field[i, j]; });
+  } else {
+    for_each_i(field, [&](Index i, Index j) { integral += field[i, j]; });
   }
+  return integral * dx * dy;
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void calc_mid_time(Matrix<Float, NX, NY>& current, const Matrix<Float, NX, NY>& old) {
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      current[i, j] = 0.5 * (current[i, j] + old[i, j]);
-    }
+template <bool INCLUDE_GHOST = false, typename Float, Index NX, Index NY, Index NGHOST>
+constexpr auto L1_norm(Float dx, Float dy, const Matrix<Float, NX, NY, NGHOST>& field) noexcept
+    -> Float {
+  Float integral = 0.0;
+  if (INCLUDE_GHOST) {
+    for_each_a(field, [&](Index i, Index j) { integral += std::abs(field[i, j]); });
+  } else {
+    for_each_i(field, [&](Index i, Index j) { integral += std::abs(field[i, j]); });
   }
+  return integral * dx * dy;
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-constexpr auto integrate(Float dx, Float dy, const Matrix<Float, NX, NY>& field) noexcept -> Float {
-  return std::reduce(field.get_data(), field.get_data() + field.size(), Float{0}, std::plus<>{}) *
-         dx * dy;
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void shift_pressure_to_zero(Float dx, Float dy, Matrix<Float, NX, NY, NGHOST>& dp) {
+  Float vol_avg_p = integrate<true>(dx, dy, dp);
+  for_each_a<Exec::Parallel>(dp, [&](Index i, Index j) { dp[i, j] -= vol_avg_p; });
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-constexpr auto L1_norm(Float dx, Float dy, const Matrix<Float, NX, NY>& field) noexcept -> Float {
-  return std::transform_reduce(field.get_data(),
-                               field.get_data() + field.size(),
-                               Float{0},
-                               std::plus<>{},
-                               [](Float x) { return std::abs(x); }) *
-         dx * dy;
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void shift_pressure_to_zero(Float dx, Float dy, Matrix<Float, NX, NY>& dp) {
-  Float vol_avg_p = integrate(dx, dy, dp);
-  for (Index i = 0; i < dp.extent(0); ++i) {
-    for (Index j = 0; j < dp.extent(1); ++j) {
-      dp[i, j] -= vol_avg_p;
-    }
-  }
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-[[nodiscard]] constexpr auto bilinear_interpolate(const Vector<Float, NX>& xm,
-                                                  const Vector<Float, NY>& ym,
-                                                  const Matrix<Float, NX, NY>& field,
+template <typename Float, Index NX, Index NY, Index NGHOST>
+[[nodiscard]] constexpr auto bilinear_interpolate(const Vector<Float, NX, NGHOST>& xm,
+                                                  const Vector<Float, NY, NGHOST>& ym,
+                                                  const Matrix<Float, NX, NY, NGHOST>& field,
                                                   Float x,
                                                   Float y) -> Float {
-  const auto dx = xm[1] - xm[0];
-  const auto dy = ym[1] - ym[0];
+  const auto dx    = xm[1] - xm[0];
+  const auto dy    = ym[1] - ym[0];
 
-  auto get_indices =
-      []<Index N>(Float pos, const Vector<Float, N>& grid, Float delta) -> std::pair<Index, Index> {
+  auto get_indices = []<Index N>(Float pos,
+                                 const Vector<Float, N, NGHOST>& grid,
+                                 Float delta) -> std::pair<Index, Index> {
     if (pos <= grid[0]) { return {0, 0}; }
     if (pos >= grid[N - 1]) { return {N - 1, N - 1}; }
     const auto prev = static_cast<Index>(std::floor((pos - grid[0]) / delta));
@@ -123,18 +115,19 @@ template <typename Float, Index NX, Index NY>
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-[[nodiscard]] constexpr auto eval_flow_field_at(const Vector<Float, NX>& xm,
-                                                const Vector<Float, NY>& ym,
-                                                const Matrix<Float, NX, NY>& Ui,
-                                                const Matrix<Float, NX, NY>& Vi,
+template <typename Float, Index NX, Index NY, Index NGHOST>
+[[nodiscard]] constexpr auto eval_flow_field_at(const Vector<Float, NX, NGHOST>& xm,
+                                                const Vector<Float, NY, NGHOST>& ym,
+                                                const Matrix<Float, NX, NY, NGHOST>& Ui,
+                                                const Matrix<Float, NX, NY, NGHOST>& Vi,
                                                 Float x,
                                                 Float y) -> std::pair<Float, Float> {
-  const auto dx = xm[1] - xm[0];
-  const auto dy = ym[1] - ym[0];
+  const auto dx    = xm[1] - xm[0];
+  const auto dy    = ym[1] - ym[0];
 
-  auto get_indices =
-      []<Index N>(Float pos, const Vector<Float, N>& grid, Float delta) -> std::pair<Index, Index> {
+  auto get_indices = []<Index N>(Float pos,
+                                 const Vector<Float, N, NGHOST>& grid,
+                                 Float delta) -> std::pair<Index, Index> {
     const auto prev = static_cast<Index>(std::floor((pos - grid[0]) / delta));
     const auto next = static_cast<Index>(std::floor((pos - grid[0]) / delta + 1.0));
     if (pos <= grid[0] || prev < 0) { return {0, 0}; }
@@ -145,7 +138,7 @@ template <typename Float, Index NX, Index NY>
   const auto [iprev, inext] = get_indices(x, xm, dx);
   const auto [jprev, jnext] = get_indices(y, ym, dy);
 
-  auto interpolate_bilinear = [&](const Matrix<Float, NX, NY>& field) -> Float {
+  auto interpolate_bilinear = [&](const Matrix<Float, NX, NY, NGHOST>& field) -> Float {
     // Interpolate in x
     const auto a =
         (field[inext, jprev] - field[iprev, jprev]) / dx * (x - xm[iprev]) + field[iprev, jprev];
@@ -160,36 +153,73 @@ template <typename Float, Index NX, Index NY>
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void calc_grad_of_centered_points(const Matrix<Float, NX, NY>& f,
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void calc_grad_of_centered_points(const Matrix<Float, NX, NY, NGHOST>& f,
                                   Float dx,
                                   Float dy,
-                                  Matrix<Float, NX, NY>& dfdx,
-                                  Matrix<Float, NX, NY>& dfdy) noexcept {
-  for (Index i = 1; i < NX - 1; ++i) {
-    for (Index j = 1; j < NY - 1; ++j) {
-      dfdx[i, j] = (f[i + 1, j] - f[i - 1, j]) / (2.0 * dx);
-      dfdy[i, j] = (f[i, j + 1] - f[i, j - 1]) / (2.0 * dy);
-    }
-  }
+                                  Matrix<Float, NX, NY, NGHOST>& dfdx,
+                                  Matrix<Float, NX, NY, NGHOST>& dfdy) noexcept {
+  for_each<-NGHOST + 1, NX + NGHOST - 1, -NGHOST + 1, NY + NGHOST - 1, Exec::Parallel>(
+      [&](Index i, Index j) {
+        dfdx[i, j] = (f[i + 1, j] - f[i - 1, j]) / (2.0 * dx);
+        dfdy[i, j] = (f[i, j + 1] - f[i, j - 1]) / (2.0 * dy);
+      });
 
-  for (Index i = 0; i < NX; ++i) {
-    if (i > 0 && i < NX - 1) {
-      dfdx[i, 0]      = (f[i + 1, 0] - f[i - 1, 0]) / (2.0 * dx);
-      dfdx[i, NY - 1] = (f[i + 1, NY - 1] - f[i - 1, NY - 1]) / (2.0 * dx);
+  for_each<-NGHOST, NX + NGHOST, Exec::Parallel>([&](Index i) {
+    if (i > -NGHOST && i < NX + NGHOST - 1) {
+      dfdx[i, -NGHOST] = (f[i + 1, -NGHOST] - f[i - 1, -NGHOST]) / (2.0 * dx);
+      dfdx[i, NY + NGHOST - 1] =
+          (f[i + 1, NY + NGHOST - 1] - f[i - 1, NY + NGHOST - 1]) / (2.0 * dx);
     }
-    dfdy[i, 0]      = (-3.0 * f[i, 0] + 4.0 * f[i, 1] - f[i, 2]) / (2.0 * dy);
-    dfdy[i, NY - 1] = (3.0 * f[i, NY - 1] - 4.0 * f[i, NY - 2] + f[i, NY - 3]) / (2.0 * dy);
-  }
+    dfdy[i, -NGHOST] =
+        (-3.0 * f[i, -NGHOST] + 4.0 * f[i, -NGHOST + 1] - f[i, -NGHOST + 2]) / (2.0 * dy);
+    dfdy[i, NY + NGHOST - 1] =
+        (3.0 * f[i, NY + NGHOST - 1] - 4.0 * f[i, NY + NGHOST - 2] + f[i, NY + NGHOST - 3]) /
+        (2.0 * dy);
+  });
 
-  for (Index j = 0; j < NY; ++j) {
-    dfdx[0, j]      = (-3.0 * f[0, j] + 4.0 * f[1, j] - f[2, j]) / (2.0 * dx);
-    dfdx[NX - 1, j] = (3.0 * f[NX - 1, j] - 4.0 * f[NX - 2, j] + f[NX - 3, j]) / (2.0 * dx);
-    if (j > 0 && j < NY - 1) {
-      dfdy[0, j]      = (f[0, j + 1] - f[0, j - 1]) / (2.0 * dy);
-      dfdy[NX - 1, j] = (f[NX - 1, j + 1] - f[NX - 1, j - 1]) / (2.0 * dy);
+  for_each<-NGHOST, NY + NGHOST, Exec::Parallel>([&](Index j) {
+    dfdx[-NGHOST, j] =
+        (-3.0 * f[-NGHOST, j] + 4.0 * f[-NGHOST + 1, j] - f[-NGHOST + 2, j]) / (2.0 * dx);
+    dfdx[NX + NGHOST - 1, j] =
+        (3.0 * f[NX + NGHOST - 1, j] - 4.0 * f[NX + NGHOST - 2, j] + f[NX + NGHOST - 3, j]) /
+        (2.0 * dx);
+    if (j > -NGHOST && j < NY + NGHOST - 1) {
+      dfdy[-NGHOST, j] = (f[-NGHOST, j + 1] - f[-NGHOST, j - 1]) / (2.0 * dy);
+      dfdy[NX + NGHOST - 1, j] =
+          (f[NX + NGHOST - 1, j + 1] - f[NX + NGHOST - 1, j - 1]) / (2.0 * dy);
     }
-  }
+  });
+
+  // if constexpr (NGHOST == 0) {
+  //   for_each<1, NX - 1, 1, NY - 1, Exec::Parallel>([&](Index i, Index j) {
+  //     dfdx[i, j] = (f[i + 1, j] - f[i - 1, j]) / (2.0 * dx);
+  //     dfdy[i, j] = (f[i, j + 1] - f[i, j - 1]) / (2.0 * dy);
+  //   });
+
+  //   for_each<0, NX, Exec::Parallel>([&](Index i) {
+  //     if (i > 0 && i < NX - 1) {
+  //       dfdx[i, 0]      = (f[i + 1, 0] - f[i - 1, 0]) / (2.0 * dx);
+  //       dfdx[i, NY - 1] = (f[i + 1, NY - 1] - f[i - 1, NY - 1]) / (2.0 * dx);
+  //     }
+  //     dfdy[i, 0]      = (-3.0 * f[i, 0] + 4.0 * f[i, 1] - f[i, 2]) / (2.0 * dy);
+  //     dfdy[i, NY - 1] = (3.0 * f[i, NY - 1] - 4.0 * f[i, NY - 2] + f[i, NY - 3]) / (2.0 * dy);
+  //   });
+
+  //   for_each<0, NY, Exec::Parallel>([&](Index j) {
+  //     dfdx[0, j]      = (-3.0 * f[0, j] + 4.0 * f[1, j] - f[2, j]) / (2.0 * dx);
+  //     dfdx[NX - 1, j] = (3.0 * f[NX - 1, j] - 4.0 * f[NX - 2, j] + f[NX - 3, j]) / (2.0 * dx);
+  //     if (j > 0 && j < NY - 1) {
+  //       dfdy[0, j]      = (f[0, j + 1] - f[0, j - 1]) / (2.0 * dy);
+  //       dfdy[NX - 1, j] = (f[NX - 1, j + 1] - f[NX - 1, j - 1]) / (2.0 * dy);
+  //     }
+  //   });
+  // } else {
+  //   for_each_i<Exec::Parallel>(f, [&](Index i, Index j) {
+  //     dfdx[i, j] = (f[i + 1, j] - f[i - 1, j]) / (2.0 * dx);
+  //     dfdy[i, j] = (f[i, j + 1] - f[i, j - 1]) / (2.0 * dy);
+  //   });
+  // }
 }
 
 #endif  // FLUID_SOLVER_OPERATORS_HPP_

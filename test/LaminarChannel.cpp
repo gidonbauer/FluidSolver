@@ -21,6 +21,7 @@ using Float              = double;
 
 constexpr Index NX       = 500;
 constexpr Index NY       = 51;
+constexpr Index NGHOST   = 1;
 
 constexpr Float X_MIN    = 0.0;
 constexpr Float X_MAX    = 100.0;
@@ -65,16 +66,16 @@ constexpr auto OUTPUT_DIR = "test/output/LaminarChannel_" IGOR_STRINGIFY(LC_U_IN
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-void calc_inflow_outflow(const FS<Float, NX, NY>& fs,
+void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
                          Float& inflow,
                          Float& outflow,
                          Float& mass_error) {
   inflow  = 0;
   outflow = 0;
-  for (Index j = 0; j < NY; ++j) {
-    inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
-    outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
-  }
+  for_each_a(fs.ym, [&](Index j) {
+    inflow  += fs.curr.rho_u_stag[-NGHOST, j] * fs.curr.U[-NGHOST, j];
+    outflow += fs.curr.rho_u_stag[NX + NGHOST, j] * fs.curr.U[NX + NGHOST, j];
+  });
   mass_error = outflow - inflow;
 }
 
@@ -84,17 +85,18 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{.visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
+  FS<Float, NX, NY, NGHOST> fs{
+      .visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
   calc_rho_and_visc(fs);
 
-  Matrix<Float, NX, NY> Ui{};
-  Matrix<Float, NX, NY> Vi{};
-  Matrix<Float, NX, NY> div{};
+  Matrix<Float, NX, NY, NGHOST> Ui{};
+  Matrix<Float, NX, NY, NGHOST> Vi{};
+  Matrix<Float, NX, NY, NGHOST> div{};
 
-  Matrix<Float, NX + 1, NY> drhoUdt{};
-  Matrix<Float, NX, NY + 1> drhoVdt{};
-  Matrix<Float, NX, NY> delta_p{};
+  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Matrix<Float, NX, NY, NGHOST> delta_p{};
 
   Float t          = 0.0;
   Float dt         = DT_MAX;
@@ -109,6 +111,7 @@ auto main() -> int {
 
   Float p_res      = 0.0;
   Index p_iter     = 0;
+  Float p_max      = 0.0;
 
   Float inflow     = 0;
   Float outflow    = 0;
@@ -122,39 +125,29 @@ auto main() -> int {
   monitor.add_variable(&U_max, "max(U)");
   monitor.add_variable(&V_max, "max(V)");
   monitor.add_variable(&div_max, "max(div)");
+  monitor.add_variable(&p_max, "max(p)");
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
-  monitor.add_variable(&inflow, "inflow");
-  monitor.add_variable(&outflow, "outflow");
+  // monitor.add_variable(&inflow, "inflow");
+  // monitor.add_variable(&outflow, "outflow");
   monitor.add_variable(&mass_error, "mass error");
   monitor.add_variable(&mass, "mass");
   monitor.add_variable(&mom_x, "momentum (x)");
   monitor.add_variable(&mom_y, "momentum (y)");
 
-  VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
   vtk_writer.add_scalar("pressure", &fs.p);
   vtk_writer.add_scalar("divergence", &div);
   vtk_writer.add_vector("velocity", &Ui, &Vi);
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
-  PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
-  std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
-
-  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      fs.curr.U[i, j] = U_INIT;
-    }
-  }
-  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-      fs.curr.V[i, j] = 0.0;
-    }
-  }
-
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_INIT; });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.curr.U, Ui);
@@ -163,6 +156,7 @@ auto main() -> int {
   U_max   = abs_max(fs.curr.U);
   V_max   = abs_max(fs.curr.V);
   div_max = abs_max(div);
+  p_max   = abs_max(fs.p);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
@@ -189,27 +183,27 @@ auto main() -> int {
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-        for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-          fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                            fs.curr.rho_u_stag[i, j];
-        }
-      }
-      for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-        for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-          fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                            fs.curr.rho_v_stag[i, j];
-        }
-      }
+      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+        if (std::isnan(drhoUdt[i, j])) { Igor::Panic("NaN value in drhoUdt[{}, {}]", i, j); }
+        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
+                          fs.curr.rho_u_stag[i, j];
+      });
+      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+        if (std::isnan(drhoVdt[i, j])) { Igor::Panic("NaN value in drhoVdt[{}, {}]", i, j); }
+        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
+                          fs.curr.rho_v_stag[i, j];
+      });
 
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
-      for (Index j = 0; j < NY; ++j) {
-        fs.curr.U[NX, j] -= mass_error / (fs.curr.rho_u_stag[NX, j] * static_cast<Float>(NY));
-      }
+      for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+        fs.curr.U[NX + NGHOST, j] -=
+            mass_error / (fs.curr.rho_u_stag[NX + NGHOST, j] * static_cast<Float>(NY + 2 * NGHOST));
+      });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+
       Index local_p_iter = 0;
       if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
         Igor::Warn("Pressure correction failed at t={}.", t);
@@ -227,22 +221,16 @@ auto main() -> int {
       }
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for (Index i = 0; i < fs.p.extent(0); ++i) {
-        for (Index j = 0; j < fs.p.extent(1); ++j) {
-          fs.p[i, j] += delta_p[i, j];
-        }
-      }
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
 
-      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-          fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / RHO;
-        }
-      }
-      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-          fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / RHO;
-        }
-      }
+      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+        fs.curr.U[i, j] -=
+            (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / fs.curr.rho_u_stag[i, j];
+      });
+      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+        fs.curr.V[i, j] -=
+            (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / fs.curr.rho_v_stag[i, j];
+      });
     }
     t += dt;
 
@@ -265,6 +253,7 @@ auto main() -> int {
     U_max   = abs_max(fs.curr.U);
     V_max   = abs_max(fs.curr.V);
     div_max = abs_max(div);
+    p_max   = abs_max(fs.p);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }
@@ -317,11 +306,14 @@ auto main() -> int {
 
   // Test U profile
   {
-    constexpr Float TOL = 2e-3;
-    auto u_analytical   = [](Float y, Float dpdx) -> Float {
-      return dpdx / (2 * VISC) * (y * y - y);
+    constexpr Float TOL = 2e-4;
+    auto u_analytical   = [&](Float y, Float dpdx) -> Float {
+      // NOTE: Adjustment due to the ghost cells, the dirichlet boundary condition is now enforced
+      //       in the ghost cell
+      return dpdx / (2 * VISC) * (y * y - y - (fs.dy / 2.0 + Igor::sqr(fs.dy / 2.0)));
+      // return dpdx / (2 * VISC) * (y * y - y);
     };
-    Vector<Float, NY> diff{};
+    Vector<Float, NY + 2 * NGHOST, 0> diff{};
 
     static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
     constexpr Float TEST_X_BEGIN = 60.0;
@@ -331,9 +323,10 @@ auto main() -> int {
       const Float x_target = TEST_X_BEGIN + static_cast<Float>(i_check) * TEST_X_STEP;
       const auto i         = static_cast<Index>(x_target / X_MAX * static_cast<Float>(NX + 1));
 
-      for (Index j = 0; j < NY; ++j) {
+      for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
         const auto dpdx = (fs.p[i, j] - fs.p[i - 1, j]) / fs.dx;
-        diff[j] = std::abs(fs.curr.U[static_cast<Index>(i), j] - u_analytical(fs.ym[j], dpdx));
+        diff[j + NGHOST] =
+            std::abs(fs.curr.U[static_cast<Index>(i), j] - u_analytical(fs.ym[j], dpdx));
       }
       const auto L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
       if (L1_error > TOL) {

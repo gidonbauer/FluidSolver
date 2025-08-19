@@ -20,6 +20,8 @@
 // = Config ========================================================================================
 using Float                   = double;
 constexpr Index N             = 64;
+constexpr Index NGHOST        = 1;
+
 constexpr Float X_MIN         = 0.0;
 constexpr Float X_MAX         = 1.0;
 constexpr Float Y_MIN         = 0.0;
@@ -50,9 +52,9 @@ void test_curvature(CURV_FUNC calc_curv,
                     Float cy,
                     Float r,
                     bool invert_phases,
-                    const FS<Float, N, N>& fs,
-                    VOF<Float, N, N>& vof,
-                    Matrix<Float, N, N>& curv,
+                    const FS<Float, N, N, NGHOST>& fs,
+                    VOF<Float, N, N, NGHOST>& vof,
+                    Matrix<Float, N, N, NGHOST>& curv,
                     CurvatureMetrics& metrics) {
 
   auto vof0 = [cx, cy, r, invert_phases](Float x, Float y) {
@@ -61,16 +63,14 @@ void test_curvature(CURV_FUNC calc_curv,
     }
     return static_cast<Float>(Igor::sqr(x - cx) + Igor::sqr(y - cy) <= Igor::sqr(r));
   };
-#pragma omp parallel for collapse(2)
-  for (Index i = 0; i < N; ++i) {
-    for (Index j = 0; j < N; ++j) {
-      vof.vf_old[i, j] =
-          quadrature<64>(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
-      vof.vf[i, j] = vof.vf_old[i, j];
-    }
-  }
+
+  for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
+    vof.vf_old[i, j] =
+        quadrature<64>(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    vof.vf[i, j] = vof.vf_old[i, j];
+  });
   std::fill_n(vof.ir.interface.get_data(), vof.ir.interface.size(), IRL::PlanarSeparator{});
-  reconstruct_interface(fs.x, fs.y, vof.vf, vof.ir);
+  reconstruct_interface(fs, vof.vf, vof.ir);
 
   if (invert_phases) {
     const auto domain_area = (X_MAX - X_MIN) * (Y_MAX - Y_MIN);
@@ -93,19 +93,17 @@ void test_curvature(CURV_FUNC calc_curv,
   metrics.mse_curv      = 0.0;
   metrics.mrse_curv     = 0.0;
   Index count           = 0;
-  for (Index i = 0; i < N; ++i) {
-    for (Index j = 0; j < N; ++j) {
-      if (has_interface(vof.vf, i, j)) {
-        metrics.min_curv   = std::min(curv[i, j], metrics.min_curv);
-        metrics.max_curv   = std::max(curv[i, j], metrics.max_curv);
-        metrics.mean_curv += curv[i, j];
-        metrics.mse_curv  += Igor::sqr(curv[i, j] - metrics.expected_curv);
-        metrics.mrse_curv +=
-            Igor::sqr(curv[i, j] - metrics.expected_curv) / Igor::sqr(metrics.expected_curv);
-        count += 1;
-      }
+  for_each_i(curv, [&](Index i, Index j) {
+    if (has_interface(vof.vf, i, j)) {
+      metrics.min_curv   = std::min(curv[i, j], metrics.min_curv);
+      metrics.max_curv   = std::max(curv[i, j], metrics.max_curv);
+      metrics.mean_curv += curv[i, j];
+      metrics.mse_curv  += Igor::sqr(curv[i, j] - metrics.expected_curv);
+      metrics.mrse_curv +=
+          Igor::sqr(curv[i, j] - metrics.expected_curv) / Igor::sqr(metrics.expected_curv);
+      count += 1;
     }
-  }
+  });
   metrics.mean_curv /= static_cast<Float>(count);
   metrics.mse_curv  /= static_cast<Float>(count);
 }
@@ -115,17 +113,17 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, N, N> fs{};
+  FS<Float, N, N, NGHOST> fs{};
   init_grid(X_MIN, X_MAX, N, Y_MIN, Y_MAX, N, fs);
 
-  VOF<Float, N, N> vof{};
+  VOF<Float, N, N, NGHOST> vof{};
   localize_cells(fs.x, fs.y, vof.ir);
 
-  Matrix<Float, N, N> curv_cv{};
-  Matrix<Float, N, N> curv_quad_vol_match{};
-  Matrix<Float, N, N> curv_quad_regression{};
+  Matrix<Float, N, N, NGHOST> curv_cv{};
+  Matrix<Float, N, N, NGHOST> curv_quad_vol_match{};
+  Matrix<Float, N, N, NGHOST> curv_quad_regression{};
 
-  VTKWriter<Float, N, N> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  VTKWriter<Float, N, N, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
   vtk_writer.add_scalar("VOF", &vof.vf);
   vtk_writer.add_scalar("curv_cv", &curv_cv);
   vtk_writer.add_scalar("curv_quad_vol_match", &curv_quad_vol_match);
@@ -195,7 +193,7 @@ auto main() -> int {
       }
 
       auto t_begin = std::chrono::high_resolution_clock::now();
-      test_curvature(calc_curvature_convolved_vf<Float, N, N>,
+      test_curvature(calc_curvature_convolved_vf<Float, N, N, NGHOST>,
                      cx,
                      cy,
                      r,
@@ -208,7 +206,7 @@ auto main() -> int {
       runtime_cv = std::chrono::duration<double, std::micro>(t_end - t_begin).count();
 
       t_begin    = std::chrono::high_resolution_clock::now();
-      test_curvature(calc_curvature_quad_volume_matching<Float, N, N>,
+      test_curvature(calc_curvature_quad_volume_matching<Float, N, N, NGHOST>,
                      cx,
                      cy,
                      r,
@@ -221,7 +219,7 @@ auto main() -> int {
       runtime_quad_vol_match = std::chrono::duration<double, std::micro>(t_end - t_begin).count();
 
       t_begin                = std::chrono::high_resolution_clock::now();
-      test_curvature(calc_curvature_quad_regression<Float, N, N>,
+      test_curvature(calc_curvature_quad_regression<Float, N, N, NGHOST>,
                      cx,
                      cy,
                      r,

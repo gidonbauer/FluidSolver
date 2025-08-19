@@ -92,9 +92,9 @@ class XDMFWriter {
     // - Begin XDMF file ---------------------------------------------------------------------------
 
     // Write grid
-    auto dim = static_cast<hsize_t>(x->size());
+    auto dim = static_cast<hsize_t>(x->extent(0));
     H5LTmake_dataset_double(m_data_file_id, "/xcoords", 1, &dim, x->get_data());
-    dim = static_cast<hsize_t>(y->size());
+    dim = static_cast<hsize_t>(y->extent(0));
     H5LTmake_dataset_double(m_data_file_id, "/ycoords", 1, &dim, y->get_data());
   }
 

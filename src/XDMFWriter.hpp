@@ -203,7 +203,7 @@ class XDMFWriter {
 #error HDF is disabled because the enviroment variable `HDF_DIR` is not set. If you want to use the XDMF writer, you need to define it.
 
 // Dummy XDMFWriter to silence compiler error messages
-template <typename Float, Index NX, Index NY>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 class XDMFWriter {
  public:
   XDMFWriter(std::string,

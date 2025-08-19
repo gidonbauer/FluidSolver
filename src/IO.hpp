@@ -10,6 +10,7 @@
 #include <Igor/Logging.hpp>
 
 #include "Container.hpp"
+#include "FS.hpp"
 
 namespace detail {
 
@@ -282,6 +283,47 @@ template <std::floating_point Float, Index M, Index N, Index NGHOST, Layout LAYO
     Igor::Warn("Could not create directory `{}`: {}", directory_name, ec.message());
     return false;
   }
+
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+template <std::floating_point Float, Index M, Index N, Index NGHOST>
+[[nodiscard]] auto to_npy(const std::string& directory, const FS<Float, M, N, NGHOST>& fs) -> bool {
+  if (!init_output_directory(directory)) { return false; }
+
+  if (!to_npy(Igor::detail::format("{}/x.npy", directory), fs.x)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/xm.npy", directory), fs.xm)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/y.npy", directory), fs.y)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/ym.npy", directory), fs.ym)) { return false; }
+
+  if (!to_npy(Igor::detail::format("{}/visc.npy", directory), fs.visc)) { return false; }
+
+  if (!to_npy(Igor::detail::format("{}/p.npy", directory), fs.p)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/p_jump_u_stag.npy", directory), fs.p_jump_u_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/p_jump_v_stag.npy", directory), fs.p_jump_v_stag)) {
+    return false;
+  }
+
+  if (!to_npy(Igor::detail::format("{}/rho_u_stag.npy", directory), fs.curr.rho_u_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/rho_v_stag.npy", directory), fs.curr.rho_v_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/U.npy", directory), fs.curr.U)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/V.npy", directory), fs.curr.V)) { return false; }
+
+  if (!to_npy(Igor::detail::format("{}/rho_u_stag_old.npy", directory), fs.old.rho_u_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/rho_v_stag_old.npy", directory), fs.old.rho_v_stag)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/U_old.npy", directory), fs.old.U)) { return false; }
+  if (!to_npy(Igor::detail::format("{}/V_old.npy", directory), fs.old.V)) { return false; }
 
   return true;
 }

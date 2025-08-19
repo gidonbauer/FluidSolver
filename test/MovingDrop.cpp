@@ -336,7 +336,7 @@ auto main() -> int {
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       // Correct pressure
-      for_each_i<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
 
       // Correct velocity
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {

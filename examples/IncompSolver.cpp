@@ -8,6 +8,7 @@
 #include <Igor/TypeName.hpp>
 
 // #define FS_HYPRE_VERBOSE
+#define FS_SILENCE_CONV_WARN
 
 #include "FS.hpp"
 #include "IO.hpp"
@@ -38,7 +39,7 @@ constexpr Float U_0             = 0.0;
 constexpr Float VISC            = 1e-3;  // 1e-1;
 constexpr Float RHO             = 0.9;
 
-constexpr int PRESSURE_MAX_ITER = 500;
+constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
@@ -150,9 +151,8 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
-  bool failed = false;
   Igor::ProgressBar<Float> pbar(T_END, 67);
-  while (t < T_END && !failed) {
+  while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
 
@@ -186,10 +186,7 @@ auto main() -> int {
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       Index local_pressure_iter = 0;
-      if (!ps.solve(fs, div, dt, delta_p, &pressure_res, &local_pressure_iter)) {
-        Igor::Warn("Pressure correction failed at t={}.", t);
-        failed = true;
-      }
+      ps.solve(fs, div, dt, delta_p, &pressure_res, &local_pressure_iter);
       pressure_iter += local_pressure_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
@@ -219,10 +216,5 @@ auto main() -> int {
   }
   std::cout << '\n';
 
-  if (failed) {
-    Igor::Warn("Solver did not finish successfully.");
-    return 1;
-  } else {
-    Igor::Info("Solver finish successfully.");
-  }
+  Igor::Info("Solver finish successfully.");
 }

@@ -25,6 +25,7 @@ using Float                     = double;
 
 constexpr Index NX              = 5 * 128;
 constexpr Index NY              = 128;
+constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
 constexpr Float X_MAX           = 5.0;
@@ -65,32 +66,32 @@ constexpr auto OUTPUT_DIR = "output/PhaseChange/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-void calc_vof_stats(const FS<Float, NX, NY>& fs,
-                    const Matrix<Float, NX, NY>& vof,
-                    const Float init_vof_integral,
+void calc_vof_stats(const FS<Float, NX, NY, NGHOST>& fs,
+                    const Matrix<Float, NX, NY, NGHOST>& vf,
+                    const Float init_vf_integral,
                     Float& min,
                     Float& max,
                     Float& integral,
                     Float& loss) noexcept {
-  const auto [min_it, max_it] = std::minmax_element(vof.get_data(), vof.get_data() + vof.size());
+  const auto [min_it, max_it] = std::minmax_element(vf.get_data(), vf.get_data() + vf.size());
 
   min                         = *min_it;
   max                         = *max_it;
-  integral                    = integrate(fs.dx, fs.dy, vof);
-  loss                        = init_vof_integral - integral;
+  integral                    = integrate<true>(fs.dx, fs.dy, vf);
+  loss                        = init_vf_integral - integral;
 }
 
 // -------------------------------------------------------------------------------------------------
-void calc_inflow_outflow(const FS<Float, NX, NY>& fs,
+void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
                          Float& inflow,
                          Float& outflow,
                          Float& mass_error) {
   inflow  = 0.0;
   outflow = 0.0;
-  for (Index j = 0; j < NY; ++j) {
-    inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
-    outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
-  }
+  for_each_a(fs.ym, [&](Index j) {
+    inflow  += fs.curr.rho_u_stag[-NGHOST, j] * fs.curr.U[-NGHOST, j];
+    outflow += fs.curr.rho_u_stag[NX + NGHOST, j] * fs.curr.U[NX + NGHOST, j];
+  });
   mass_error = outflow - inflow;
 }
 
@@ -102,28 +103,28 @@ auto main() -> int {
   Igor::Info("Weber number = {:.6e}", WEBER_NUMBER);
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{.visc_gas    = VISC_G,
-                       .visc_liquid = VISC_L,
-                       .rho_gas     = RHO_G,
-                       .rho_liquid  = RHO_L,
-                       .sigma       = SURFACE_TENSION};
+  FS<Float, NX, NY, NGHOST> fs{.visc_gas    = VISC_G,
+                               .visc_liquid = VISC_L,
+                               .rho_gas     = RHO_G,
+                               .rho_liquid  = RHO_L,
+                               .sigma       = SURFACE_TENSION};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
-  VOF<Float, NX, NY> vof{};
+  VOF<Float, NX, NY, NGHOST> vof{};
 
-  Matrix<Float, NX, NY> Ui{};
-  Matrix<Float, NX, NY> Vi{};
-  Matrix<Float, NX, NY> div{};
-  Matrix<Float, NX, NY> rhoi{};
+  Matrix<Float, NX, NY, NGHOST> Ui{};
+  Matrix<Float, NX, NY, NGHOST> Vi{};
+  Matrix<Float, NX, NY, NGHOST> div{};
+  Matrix<Float, NX, NY, NGHOST> rhoi{};
 
-  Matrix<Float, NX + 1, NY> drho_u_stagdt{};
-  Matrix<Float, NX, NY + 1> drho_v_stagdt{};
-  Matrix<Float, NX + 1, NY> drhoUdt{};
-  Matrix<Float, NX, NY + 1> drhoVdt{};
+  Matrix<Float, NX + 1, NY, NGHOST> drho_u_stagdt{};
+  Matrix<Float, NX, NY + 1, NGHOST> drho_v_stagdt{};
+  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
 
-  Matrix<Float, NX, NY> delta_p{};
-  Matrix<Float, NX + 1, NY> delta_p_jump_u_stag{};
-  Matrix<Float, NX, NY + 1> delta_p_jump_v_stag{};
+  Matrix<Float, NX, NY, NGHOST> delta_p{};
+  Matrix<Float, NX + 1, NY, NGHOST> delta_p_jump_u_stag{};
+  Matrix<Float, NX, NY + 1, NGHOST> delta_p_jump_v_stag{};
 
   // Observation variables
   Float t       = 0.0;
@@ -154,7 +155,7 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
   vtk_writer.add_scalar("density", &rhoi);
   vtk_writer.add_scalar("viscosity", &fs.visc);
   vtk_writer.add_scalar("pressure", &fs.p);
@@ -192,35 +193,21 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize VOF field ========================================================================
-#pragma omp parallel for collapse(2)
-  for (Index i = 0; i < vof.vf.extent(0); ++i) {
-    for (Index j = 0; j < vof.vf.extent(1); ++j) {
-      vof.vf[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
-    }
-  }
-  const Float init_vof_integral = integrate(fs.dx, fs.dy, vof.vf);
+  for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
+    vof.vf[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+  });
+  const Float init_vf_integral = integrate(fs.dx, fs.dy, vof.vf);
   localize_cells(fs.x, fs.y, vof.ir);
   reconstruct_interface(fs, vof.vf, vof.ir);
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
-  std::fill_n(fs.p.get_data(), fs.p.size(), 0.0);
-
-  for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      fs.curr.U[i, j] = U_0;
-    }
-  }
-  for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
-    for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-      fs.curr.V[i, j] = 0.0;
-    }
-  }
-
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_0; });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
   calc_rho_and_visc(vof.vf, fs);
-  PS<Float, NX, NY> ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
@@ -233,7 +220,7 @@ auto main() -> int {
   curv_max = max(vof.curv);
   // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
   // p_max = max(fs.p);
-  calc_vof_stats(fs, vof.vf, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
+  calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
   if (!vtk_writer.write(t)) { return 1; }
   monitor.write();
@@ -246,7 +233,7 @@ auto main() -> int {
 
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
-    std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
+    copy(vof.vf, vof.vf_old);
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);
@@ -264,35 +251,25 @@ auto main() -> int {
 
       // = Update the density field to make the update consistent ==================================
       calc_drhodt(fs, drho_u_stagdt, drho_v_stagdt);
-      for (Index i = 1; i < fs.curr.rho_u_stag.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.rho_u_stag.extent(1) - 1; ++j) {
-          fs.curr.rho_u_stag[i, j] = fs.old.rho_u_stag[i, j] + dt * drho_u_stagdt[i, j];
-        }
-      }
+      for_each_i<Exec::Parallel>(fs.curr.rho_u_stag, [&](Index i, Index j) {
+        fs.curr.rho_u_stag[i, j] = fs.old.rho_u_stag[i, j] + dt * drho_u_stagdt[i, j];
+      });
+      for_each_i<Exec::Parallel>(fs.curr.rho_v_stag, [&](Index i, Index j) {
+        fs.curr.rho_v_stag[i, j] = fs.old.rho_v_stag[i, j] + dt * drho_v_stagdt[i, j];
+      });
       apply_neumann_bconds(fs.curr.rho_u_stag);
-      for (Index i = 1; i < fs.curr.rho_v_stag.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.rho_v_stag.extent(1) - 1; ++j) {
-          fs.curr.rho_v_stag[i, j] = fs.old.rho_v_stag[i, j] + dt * drho_v_stagdt[i, j];
-        }
-      }
       apply_neumann_bconds(fs.curr.rho_v_stag);
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-          fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                            fs.curr.rho_u_stag[i, j];
-        }
-      }
-      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-          fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                            fs.curr.rho_v_stag[i, j];
-        }
-      }
-
-      // Boundary conditions
+      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
+                          fs.curr.rho_u_stag[i, j];
+      });
+      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
+                          fs.curr.rho_v_stag[i, j];
+      });
       apply_velocity_bconds(fs, bconds);
 
       // Correct the outflow
@@ -300,9 +277,10 @@ auto main() -> int {
       Float outflow    = 0.0;
       Float mass_error = 0.0;
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
-      for (Index j = 0; j < NY; ++j) {
-        fs.curr.U[NX, j] -= mass_error / (fs.curr.rho_u_stag[NX, j] * static_cast<Float>(NY));
-      }
+      for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+        fs.curr.U[NX + NGHOST, j] -=
+            mass_error / (fs.curr.rho_u_stag[NX + NGHOST, j] * static_cast<Float>(NY + 2 * NGHOST));
+      });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
@@ -310,32 +288,24 @@ auto main() -> int {
       calc_curvature_quad_volume_matching(fs, vof);
 
       // NOTE: Save old pressure jump in delta_p_jump_[uv]_stag
-      std::copy_n(
-          fs.p_jump_u_stag.get_data(), fs.p_jump_u_stag.size(), delta_p_jump_u_stag.get_data());
-      std::copy_n(
-          fs.p_jump_v_stag.get_data(), fs.p_jump_v_stag.size(), delta_p_jump_v_stag.get_data());
+      copy(fs.p_jump_u_stag, delta_p_jump_u_stag);
+      copy(fs.p_jump_v_stag, delta_p_jump_v_stag);
       calc_pressure_jump(vof.vf_old, vof.curv, fs);
-      for (Index i = 0; i < NX + 1; ++i) {
-        for (Index j = 0; j < NY; ++j) {
-          delta_p_jump_u_stag[i, j] = fs.p_jump_u_stag[i, j] - delta_p_jump_u_stag[i, j];
-        }
-      }
-      for (Index i = 0; i < NX; ++i) {
-        for (Index j = 0; j < NY + 1; ++j) {
-          delta_p_jump_v_stag[i, j] = fs.p_jump_v_stag[i, j] - delta_p_jump_v_stag[i, j];
-        }
-      }
+      for_each_a<Exec::Parallel>(delta_p_jump_u_stag, [&](Index i, Index j) {
+        delta_p_jump_u_stag[i, j] = fs.p_jump_u_stag[i, j] - delta_p_jump_u_stag[i, j];
+      });
+      for_each_a<Exec::Parallel>(delta_p_jump_v_stag, [&](Index i, Index j) {
+        delta_p_jump_v_stag[i, j] = fs.p_jump_v_stag[i, j] - delta_p_jump_v_stag[i, j];
+      });
 
-      for (Index i = 0; i < NX; ++i) {
-        for (Index j = 0; j < NY; ++j) {
-          div[i, j] += dt * ((delta_p_jump_u_stag[i + 1, j] / fs.curr.rho_u_stag[i + 1, j] -
-                              delta_p_jump_u_stag[i, j] / fs.curr.rho_u_stag[i, j]) /
-                                 fs.dx +
-                             (delta_p_jump_v_stag[i, j + 1] / fs.curr.rho_v_stag[i, j + 1] -
-                              delta_p_jump_v_stag[i, j] / fs.curr.rho_v_stag[i, j]) /
-                                 fs.dy);
-        }
-      }
+      for_each_i<Exec::Parallel>(div, [&](Index i, Index j) {
+        div[i, j] += dt * ((delta_p_jump_u_stag[i + 1, j] / fs.curr.rho_u_stag[i + 1, j] -
+                            delta_p_jump_u_stag[i, j] / fs.curr.rho_u_stag[i, j]) /
+                               fs.dx +
+                           (delta_p_jump_v_stag[i, j + 1] / fs.curr.rho_v_stag[i, j + 1] -
+                            delta_p_jump_v_stag[i, j] / fs.curr.rho_v_stag[i, j]) /
+                               fs.dy);
+      });
       // ===== Add capillary forces ================================================================
 
       Index local_p_iter = 0;
@@ -344,27 +314,19 @@ auto main() -> int {
       p_iter += local_p_iter;
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       // Correct pressure
-      for (Index i = 0; i < fs.p.extent(0); ++i) {
-        for (Index j = 0; j < fs.p.extent(1); ++j) {
-          fs.p[i, j] += delta_p[i, j];
-        }
-      }
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
 
       // Correct velocity
-      for (Index i = 1; i < fs.curr.U.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.U.extent(1) - 1; ++j) {
-          const auto dpdx  = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx;
-          const auto rho   = fs.curr.rho_u_stag[i, j];
-          fs.curr.U[i, j] -= dpdx * dt / rho;
-        }
-      }
-      for (Index i = 1; i < fs.curr.V.extent(0) - 1; ++i) {
-        for (Index j = 1; j < fs.curr.V.extent(1) - 1; ++j) {
-          const auto dpdy  = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy;
-          const auto rho   = fs.curr.rho_v_stag[i, j];
-          fs.curr.V[i, j] -= dpdy * dt / rho;
-        }
-      }
+      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+        const auto dpdx  = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx;
+        const auto rho   = fs.curr.rho_u_stag[i, j];
+        fs.curr.U[i, j] -= dpdx * dt / rho;
+      });
+      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+        const auto dpdy  = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy;
+        const auto rho   = fs.curr.rho_v_stag[i, j];
+        fs.curr.V[i, j] -= dpdy * dt / rho;
+      });
     }
 
     t += dt;
@@ -379,7 +341,7 @@ auto main() -> int {
     curv_max = max(vof.curv);
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     // p_max = max(fs.p);
-    calc_vof_stats(fs, vof.vf, init_vof_integral, vof_min, vof_max, vof_integral, vof_loss);
+    calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!vtk_writer.write(t)) { return 1; }

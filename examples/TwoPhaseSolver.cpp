@@ -218,7 +218,8 @@ auto main() -> int {
   apply_velocity_bconds(fs, bconds);
 
   calc_rho_and_visc(vof.vf, fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(
+      fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::BiCGSTAB, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);

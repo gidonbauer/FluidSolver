@@ -14,7 +14,7 @@
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
-#include "VTKWriter.hpp"
+#include "XDMFWriter.hpp"
 
 // TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
 //       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
@@ -35,7 +35,7 @@ constexpr Float Y_MAX           = 1.0;
 constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.5;
-constexpr Float DT_WRITE        = 5e-2;
+constexpr Float DT_WRITE        = 1e-4;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
@@ -155,14 +155,18 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  vtk_writer.add_scalar("density", &rhoi);
-  vtk_writer.add_scalar("viscosity", &fs.visc);
-  vtk_writer.add_scalar("pressure", &fs.p);
-  vtk_writer.add_scalar("divergence", &div);
-  vtk_writer.add_scalar("VOF", &vof.vf);
-  vtk_writer.add_vector("velocity", &Ui, &Vi);
-  vtk_writer.add_scalar("curvature", &vof.curv);
+  XDMFWriter<Float, NX, NY, NGHOST> data_writer(
+      Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
+      Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
+      &fs.x,
+      &fs.y);
+  data_writer.add_scalar("density", &rhoi);
+  data_writer.add_scalar("viscosity", &fs.visc);
+  data_writer.add_scalar("pressure", &fs.p);
+  data_writer.add_scalar("divergence", &div);
+  data_writer.add_scalar("VOF", &vof.vf);
+  data_writer.add_vector("velocity", &Ui, &Vi);
+  data_writer.add_scalar("curvature", &vof.curv);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -222,7 +226,7 @@ auto main() -> int {
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
-  if (!vtk_writer.write(t)) { return 1; }
+  if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -344,7 +348,7 @@ auto main() -> int {
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!vtk_writer.write(t)) { return 1; }
+      if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
   }

@@ -1,5 +1,4 @@
 #include <cstddef>
-#include <numeric>
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
@@ -15,7 +14,7 @@
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
-#include "VTKWriter.hpp"
+#include "XDMFWriter.hpp"
 
 // = Config ========================================================================================
 using Float                     = double;
@@ -25,11 +24,11 @@ constexpr Index NY              = 64;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 10.0;  // 10.0;
+constexpr Float X_MAX           = 10.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 60.0;  // 10.0;
+constexpr Float T_END           = 10.0;
 constexpr Float DT_MAX          = 1e-1;
 constexpr Float CFL_MAX         = 0.9;
 constexpr Float DT_WRITE        = 0.5;
@@ -111,12 +110,16 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  XDMFWriter<Float, NX, NY, NGHOST> data_writer(
+      Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
+      Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
+      &fs.x,
+      &fs.y);
   calc_rho_and_visc(fs);
 
-  vtk_writer.add_scalar("pressure", &fs.p);
-  vtk_writer.add_scalar("divergence", &div);
-  vtk_writer.add_vector("velocity", &Ui, &Vi);
+  data_writer.add_scalar("pressure", &fs.p);
+  data_writer.add_scalar("divergence", &div);
+  data_writer.add_vector("velocity", &Ui, &Vi);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -132,7 +135,8 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(
+      fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::BiCGSTAB, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   // = Initialize flow field =======================================================================
   for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_0; });
@@ -146,7 +150,7 @@ auto main() -> int {
   U_max   = abs_max(fs.curr.U);
   V_max   = abs_max(fs.curr.V);
   div_max = abs_max(div);
-  if (!vtk_writer.write(t)) { return 1; }
+  if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -209,7 +213,7 @@ auto main() -> int {
     V_max   = abs_max(fs.curr.V);
     div_max = abs_max(div);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!vtk_writer.write(t)) { return 1; }
+      if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
     pbar.update(dt);

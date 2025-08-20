@@ -226,12 +226,12 @@ class PS {
     HYPRE_StructVectorSetBoxValues(m_sol, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Set right-hand side =======================================================================
-    Float mean_rhs = 0.0;
-    for_each_a(rhs_values, [&](Index i, Index j) {
-      rhs_values[i, j]  = -vol * div[i, j] / dt;
-      mean_rhs         += rhs_values[i, j];
-    });
-    mean_rhs /= static_cast<Float>(rhs_values.size());
+    for_each_a(rhs_values, [&](Index i, Index j) { rhs_values[i, j] = -vol * div[i, j] / dt; });
+    const Float mean_rhs = std::reduce(rhs_values.get_data(),
+                                       rhs_values.get_data() + rhs_values.size(),
+                                       Float{0},
+                                       std::plus<>{}) /
+                           static_cast<Float>(rhs_values.size());
     for_each_a<Exec::Parallel>(rhs_values, [&](Index i, Index j) { rhs_values[i, j] -= mean_rhs; });
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
 

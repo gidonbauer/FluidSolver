@@ -8,10 +8,8 @@
 
 #include "FS.hpp"
 
-// #define FS_PRESSURE_DIRICHLET_RIGHT
-
-enum class PSPrecond : std::uint8_t { SMG, PFMG };
-enum class PSSolver : std::uint8_t { GMRES, PCG };
+enum class PSSolver : std::uint8_t { GMRES, PCG, BiCGSTAB, SMG, PFMG };
+enum class PSPrecond : std::uint8_t { SMG, PFMG, NONE };
 enum class PSDirichlet : std::uint8_t { NONE, LEFT, RIGHT, BOTTOM, TOP };
 
 template <typename Float, Index NX, Index NY, Index NGHOST>
@@ -30,8 +28,8 @@ class PS {
   HYPRE_StructSolver m_solver{};
   HYPRE_StructSolver m_precond{};
 
-  PSPrecond m_precond_type   = PSPrecond::SMG;
   PSSolver m_solver_type     = PSSolver::GMRES;
+  PSPrecond m_precond_type   = PSPrecond::SMG;
   PSDirichlet m_dirichlet_bc = PSDirichlet::NONE;
 
   Float m_tol;
@@ -42,11 +40,11 @@ class PS {
   constexpr PS(const FS<Float, NX, NY, NGHOST>& fs,
                Float tol,
                HYPRE_Int max_iter,
-               PSPrecond precond_type,
                PSSolver solver_type,
+               PSPrecond precond_type,
                PSDirichlet dirichlet_side) noexcept
-      : m_precond_type(precond_type),
-        m_solver_type(solver_type),
+      : m_solver_type(solver_type),
+        m_precond_type(precond_type),
         m_dirichlet_bc(dirichlet_side),
         m_tol(tol),
         m_max_iter(max_iter) {
@@ -79,10 +77,14 @@ class PS {
     switch (m_precond_type) {
       case PSPrecond::SMG:  HYPRE_StructSMGDestroy(m_precond); break;
       case PSPrecond::PFMG: HYPRE_StructPFMGDestroy(m_precond); break;
+      case PSPrecond::NONE: break;
     }
     switch (m_solver_type) {
-      case PSSolver::GMRES: HYPRE_StructGMRESDestroy(m_solver); break;
-      case PSSolver::PCG:   HYPRE_StructPCGDestroy(m_solver); break;
+      case PSSolver::GMRES:    HYPRE_StructGMRESDestroy(m_solver); break;
+      case PSSolver::PCG:      HYPRE_StructPCGDestroy(m_solver); break;
+      case PSSolver::BiCGSTAB: HYPRE_StructBiCGSTABDestroy(m_solver); break;
+      case PSSolver::SMG:      HYPRE_StructSMGDestroy(m_solver); break;
+      case PSSolver::PFMG:     HYPRE_StructPFMGDestroy(m_solver); break;
     }
     HYPRE_StructVectorDestroy(m_sol);
     HYPRE_StructVectorDestroy(m_rhs);
@@ -156,6 +158,36 @@ class PS {
         HYPRE_StructPCGSetLogging(m_solver, 1);
 #endif  // FS_HYPRE_VERBOSE
         break;
+
+      case PSSolver::BiCGSTAB:
+        HYPRE_StructBiCGSTABCreate(COMM, &m_solver);
+        HYPRE_StructBiCGSTABSetTol(m_solver, m_tol);
+        HYPRE_StructBiCGSTABSetMaxIter(m_solver, m_max_iter);
+#ifdef FS_HYPRE_VERBOSE
+        HYPRE_StructBiCGSTABSetPrintLevel(m_solver, 2);
+        HYPRE_StructBiCGSTABSetLogging(m_solver, 1);
+#endif  // FS_HYPRE_VERBOSE
+        break;
+
+      case PSSolver::SMG:
+        HYPRE_StructSMGCreate(COMM, &m_solver);
+        HYPRE_StructSMGSetTol(m_solver, m_tol);
+        HYPRE_StructSMGSetMaxIter(m_solver, m_max_iter);
+#ifdef FS_HYPRE_VERBOSE
+        HYPRE_StructSMGSetPrintLevel(m_solver, 2);
+        HYPRE_StructSMGSetLogging(m_solver, 1);
+#endif  // FS_HYPRE_VERBOSE
+        break;
+
+      case PSSolver::PFMG:
+        HYPRE_StructPFMGCreate(COMM, &m_solver);
+        HYPRE_StructPFMGSetTol(m_solver, m_tol);
+        HYPRE_StructPFMGSetMaxIter(m_solver, m_max_iter);
+#ifdef FS_HYPRE_VERBOSE
+        HYPRE_StructPFMGSetPrintLevel(m_solver, 2);
+        HYPRE_StructPFMGSetLogging(m_solver, 1);
+#endif  // FS_HYPRE_VERBOSE
+        break;
     }
 
     // = Create preconditioner =====================================================================
@@ -184,20 +216,48 @@ class PS {
         precond_setup = HYPRE_StructPFMGSetup;
         precond_solve = HYPRE_StructPFMGSolve;
         break;
+
+      case PSPrecond::NONE: break;
     }
 
-    IGOR_ASSERT(precond_setup != nullptr && precond_solve != nullptr,
-                "Did not set the preconditioner functions.");
+    IGOR_ASSERT((m_precond_type != PSPrecond::NONE && precond_setup != nullptr &&
+                 precond_solve != nullptr) ||
+                    (m_precond_type == PSPrecond::NONE && precond_setup == nullptr &&
+                     precond_solve == nullptr),
+                "Did not set the preconditioner functions properly.");
 
     switch (m_solver_type) {
       case PSSolver::GMRES:
-        HYPRE_StructGMRESSetPrecond(m_solver, precond_solve, precond_setup, m_precond);
+        if (precond_setup != nullptr && precond_solve != nullptr) {
+          HYPRE_StructGMRESSetPrecond(m_solver, precond_solve, precond_setup, m_precond);
+        }
         HYPRE_StructGMRESSetup(m_solver, m_matrix, m_rhs, m_sol);
         break;
 
       case PSSolver::PCG:
-        HYPRE_StructPCGSetPrecond(m_solver, precond_solve, precond_setup, m_precond);
+        if (precond_setup != nullptr && precond_solve != nullptr) {
+          HYPRE_StructPCGSetPrecond(m_solver, precond_solve, precond_setup, m_precond);
+        }
         HYPRE_StructPCGSetup(m_solver, m_matrix, m_rhs, m_sol);
+        break;
+
+      case PSSolver::BiCGSTAB:
+        if (precond_setup != nullptr && precond_solve != nullptr) {
+          HYPRE_StructBiCGSTABSetPrecond(m_solver, precond_solve, precond_setup, m_precond);
+        }
+        HYPRE_StructBiCGSTABSetup(m_solver, m_matrix, m_rhs, m_sol);
+        break;
+
+      case PSSolver::SMG:
+        IGOR_ASSERT(precond_setup == nullptr && precond_solve == nullptr,
+                    "SMG solver does not support preconditioner.");
+        HYPRE_StructSMGSetup(m_solver, m_matrix, m_rhs, m_sol);
+        break;
+
+      case PSSolver::PFMG:
+        IGOR_ASSERT(precond_setup == nullptr && precond_solve == nullptr,
+                    "PFMG solver does not support preconditioner.");
+        HYPRE_StructPFMGSetup(m_solver, m_matrix, m_rhs, m_sol);
         break;
     }
 
@@ -259,16 +319,49 @@ class PS {
       }
     });
 
-#ifdef FS_PRESSURE_DIRICHLET_RIGHT
-    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-      std::array<Float, STENCIL_SIZE>& s = stencil_values[NX + NGHOST - 1, j];
-      s[S_CENTER]                        = 1.0;
-      s[S_LEFT]                          = 0.0;
-      s[S_RIGHT]                         = 0.0;
-      s[S_BOTTOM]                        = 0.0;
-      s[S_TOP]                           = 0.0;
-    });
-#endif  // FS_PRESSURE_DIRICHLET_RIGHT
+    switch (m_dirichlet_bc) {
+      case PSDirichlet::LEFT:
+        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+          std::array<Float, STENCIL_SIZE>& s = stencil_values[-NGHOST, j];
+          s[S_CENTER]                        = 1.0;
+          s[S_LEFT]                          = 0.0;
+          s[S_RIGHT]                         = 0.0;
+          s[S_BOTTOM]                        = 0.0;
+          s[S_TOP]                           = 0.0;
+        });
+        break;
+      case PSDirichlet::RIGHT:
+        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+          std::array<Float, STENCIL_SIZE>& s = stencil_values[NX + NGHOST - 1, j];
+          s[S_CENTER]                        = 1.0;
+          s[S_LEFT]                          = 0.0;
+          s[S_RIGHT]                         = 0.0;
+          s[S_BOTTOM]                        = 0.0;
+          s[S_TOP]                           = 0.0;
+        });
+        break;
+      case PSDirichlet::BOTTOM:
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+          std::array<Float, STENCIL_SIZE>& s = stencil_values[i, -NGHOST];
+          s[S_CENTER]                        = 1.0;
+          s[S_LEFT]                          = 0.0;
+          s[S_RIGHT]                         = 0.0;
+          s[S_BOTTOM]                        = 0.0;
+          s[S_TOP]                           = 0.0;
+        });
+        break;
+      case PSDirichlet::TOP:
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+          std::array<Float, STENCIL_SIZE>& s = stencil_values[i, NX + NGHOST - 1];
+          s[S_CENTER]                        = 1.0;
+          s[S_LEFT]                          = 0.0;
+          s[S_RIGHT]                         = 0.0;
+          s[S_BOTTOM]                        = 0.0;
+          s[S_TOP]                           = 0.0;
+        });
+        break;
+      case PSDirichlet::NONE:
+    }
 
 #if 1
     std::array<HYPRE_Int, NDIMS> ilower = {-NGHOST, -NGHOST};
@@ -317,17 +410,29 @@ class PS {
     // = Set right-hand side =======================================================================
     for_each_a(rhs_values, [&](Index i, Index j) { rhs_values[i, j] = -vol * div[i, j] / dt; });
 
-#ifdef FS_PRESSURE_DIRICHLET_RIGHT
-    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values[NX + NGHOST - 1, j] = 0.0; });
-#else
-    const Float mean_rhs = std::reduce(rhs_values.get_data(),
-                                       rhs_values.get_data() + rhs_values.size(),
-                                       Float{0},
-                                       std::plus<>{}) /
-                           static_cast<Float>(rhs_values.size());
-    for_each_a<Exec::Parallel>(rhs_values, [&](Index i, Index j) { rhs_values[i, j] -= mean_rhs; });
-#endif  // FS_PRESSURE_DIRICHLET_RIGHT
-
+    switch (m_dirichlet_bc) {
+      case PSDirichlet::LEFT:
+        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values[-NGHOST, j] = 0.0; });
+        break;
+      case PSDirichlet::RIGHT:
+        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values[NX + NGHOST - 1, j] = 0.0; });
+        break;
+      case PSDirichlet::BOTTOM:
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values[i, -NGHOST] = 0.0; });
+        break;
+      case PSDirichlet::TOP:
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values[i, NX + NGHOST - 1] = 0.0; });
+        break;
+      case PSDirichlet::NONE:
+        const Float mean_rhs = std::reduce(rhs_values.get_data(),
+                                           rhs_values.get_data() + rhs_values.size(),
+                                           Float{0},
+                                           std::plus<>{}) /
+                               static_cast<Float>(rhs_values.size());
+        for_each_a<Exec::Parallel>(rhs_values,
+                                   [&](Index i, Index j) { rhs_values[i, j] -= mean_rhs; });
+        break;
+    }
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Solve the system ==========================================================================
@@ -345,6 +450,24 @@ class PS {
         HYPRE_StructPCGSolve(m_solver, m_matrix, m_rhs, m_sol);
         HYPRE_StructPCGGetFinalRelativeResidualNorm(m_solver, &final_residual);
         HYPRE_StructPCGGetNumIterations(m_solver, &local_num_iter);
+        break;
+
+      case PSSolver::BiCGSTAB:
+        HYPRE_StructBiCGSTABSolve(m_solver, m_matrix, m_rhs, m_sol);
+        HYPRE_StructBiCGSTABGetFinalRelativeResidualNorm(m_solver, &final_residual);
+        HYPRE_StructBiCGSTABGetNumIterations(m_solver, &local_num_iter);
+        break;
+
+      case PSSolver::SMG:
+        HYPRE_StructSMGSolve(m_solver, m_matrix, m_rhs, m_sol);
+        HYPRE_StructSMGGetFinalRelativeResidualNorm(m_solver, &final_residual);
+        HYPRE_StructSMGGetNumIterations(m_solver, &local_num_iter);
+        break;
+
+      case PSSolver::PFMG:
+        HYPRE_StructPFMGSolve(m_solver, m_matrix, m_rhs, m_sol);
+        HYPRE_StructPFMGGetFinalRelativeResidualNorm(m_solver, &final_residual);
+        HYPRE_StructPFMGGetNumIterations(m_solver, &local_num_iter);
         break;
     }
 

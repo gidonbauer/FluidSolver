@@ -104,11 +104,6 @@ class PS {
       std::array<HYPRE_Int, 2> ilower = {-NGHOST, -NGHOST};
       std::array<HYPRE_Int, 2> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
       HYPRE_StructGridSetExtents(m_grid, ilower.data(), iupper.data());
-
-      // TODO: Is this necessary?
-      std::array<HYPRE_Int, NDIMS> num_ghost{NGHOST, NGHOST};
-      HYPRE_StructGridSetNumGhost(m_grid, num_ghost.data());
-
       HYPRE_StructGridAssemble(m_grid);
     }
 
@@ -130,11 +125,6 @@ class PS {
     HYPRE_StructMatrixCreate(COMM, m_grid, m_stencil, &m_matrix);
     HYPRE_StructMatrixInitialize(m_matrix);
     setup_system_matrix(fs);
-
-    // TODO: Is this necessary?
-    std::array<HYPRE_Int, NDIMS> num_ghost{NGHOST, NGHOST};
-    HYPRE_StructMatrixSetNumGhost(m_matrix, num_ghost.data());
-
     HYPRE_StructMatrixAssemble(m_matrix);
 
     // = Create right-hand side ====================================================================

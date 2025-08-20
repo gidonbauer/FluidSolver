@@ -8,6 +8,12 @@
 
 #include "FS.hpp"
 
+// #define FS_PRESSURE_DIRICHLET_RIGHT
+
+enum class PSPrecond : std::uint8_t { SMG, PFMG };
+enum class PSSolver : std::uint8_t { GMRES, PCG };
+enum class PSDirichlet : std::uint8_t { NONE, LEFT, RIGHT, BOTTOM, TOP };
+
 template <typename Float, Index NX, Index NY, Index NGHOST>
 class PS {
   static_assert(std::is_same_v<Float, double>, "HYPRE requires Float=double");
@@ -24,11 +30,30 @@ class PS {
   HYPRE_StructSolver m_solver{};
   HYPRE_StructSolver m_precond{};
 
+  PSPrecond m_precond_type   = PSPrecond::SMG;
+  PSSolver m_solver_type     = PSSolver::GMRES;
+  PSDirichlet m_dirichlet_bc = PSDirichlet::NONE;
+
   Float m_tol;
   HYPRE_Int m_max_iter;
   bool m_is_setup = false;
 
  public:
+  constexpr PS(const FS<Float, NX, NY, NGHOST>& fs,
+               Float tol,
+               HYPRE_Int max_iter,
+               PSPrecond precond_type,
+               PSSolver solver_type,
+               PSDirichlet dirichlet_side) noexcept
+      : m_precond_type(precond_type),
+        m_solver_type(solver_type),
+        m_dirichlet_bc(dirichlet_side),
+        m_tol(tol),
+        m_max_iter(max_iter) {
+    HYPRE_Initialize();
+    setup(fs);
+  }
+
   constexpr PS(const FS<Float, NX, NY, NGHOST>& fs, Float tol, HYPRE_Int max_iter) noexcept
       : m_tol(tol),
         m_max_iter(max_iter) {
@@ -51,8 +76,14 @@ class PS {
  private:
   // -----------------------------------------------------------------------------------------------
   constexpr void destroy() noexcept {
-    HYPRE_StructSMGDestroy(m_precond);
-    HYPRE_StructGMRESDestroy(m_solver);
+    switch (m_precond_type) {
+      case PSPrecond::SMG:  HYPRE_StructSMGDestroy(m_precond); break;
+      case PSPrecond::PFMG: HYPRE_StructPFMGDestroy(m_precond); break;
+    }
+    switch (m_solver_type) {
+      case PSSolver::GMRES: HYPRE_StructGMRESDestroy(m_solver); break;
+      case PSSolver::PCG:   HYPRE_StructPCGDestroy(m_solver); break;
+    }
     HYPRE_StructVectorDestroy(m_sol);
     HYPRE_StructVectorDestroy(m_rhs);
     HYPRE_StructMatrixDestroy(m_matrix);
@@ -115,24 +146,70 @@ class PS {
     HYPRE_StructVectorInitialize(m_sol);
 
     // = Create solver =============================================================================
-    HYPRE_StructGMRESCreate(COMM, &m_solver);
-    HYPRE_StructGMRESSetTol(m_solver, m_tol);
-    HYPRE_StructGMRESSetMaxIter(m_solver, m_max_iter);
+    switch (m_solver_type) {
+      case PSSolver::GMRES:
+        HYPRE_StructGMRESCreate(COMM, &m_solver);
+        HYPRE_StructGMRESSetTol(m_solver, m_tol);
+        HYPRE_StructGMRESSetMaxIter(m_solver, m_max_iter);
 #ifdef FS_HYPRE_VERBOSE
-    HYPRE_StructGMRESSetPrintLevel(m_solver, 2);
-    HYPRE_StructGMRESSetLogging(m_solver, 1);
+        HYPRE_StructGMRESSetPrintLevel(m_solver, 2);
+        HYPRE_StructGMRESSetLogging(m_solver, 1);
 #endif  // FS_HYPRE_VERBOSE
+        break;
+
+      case PSSolver::PCG:
+        HYPRE_StructPCGCreate(COMM, &m_solver);
+        HYPRE_StructPCGSetTol(m_solver, m_tol);
+        HYPRE_StructPCGSetMaxIter(m_solver, m_max_iter);
+#ifdef FS_HYPRE_VERBOSE
+        HYPRE_StructPCGSetPrintLevel(m_solver, 2);
+        HYPRE_StructPCGSetLogging(m_solver, 1);
+#endif  // FS_HYPRE_VERBOSE
+        break;
+    }
 
     // = Create preconditioner =====================================================================
-    HYPRE_StructSMGCreate(COMM, &m_precond);
-    HYPRE_StructSMGSetMaxIter(m_precond, 1);
-    HYPRE_StructSMGSetTol(m_precond, 0.0);
-    HYPRE_StructSMGSetZeroGuess(m_precond);
-    HYPRE_StructSMGSetNumPreRelax(m_precond, 1);
-    HYPRE_StructSMGSetNumPostRelax(m_precond, 1);
-    HYPRE_StructSMGSetMemoryUse(m_precond, 0);
-    HYPRE_StructGMRESSetPrecond(m_solver, HYPRE_StructSMGSolve, HYPRE_StructSMGSetup, m_precond);
-    HYPRE_StructGMRESSetup(m_solver, m_matrix, m_rhs, m_sol);
+    HYPRE_PtrToStructSolverFcn precond_setup = nullptr;
+    HYPRE_PtrToStructSolverFcn precond_solve = nullptr;
+    switch (m_precond_type) {
+      case PSPrecond::SMG:
+        HYPRE_StructSMGCreate(COMM, &m_precond);
+        HYPRE_StructSMGSetMaxIter(m_precond, 1);
+        HYPRE_StructSMGSetTol(m_precond, 0.0);
+        HYPRE_StructSMGSetZeroGuess(m_precond);
+        HYPRE_StructSMGSetNumPreRelax(m_precond, 1);
+        HYPRE_StructSMGSetNumPostRelax(m_precond, 1);
+        // HYPRE_StructSMGSetMemoryUse(m_precond, 0);
+        precond_setup = HYPRE_StructSMGSetup;
+        precond_solve = HYPRE_StructSMGSolve;
+        break;
+
+      case PSPrecond::PFMG:
+        HYPRE_StructPFMGCreate(COMM, &m_precond);
+        HYPRE_StructPFMGSetMaxIter(m_precond, 1);
+        HYPRE_StructPFMGSetTol(m_precond, 0.0);
+        HYPRE_StructPFMGSetZeroGuess(m_precond);
+        HYPRE_StructPFMGSetNumPreRelax(m_precond, 1);
+        HYPRE_StructPFMGSetNumPostRelax(m_precond, 1);
+        precond_setup = HYPRE_StructPFMGSetup;
+        precond_solve = HYPRE_StructPFMGSolve;
+        break;
+    }
+
+    IGOR_ASSERT(precond_setup != nullptr && precond_solve != nullptr,
+                "Did not set the preconditioner functions.");
+
+    switch (m_solver_type) {
+      case PSSolver::GMRES:
+        HYPRE_StructGMRESSetPrecond(m_solver, precond_solve, precond_setup, m_precond);
+        HYPRE_StructGMRESSetup(m_solver, m_matrix, m_rhs, m_sol);
+        break;
+
+      case PSSolver::PCG:
+        HYPRE_StructPCGSetPrecond(m_solver, precond_solve, precond_setup, m_precond);
+        HYPRE_StructPCGSetup(m_solver, m_matrix, m_rhs, m_sol);
+        break;
+    }
 
     const HYPRE_Int error_flag = HYPRE_GetError();
     if (error_flag != 0) { Igor::Panic("An error occured in HYPRE."); }
@@ -192,6 +269,18 @@ class PS {
       }
     });
 
+#ifdef FS_PRESSURE_DIRICHLET_RIGHT
+    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+      std::array<Float, STENCIL_SIZE>& s = stencil_values[NX + NGHOST - 1, j];
+      s[S_CENTER]                        = 1.0;
+      s[S_LEFT]                          = 0.0;
+      s[S_RIGHT]                         = 0.0;
+      s[S_BOTTOM]                        = 0.0;
+      s[S_TOP]                           = 0.0;
+    });
+#endif  // FS_PRESSURE_DIRICHLET_RIGHT
+
+#if 1
     std::array<HYPRE_Int, NDIMS> ilower = {-NGHOST, -NGHOST};
     std::array<HYPRE_Int, NDIMS> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
     HYPRE_StructMatrixSetBoxValues(m_matrix,
@@ -200,6 +289,16 @@ class PS {
                                    STENCIL_SIZE,
                                    stencil_indices.data(),
                                    stencil_values.get_data()->data());
+#else
+    for_each_a(stencil_values, [&](Index i, Index j) {
+      std::array<HYPRE_Int, NDIMS> index{i, j};
+      HYPRE_StructMatrixSetValues(m_matrix,
+                                  index.data(),
+                                  STENCIL_SIZE,
+                                  stencil_indices.data(),
+                                  stencil_values[i, j].data());
+    });
+#endif
   }
 
  public:
@@ -227,20 +326,37 @@ class PS {
 
     // = Set right-hand side =======================================================================
     for_each_a(rhs_values, [&](Index i, Index j) { rhs_values[i, j] = -vol * div[i, j] / dt; });
+
+#ifdef FS_PRESSURE_DIRICHLET_RIGHT
+    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values[NX + NGHOST - 1, j] = 0.0; });
+#else
     const Float mean_rhs = std::reduce(rhs_values.get_data(),
                                        rhs_values.get_data() + rhs_values.size(),
                                        Float{0},
                                        std::plus<>{}) /
                            static_cast<Float>(rhs_values.size());
     for_each_a<Exec::Parallel>(rhs_values, [&](Index i, Index j) { rhs_values[i, j] -= mean_rhs; });
+#endif  // FS_PRESSURE_DIRICHLET_RIGHT
+
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Solve the system ==========================================================================
     Float final_residual     = -1.0;
     HYPRE_Int local_num_iter = -1;
-    HYPRE_StructGMRESSolve(m_solver, m_matrix, m_rhs, m_sol);
-    HYPRE_StructGMRESGetFinalRelativeResidualNorm(m_solver, &final_residual);
-    HYPRE_StructGMRESGetNumIterations(m_solver, &local_num_iter);
+
+    switch (m_solver_type) {
+      case PSSolver::GMRES:
+        HYPRE_StructGMRESSolve(m_solver, m_matrix, m_rhs, m_sol);
+        HYPRE_StructGMRESGetFinalRelativeResidualNorm(m_solver, &final_residual);
+        HYPRE_StructGMRESGetNumIterations(m_solver, &local_num_iter);
+        break;
+
+      case PSSolver::PCG:
+        HYPRE_StructPCGSolve(m_solver, m_matrix, m_rhs, m_sol);
+        HYPRE_StructPCGGetFinalRelativeResidualNorm(m_solver, &final_residual);
+        HYPRE_StructPCGGetNumIterations(m_solver, &local_num_iter);
+        break;
+    }
 
     for_each_a<Exec::Parallel>(resP, [&](Index i, Index j) {
       std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};

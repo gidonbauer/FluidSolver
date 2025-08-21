@@ -29,80 +29,32 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
   for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
     // LEFT
     switch (bconds.types[LEFT]) {
-      case BCond::DIRICHLET:
-        for (Index i = -NGHOST; i < 0; ++i) {
-          fs.curr.U[i, j] = bconds.U[LEFT];
-        }
-        break;
-      case BCond::NEUMANN:
-        for (Index i = -NGHOST; i < 0; ++i) {
-          fs.curr.U[i, j] = fs.curr.U[0, j];
-        }
-        break;
-      case BCond::PERIODIC:
-        for (Index i = -NGHOST; i < 0; ++i) {
-          fs.curr.U[i, j] = fs.curr.U[NX + i, j];
-        }
-        break;
+      case BCond::DIRICHLET: fs.curr.U[-NGHOST, j] = bconds.U[LEFT]; break;
+      case BCond::NEUMANN:   fs.curr.U[-NGHOST, j] = fs.curr.U[0, j]; break;
+      case BCond::PERIODIC:  fs.curr.U[-NGHOST, j] = fs.curr.U[NX - 1, j]; break;
     }
 
     // RIGHT
     switch (bconds.types[RIGHT]) {
-      case BCond::DIRICHLET:
-        for (Index i = NX + 1; i < NX + 1 + NGHOST; ++i) {
-          fs.curr.U[i, j] = bconds.U[RIGHT];
-        }
-        break;
-      case BCond::NEUMANN:
-        for (Index i = NX + 1; i < NX + 1 + NGHOST; ++i) {
-          fs.curr.U[i, j] = fs.curr.U[NX, j];
-        }
-        break;
-      case BCond::PERIODIC:
-        for (Index i = NX + 1; i < NX + 1 + NGHOST; ++i) {
-          fs.curr.U[i, j] = fs.curr.U[0 + i - NX, j];
-        }
-        break;
+      case BCond::DIRICHLET: fs.curr.U[NX + NGHOST, j] = bconds.U[RIGHT]; break;
+      case BCond::NEUMANN:   fs.curr.U[NX + NGHOST, j] = fs.curr.U[NX, j]; break;
+      case BCond::PERIODIC:  fs.curr.U[NX + NGHOST, j] = fs.curr.U[1, j]; break;
     }
   });
 
   for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
     // BOTTOM
     switch (bconds.types[BOTTOM]) {
-      case BCond::DIRICHLET:
-        for (Index j = -NGHOST; j < 0; ++j) {
-          fs.curr.U[i, j] = bconds.U[BOTTOM];
-        }
-        break;
-      case BCond::NEUMANN:
-        for (Index j = -NGHOST; j < 0; ++j) {
-          fs.curr.U[i, j] = fs.curr.U[i, 0];
-        }
-        break;
-      case BCond::PERIODIC:
-        for (Index j = -NGHOST; j < 0; ++j) {
-          fs.curr.U[i, j] = fs.curr.U[i, NY - 1];
-        }
-        break;
+      case BCond::DIRICHLET: fs.curr.U[i, -NGHOST] = bconds.U[BOTTOM]; break;
+      case BCond::NEUMANN:   fs.curr.U[i, -NGHOST] = fs.curr.U[i, 0]; break;
+      case BCond::PERIODIC:  fs.curr.U[i, -NGHOST] = fs.curr.U[i, NY - 1]; break;
     }
 
     // TOP
     switch (bconds.types[TOP]) {
-      case BCond::DIRICHLET:
-        for (Index j = NY; j < NY + NGHOST; ++j) {
-          fs.curr.U[i, j] = bconds.U[TOP];
-        }
-        break;
-      case BCond::NEUMANN:
-        for (Index j = NY; j < NY + NGHOST; ++j) {
-          fs.curr.U[i, j] = fs.curr.U[i, NY];
-        }
-        break;
-      case BCond::PERIODIC:
-        for (Index j = NY; j < NY + NGHOST; ++j) {
-          fs.curr.U[i, j] = fs.curr.U[i, 0 + j - NY];
-        }
-        break;
+      case BCond::DIRICHLET: fs.curr.U[i, NY + NGHOST - 1] = bconds.U[TOP]; break;
+      case BCond::NEUMANN:   fs.curr.U[i, NY + NGHOST - 1] = fs.curr.U[i, NY - 1]; break;
+      case BCond::PERIODIC:  fs.curr.U[i, NY + NGHOST - 1] = fs.curr.U[i, 0]; break;
     }
   });
 
@@ -110,80 +62,32 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
   for_each_a<Exec::Parallel>(fs.y, [&](Index j) {
     // LEFT
     switch (bconds.types[LEFT]) {
-      case BCond::DIRICHLET:
-        for (Index i = -NGHOST; i < 0; ++i) {
-          fs.curr.V[i, j] = bconds.V[LEFT];
-        }
-        break;
-      case BCond::NEUMANN:
-        for (Index i = -NGHOST; i < 0; ++i) {
-          fs.curr.V[i, j] = fs.curr.V[0, j];
-        }
-        break;
-      case BCond::PERIODIC:
-        for (Index i = -NGHOST; i < 0; ++i) {
-          fs.curr.V[i, j] = fs.curr.V[NX + i, j];
-        }
-        break;
+      case BCond::DIRICHLET: fs.curr.V[-NGHOST, j] = bconds.V[LEFT]; break;
+      case BCond::NEUMANN:   fs.curr.V[-NGHOST, j] = fs.curr.V[0, j]; break;
+      case BCond::PERIODIC:  fs.curr.V[-NGHOST, j] = fs.curr.V[NX - 1, j]; break;
     }
 
     // RIGHT
     switch (bconds.types[RIGHT]) {
-      case BCond::DIRICHLET:
-        for (Index i = NX; i < NX + NGHOST; ++i) {
-          fs.curr.V[i, j] = bconds.V[RIGHT];
-        }
-        break;
-      case BCond::NEUMANN:
-        for (Index i = NX; i < NX + NGHOST; ++i) {
-          fs.curr.V[i, j] = fs.curr.V[NX - 1, j];
-        }
-        break;
-      case BCond::PERIODIC:
-        for (Index i = NX; i < NX + NGHOST; ++i) {
-          fs.curr.V[i, j] = fs.curr.V[0 + i - NX, j];
-        }
-        break;
+      case BCond::DIRICHLET: fs.curr.V[NX + NGHOST - 1, j] = bconds.V[RIGHT]; break;
+      case BCond::NEUMANN:   fs.curr.V[NX + NGHOST - 1, j] = fs.curr.V[NX - 1, j]; break;
+      case BCond::PERIODIC:  fs.curr.V[NX + NGHOST - 1, j] = fs.curr.V[0, j]; break;
     }
   });
 
   for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
     // BOTTOM
     switch (bconds.types[BOTTOM]) {
-      case BCond::DIRICHLET:
-        for (Index j = -NGHOST; j < 0; ++j) {
-          fs.curr.V[i, j] = bconds.V[BOTTOM];
-        }
-        break;
-      case BCond::NEUMANN:
-        for (Index j = -NGHOST; j < 0; ++j) {
-          fs.curr.V[i, j] = fs.curr.V[i, 0];
-        }
-        break;
-      case BCond::PERIODIC:
-        for (Index j = -NGHOST; j < 0; ++j) {
-          fs.curr.V[i, j] = fs.curr.V[i, NY + j];
-        }
-        break;
+      case BCond::DIRICHLET: fs.curr.V[i, -NGHOST] = bconds.V[BOTTOM]; break;
+      case BCond::NEUMANN:   fs.curr.V[i, -NGHOST] = fs.curr.V[i, 0]; break;
+      case BCond::PERIODIC:  fs.curr.V[i, -NGHOST] = fs.curr.V[i, NY - 1]; break;
     }
 
     // TOP
     switch (bconds.types[TOP]) {
-      case BCond::DIRICHLET:
-        for (Index j = NY + 1; j < NY + 1 + NGHOST; ++j) {
-          fs.curr.V[i, j] = bconds.V[TOP];
-        }
-        break;
-      case BCond::NEUMANN:
-        for (Index j = NY + 1; j < NY + 1 + NGHOST; ++j) {
-          fs.curr.V[i, j] = fs.curr.V[i, NY];
-        }
-        break;
-      case BCond::PERIODIC:
-        for (Index j = NY + 1; j < NY + 1 + NGHOST; ++j) {
-          fs.curr.V[i, j] = fs.curr.V[i, 0 + j - NY];
-        }
-        break;
+      case BCond::DIRICHLET: fs.curr.V[i, NY + NGHOST] = bconds.V[TOP]; break;
+      case BCond::NEUMANN:   fs.curr.V[i, NY + NGHOST] = fs.curr.V[i, NY]; break;
+      case BCond::PERIODIC:  fs.curr.V[i, NY + NGHOST] = fs.curr.V[i, 1]; break;
     }
   });
 }

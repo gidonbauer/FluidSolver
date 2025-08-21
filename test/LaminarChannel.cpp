@@ -19,7 +19,7 @@
 // = Config ========================================================================================
 using Float              = double;
 
-constexpr Index NX       = 500;
+constexpr Index NX       = 510;
 constexpr Index NY       = 51;
 constexpr Index NGHOST   = 1;
 

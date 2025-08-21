@@ -1,19 +1,21 @@
-HEADERS = src/Container.hpp          \
+HEADERS = src/BoundaryConditions.hpp \
+          src/Container.hpp          \
+          src/Curvature.hpp          \
+          src/ForEach.hpp            \
           src/FS.hpp                 \
           src/IO.hpp                 \
+          src/IR.hpp                 \
+          src/Macros.hpp             \
+          src/Monitor.hpp            \
           src/Operators.hpp          \
           src/PressureCorrection.hpp \
-          src/IR.hpp                 \
-          src/VOF.hpp                \
-          src/Monitor.hpp            \
           src/Quadrature.hpp         \
           src/QuadratureTables.hpp   \
-          src/VTKWriter.hpp          \
           src/Utility.hpp            \
-          src/Curvature.hpp          \
-          src/XDMFWriter.hpp         \
-          src/Macros.hpp             \
-          src/ForEach.hpp
+          src/VOF.hpp                \
+          src/VTKWriter.hpp          \
+          src/XDMFWriter.hpp
+
 
 TARGETS = IncompSolver VOF Curvature TwoPhaseSolver IB PhaseChange
 

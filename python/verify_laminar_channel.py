@@ -10,6 +10,7 @@ import sys
 def analytic_u_profile(y, dpdx, dy=0.0):
     mu = 1e-3
     return dpdx/(2*mu) * (y**2 - y - (dy/2) - (dy/2)**2)
+    # return dpdx/(2*mu) * (y**2 - y)
 
 
 if len(sys.argv) < 2:

@@ -192,8 +192,10 @@ class XDMFWriter {
     m_xdmf_out << R"(      </Grid>)" << '\n';
     // - Finalize meta-data ------------------------------------------------------------------------
 
-    m_xdmf_out << '\n';
+    m_xdmf_out << std::endl;  // NOLINT
+    H5Fflush(m_data_file_id, H5F_SCOPE_GLOBAL);
     write_counter += 1;
+
     return true;
   }
 };

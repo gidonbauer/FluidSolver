@@ -1,12 +1,26 @@
 #ifndef FLUID_SOLVER_PRESSURE_CORRECTION_HPP_
 #define FLUID_SOLVER_PRESSURE_CORRECTION_HPP_
 
+#include <omp.h>
+
 #include <HYPRE_struct_ls.h>
 #include <HYPRE_utilities.h>
 
 #include <Igor/Math.hpp>
 
 #include "FS.hpp"
+
+#ifndef PS_PARALLEL_THRESHOLD
+#ifdef __APPLE__
+constexpr Index PS_PARALLEL_GRID_SIZE_THRESHOLD = 1000 * 1000;
+#else
+constexpr Index PS_PARALLEL_GRID_SIZE_THRESHOLD = 500 * 500;
+#endif
+#else
+static_assert(std::is_convertible_v<std::remove_cvref_t<decltype(PS_PARALLEL_THRESHOLD)>, Index>,
+              "PS_PARALLEL_THRESHOLD must have a value that must be convertible to Index.");
+constexpr Index PS_PARALLEL_GRID_SIZE_THRESHOLD = PS_PARALLEL_THRESHOLD;
+#endif
 
 enum class PSSolver : std::uint8_t { GMRES, PCG, BiCGSTAB, SMG, PFMG };
 enum class PSPrecond : std::uint8_t { SMG, PFMG, NONE };
@@ -394,6 +408,14 @@ class PS {
              Index* num_iter          = nullptr) -> bool {
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
 
+    int prev_num_threads = -1;
+    if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {
+#pragma omp parallel
+#pragma omp single
+      { prev_num_threads = omp_get_num_threads(); }
+      omp_set_num_threads(1);
+    }
+
     static std::array<char, 1024UZ> buffer{};
     bool res       = true;
 
@@ -493,6 +515,10 @@ class PS {
         HYPRE_DescribeError(error_flag, buffer.data());
         Igor::Panic("An error occured in HYPRE: {}", buffer.data());
       }
+    }
+
+    if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {
+      omp_set_num_threads(prev_num_threads);
     }
 
     return res;

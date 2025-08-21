@@ -6,11 +6,11 @@ else
   ${error "Need to define the path to Igor library in `IGOR_DIR`."}
 endif
 
-ifdef HYPRE_SERIAL_DIR
-  HYPRE_INC = -I${HYPRE_SERIAL_DIR}/include
-  HYPRE_LIB = -L${HYPRE_SERIAL_DIR}/lib -lHYPRE
+ifdef HYPRE_OPENMP_DIR
+  HYPRE_INC = -I${HYPRE_OPENMP_DIR}/include
+  HYPRE_LIB = -L${HYPRE_OPENMP_DIR}/lib -lHYPRE
 else
-  ${error "Need to define the path to HYPRE configured to not use MPI in `HYPRE_SERIAL_DIR`."}
+  ${error "Need to define the path to HYPRE configured to not use MPI in `HYPRE_OPENMP_DIR`."}
 endif
 
 ifdef IRL_DIR

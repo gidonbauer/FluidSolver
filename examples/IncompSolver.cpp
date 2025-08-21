@@ -19,8 +19,8 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 640;
-constexpr Index NY              = 64;
+constexpr Index NX              = 512 * 10;
+constexpr Index NY              = 512;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
@@ -28,10 +28,10 @@ constexpr Float X_MAX           = 10.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 10.0;
+constexpr Float T_END           = 5e-2;  // 1.0;
 constexpr Float DT_MAX          = 1e-1;
 constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 0.5;
+constexpr Float DT_WRITE        = 1e-3;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
@@ -135,8 +135,7 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
-  PS ps(
-      fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::BiCGSTAB, PSPrecond::PFMG, PSDirichlet::RIGHT);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   // = Initialize flow field =======================================================================
   for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_0; });

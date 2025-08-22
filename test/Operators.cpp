@@ -1,3 +1,6 @@
+#include <atomic>
+#include <random>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -278,6 +281,22 @@ auto test_staggered_integral() -> bool {
   return res;
 }
 
+auto test_atomics() -> bool {
+  Igor::ScopeTimer timer("Atomics");
+
+  Matrix<Float, 2048, 2048, 0> field;
+  static std::mt19937 rng(std::random_device{}());
+  std::uniform_real_distribution<Float> dist(-10.0, 10.0);
+  std::generate_n(field.get_data(), field.size(), [&]() { return dist(rng); });
+
+  const auto expected_int         = integrate(1.0, 1.0, field);
+
+  std::atomic<Float> parallel_int = 0.0;
+  for_each_i<Exec::Parallel>(field, [&](Index i, Index j) { parallel_int += field[i, j]; });
+
+  return std::abs(expected_int - parallel_int) < 1e-8;
+}
+
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
   bool success      = true;
@@ -293,6 +312,10 @@ auto main() -> int {
 
   test_success = test_staggered_integral();
   if (!test_success) { Igor::Warn("StaggeredIntegral failed."); }
+  success      = success && test_success;
+
+  test_success = test_atomics();
+  if (!test_success) { Igor::Warn("Atomics failed."); }
   success = success && test_success;
 
   return success ? 0 : 1;

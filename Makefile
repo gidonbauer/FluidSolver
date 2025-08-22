@@ -4,6 +4,7 @@ HEADERS = src/BoundaryConditions.hpp \
           src/ForEach.hpp            \
           src/FS.hpp                 \
           src/IO.hpp                 \
+          src/IotaIter.hpp           \
           src/IR.hpp                 \
           src/Macros.hpp             \
           src/Monitor.hpp            \
@@ -11,6 +12,7 @@ HEADERS = src/BoundaryConditions.hpp \
           src/PressureCorrection.hpp \
           src/Quadrature.hpp         \
           src/QuadratureTables.hpp   \
+          src/StdparOpenMP.hpp       \
           src/Utility.hpp            \
           src/VOF.hpp                \
           src/VTKWriter.hpp          \
@@ -24,11 +26,8 @@ include Makefiles/libs.mk
 
 all: ${TARGETS}
 
-POOLSTL_DIR = ${HOME}/opt/poolSTL
-POOLSTL_INC = -I${POOLSTL_DIR}/include
-
 %: examples/%.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} ${POOLSTL_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB}
+	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB}
 
 clean: clean-test
 	${RM} -r ${TARGETS} ${addsuffix .dSYM, ${TARGETS}}

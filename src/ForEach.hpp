@@ -1,6 +1,15 @@
 #ifndef FLUID_SOLVER_FOR_EACH_HPP_
 #define FLUID_SOLVER_FOR_EACH_HPP_
 
+#include <algorithm>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wshadow"
+#include <poolstl/iota_iter.hpp>
+#include <poolstl/poolstl.hpp>
+#pragma GCC diagnostic pop
+
 #include "Container.hpp"
 #include "Macros.hpp"
 
@@ -15,6 +24,21 @@ constexpr Index FS_PARALLEL_THRESHOLD_COUNT = FS_PARALLEL_THRESHOLD;
 // -------------------------------------------------------------------------------------------------
 enum class Exec : uint8_t { Serial, Parallel, ParallelDynamic };
 
+template <Index I_MIN, Index I_MAX, Index J_MIN, Index J_MAX, Layout LAYOUT>
+[[nodiscard]] constexpr auto from_linear_index(Index idx) noexcept -> std::pair<Index, Index> {
+  if constexpr (LAYOUT == Layout::C) {
+    return {
+        idx / (J_MAX - J_MIN) + I_MIN,
+        idx % (J_MAX - J_MIN) + J_MIN,
+    };
+  } else {
+    return {
+        idx % (I_MAX - I_MIN) + I_MIN,
+        idx / (I_MAX - I_MIN) + J_MIN,
+    };
+  }
+}
+
 // -------------------------------------------------------------------------------------------------
 template <typename FUNC>
 concept ForEachFunc1D = requires(FUNC f) {
@@ -24,25 +48,27 @@ concept ForEachFunc1D = requires(FUNC f) {
 // -------------------------------------------------------------------------------------------------
 template <Index I_MIN, Index I_MAX, Exec EXEC = Exec::Serial, ForEachFunc1D FUNC>
 FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
-  if constexpr (EXEC == Exec::Serial) {
-
+  if constexpr (EXEC == Exec::Serial || (I_MAX - I_MIN) < FS_PARALLEL_THRESHOLD_COUNT) {
     for (Index i = I_MIN; i < I_MAX; ++i) {
       f(i);
     }
-
   } else if constexpr (EXEC == Exec::Parallel) {
-
-#pragma omp parallel for if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      f(i);
-    }
+    std::for_each(poolstl::par,
+                  poolstl::iota_iter<Index>(I_MIN),
+                  poolstl::iota_iter<Index>(I_MAX),
+                  std::forward<FUNC&&>(f));
+    // #pragma omp parallel for if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
+    //     for (Index i = I_MIN; i < I_MAX; ++i) {
+    //       f(i);
+    //     }
 
   } else if constexpr (EXEC == Exec::ParallelDynamic) {
 
-#pragma omp parallel for schedule(dynamic) if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      f(i);
-    }
+    static_assert(EXEC != Exec::ParallelDynamic, "Exec::ParallelDynamic is currently disabled.");
+    // #pragma omp parallel for schedule(dynamic) if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
+    //     for (Index i = I_MIN; i < I_MAX; ++i) {
+    //       f(i);
+    //     }
 
   } else {
     Igor::Panic("Unreachable: EXEC={}", static_cast<int>(EXEC));
@@ -74,63 +100,69 @@ template <Index I_MIN,
           Layout LAYOUT = Layout::C,
           ForEachFunc2D FUNC>
 FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
-  if constexpr (EXEC == Exec::Serial && LAYOUT == Layout::C) {
 
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      for (Index j = J_MIN; j < J_MAX; ++j) {
-        f(i, j);
-      }
-    }
-
-  } else if constexpr (EXEC == Exec::Parallel && LAYOUT == Layout::C) {
-
-#pragma omp parallel for collapse(2) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) >                       \
-                                             FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      for (Index j = J_MIN; j < J_MAX; ++j) {
-        f(i, j);
-      }
-    }
-
-  } else if constexpr (EXEC == Exec::ParallelDynamic && LAYOUT == Layout::C) {
-
-#pragma omp parallel for collapse(2)                                                               \
-    schedule(dynamic) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      for (Index j = J_MIN; j < J_MAX; ++j) {
-        f(i, j);
-      }
-    }
-
-  } else if constexpr (EXEC == Exec::Serial && LAYOUT == Layout::F) {
-
-    for (Index j = J_MIN; j < J_MAX; ++j) {
+  if constexpr (EXEC == Exec::Serial ||
+                (I_MAX - I_MIN) * (J_MAX - J_MIN) < FS_PARALLEL_THRESHOLD_COUNT) {
+    if constexpr (LAYOUT == Layout::C) {
       for (Index i = I_MIN; i < I_MAX; ++i) {
-        f(i, j);
+        for (Index j = J_MIN; j < J_MAX; ++j) {
+          f(i, j);
+        }
+      }
+    } else {
+      for (Index j = J_MIN; j < J_MAX; ++j) {
+        for (Index i = I_MIN; i < I_MAX; ++i) {
+          f(i, j);
+        }
       }
     }
-
-  } else if constexpr (EXEC == Exec::Parallel && LAYOUT == Layout::F) {
-
-#pragma omp parallel for collapse(2) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) >                       \
-                                             FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index j = J_MIN; j < J_MAX; ++j) {
-      for (Index i = I_MIN; i < I_MAX; ++i) {
-        f(i, j);
-      }
-    }
-
-  } else if constexpr (EXEC == Exec::ParallelDynamic && LAYOUT == Layout::F) {
-
-#pragma omp parallel for collapse(2)                                                               \
-    schedule(dynamic) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index j = J_MIN; j < J_MAX; ++j) {
-      for (Index i = I_MIN; i < I_MAX; ++i) {
-        f(i, j);
-      }
-    }
-
-  } else {
+  } else if constexpr (EXEC == Exec::Parallel || EXEC == Exec::ParallelDynamic) {
+    std::for_each(poolstl::par,
+                  poolstl::iota_iter<Index>(0),
+                  poolstl::iota_iter<Index>((I_MAX - I_MIN) * (J_MAX - J_MIN)),
+                  [&](Index idx) {
+                    const auto [i, j] = from_linear_index<I_MIN, I_MAX, J_MIN, J_MAX, LAYOUT>(idx);
+                    f(i, j);
+                  });
+  }
+  //   else if constexpr (EXEC == Exec::Parallel) {
+  //     if constexpr (LAYOUT == Layout::C) {
+  // #pragma omp parallel for collapse(2) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > \
+//                                              FS_PARALLEL_THRESHOLD_COUNT)
+  //       for (Index i = I_MIN; i < I_MAX; ++i) {
+  //         for (Index j = J_MIN; j < J_MAX; ++j) {
+  //           f(i, j);
+  //         }
+  //       }
+  //     } else {
+  // #pragma omp parallel for collapse(2) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > \
+//                                              FS_PARALLEL_THRESHOLD_COUNT)
+  //       for (Index j = J_MIN; j < J_MAX; ++j) {
+  //         for (Index i = I_MIN; i < I_MAX; ++i) {
+  //           f(i, j);
+  //         }
+  //       }
+  //     }
+  //   } else if constexpr (EXEC == Exec::ParallelDynamic) {
+  //     if constexpr (LAYOUT == Layout::C) {
+  // #pragma omp parallel for collapse(2) \
+//     schedule(dynamic) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
+  //       for (Index i = I_MIN; i < I_MAX; ++i) {
+  //         for (Index j = J_MIN; j < J_MAX; ++j) {
+  //           f(i, j);
+  //         }
+  //       }
+  //     } else {
+  // #pragma omp parallel for collapse(2) \
+//     schedule(dynamic) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
+  //       for (Index j = J_MIN; j < J_MAX; ++j) {
+  //         for (Index i = I_MIN; i < I_MAX; ++i) {
+  //           f(i, j);
+  //         }
+  //       }
+  //     }
+  //   }
+  else {
     Igor::Panic(
         "Unreachable: EXEC={}, LAYOUT={}", static_cast<int>(EXEC), static_cast<int>(LAYOUT));
     std::unreachable();

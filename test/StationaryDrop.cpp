@@ -16,6 +16,10 @@
 #include "VOF.hpp"
 #include "XDMFWriter.hpp"
 
+// TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
+//       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
+//       conditions.
+
 // = Config ========================================================================================
 using Float                     = double;
 

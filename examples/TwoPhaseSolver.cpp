@@ -17,10 +17,6 @@
 // #include "VTKWriter.hpp"
 #include "XDMFWriter.hpp"
 
-// TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
-//       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
-//       conditions.
-
 // = Config ========================================================================================
 using Float                     = double;
 
@@ -33,7 +29,7 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 3.0;
+constexpr Float T_END           = 1.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.9;
 constexpr Float DT_WRITE        = 5e-2;

@@ -121,12 +121,12 @@ void localize_cells(const Vector<Float, NX + 1, NGHOST>& x,
         IRL::Normal(0.0, 0.0, -1.0),
         IRL::Normal(0.0, 0.0, 1.0),
     };
-    auto& l = ir.cell_localizer[i, j];
+    auto& l = ir.cell_localizer(i, j);
     l.setNumberOfPlanes(6);
-    l[0] = IRL::Plane(plane_normals[0], -x[i]);
-    l[1] = IRL::Plane(plane_normals[1], x[i + 1]);
-    l[2] = IRL::Plane(plane_normals[2], -y[j]);
-    l[3] = IRL::Plane(plane_normals[3], y[j + 1]);
+    l[0] = IRL::Plane(plane_normals[0], -x(i));
+    l[1] = IRL::Plane(plane_normals[1], x(i + 1));
+    l[2] = IRL::Plane(plane_normals[2], -y(j));
+    l[3] = IRL::Plane(plane_normals[3], y(j + 1));
     l[4] = IRL::Plane(plane_normals[4], 0.5);
     l[5] = IRL::Plane(plane_normals[5], 0.5);
   });
@@ -154,10 +154,10 @@ void reconstruct_interface(const FS<Float, NX, NY, NGHOST>& fs,
     size_t counter = 0;
     for (Index di = -1; di <= 1; ++di) {
       for (Index dj = -1; dj <= 1; ++dj) {
-        const Float x_lo = fs.x[i + di];
-        const Float x_hi = fs.x[i + di + 1];
-        const Float y_lo = fs.y[j + dj];
-        const Float y_hi = fs.y[j + dj + 1];
+        const Float x_lo = fs.x(i + di);
+        const Float x_hi = fs.x(i + di + 1);
+        const Float y_lo = fs.y(j + dj);
+        const Float y_hi = fs.y(j + dj + 1);
         const Float z_lo = -0.5;
         const Float z_hi = 0.5;
 
@@ -165,17 +165,17 @@ void reconstruct_interface(const FS<Float, NX, NY, NGHOST>& fs,
                                                                  IRL::Pt{x_hi, y_hi, z_hi});
         // TODO: Assume that vf is always zero outside of the domain, i.e. Dirichlet Boundary
         //       conditions
-        cells_vf[counter] = vf[i + di, j + dj];
+        cells_vf[counter] = vf(i + di, j + dj);
         neighborhood.setMember(&cells[counter], &cells_vf[counter], di, dj);
         counter += 1;
       }
     }
-    ir.interface[i, j] = IRL::reconstructionWithELVIRA2D(neighborhood);
-    IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
+    ir.interface(i, j) = IRL::reconstructionWithELVIRA2D(neighborhood);
+    IGOR_ASSERT((ir.interface(i, j).getNumberOfPlanes() == 1),
                 "({}, {}): Expected one plane but got {}",
                 i,
                 j,
-                (ir.interface[i, j].getNumberOfPlanes()));
+                (ir.interface(i, j).getNumberOfPlanes()));
   });
 }
 
@@ -200,12 +200,12 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
       for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
            jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
            ++jj) {
-        neighborhood_vf_sum += vof.vf_old[ii, jj];
+        neighborhood_vf_sum += vof.vf_old(ii, jj);
       }
     }
     if (neighborhood_vf_sum < VF_LOW) { return volume_error; }
     if (neighborhood_vf_sum >= Igor::sqr(2.0 * NEIGHBORHOOD_OFFSET + 1.0) * VF_HIGH) {
-      vof.vf[i, j] = 1.0;
+      vof.vf(i, j) = 1.0;
       return volume_error;
     }
   }
@@ -217,7 +217,7 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 #endif
 
   auto offset_to_pt = [i, j, &fs](Index di, Index dj, Index dk) {
-    return IRL::Pt{fs.x[i + di], fs.y[j + dj], dk == 1 ? 0.5 : -0.5};
+    return IRL::Pt{fs.x(i + di), fs.y(j + dj), dk == 1 ? 0.5 : -0.5};
   };
 
   // = Set cuboid vertices =====================================================================
@@ -243,7 +243,7 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   }
 #endif  // VOF_NO_CORRECTION
 
-  const auto original_cell_vol = (fs.x[i + 1] - fs.x[i]) * (fs.y[j + 1] - fs.y[j]);
+  const auto original_cell_vol = (fs.x(i + 1) - fs.x(i)) * (fs.y(j + 1) - fs.y(j));
 
 #ifndef VOF_NO_CORRECTION
   // = Adjust other vertices to have correct cell volume =======================================
@@ -254,10 +254,10 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 
     const Float correct_flux_vol = [&] {
       switch (FACE_DIRECTION[cell_idx]) {
-        case Dir::XM: return -fs.curr.U[i, j] * fs.dy * dt;
-        case Dir::XP: return fs.curr.U[i + 1, j] * fs.dy * dt;
-        case Dir::YM: return -fs.curr.V[i, j] * fs.dx * dt;
-        case Dir::YP: return fs.curr.V[i, j + 1] * fs.dx * dt;
+        case Dir::XM: return -fs.curr.U(i, j) * fs.dy * dt;
+        case Dir::XP: return fs.curr.U(i + 1, j) * fs.dy * dt;
+        case Dir::YM: return -fs.curr.V(i, j) * fs.dx * dt;
+        case Dir::YP: return fs.curr.V(i, j + 1) * fs.dx * dt;
         case Dir::ZM:
         case Dir::ZP: Igor::Panic("Unreachable"); std::unreachable();
       }
@@ -294,15 +294,15 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
     for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
          jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
          ++jj) {
-      if (vof.vf_old[ii, jj] > VF_LOW) {
+      if (vof.vf_old(ii, jj) > VF_LOW) {
         overlap_vol += IRL::getVolumeMoments<IRL::Volume, IRL::RecursiveSimplexCutting>(
             advected_cell,
-            IRL::LocalizedSeparator(&vof.ir.cell_localizer[ii, jj], &vof.ir.interface[ii, jj]));
+            IRL::LocalizedSeparator(&vof.ir.cell_localizer(ii, jj), &vof.ir.interface(ii, jj)));
       }
     }
   }
 
-  vof.vf[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
+  vof.vf(i, j) = overlap_vol / advected_cell.calculateAbsoluteVolume();
 
   return volume_error;
 }
@@ -359,16 +359,16 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   constexpr Float EPS = 1e-6;
   for (size_t idx = 0; idx < offsets.size(); ++idx) {
     const auto [di0, dj0] = offsets[idx];
-    IRL::Pt p0(x[i + di0], y[j + dj0], 0.0);
+    IRL::Pt p0(x(i + di0), y(j + dj0), 0.0);
 
     const auto [di1, dj1] = offsets[(idx + 1) % offsets.size()];
-    IRL::Pt p1(x[i + di1], y[j + dj1], 0.0);
+    IRL::Pt p1(x(i + di1), y(j + dj1), 0.0);
 
     const auto tp = IRL::Pt::fromEdgeIntersection(
         p0, plane.signedDistanceToPoint(p0), p1, plane.signedDistanceToPoint(p1));
 
-    if (x[i] - EPS <= tp[0] && tp[0] <= x[i + 1] + EPS &&  //
-        y[j] - EPS <= tp[1] && tp[1] <= y[j + 1] + EPS) {
+    if (x(i) - EPS <= tp[0] && tp[0] <= x(i + 1) + EPS &&  //
+        y(j) - EPS <= tp[1] && tp[1] <= y(j + 1) + EPS) {
       trial_points.push_back(tp);
     }
   }
@@ -407,15 +407,15 @@ auto save_interface(const std::string& filename,
   points.resize(0);
 
   for_each_i(interface, [&](Index i, Index j) {
-    if (interface[i, j].getNumberOfPlanes() != 1) {
-      IGOR_ASSERT((interface[i, j].getNumberOfPlanes() == 0),
+    if (interface(i, j).getNumberOfPlanes() != 1) {
+      IGOR_ASSERT((interface(i, j).getNumberOfPlanes() == 0),
                   "{}, {}: Number of planes can only be 0 or 1 but is {}",
                   i,
                   j,
-                  interface[i, j].getNumberOfPlanes());
+                  interface(i, j).getNumberOfPlanes());
       return;
     }
-    const IRL::Plane& plane = interface[i, j][0];
+    const IRL::Plane& plane = interface(i, j)[0];
     const auto intersections =
         get_intersections_with_cell<Float, NX, NY, NGHOST>(i, j, x, y, plane);
     static_assert(intersections.size() == 2);

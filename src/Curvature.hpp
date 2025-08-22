@@ -24,7 +24,7 @@ void smooth_vf_field(const Vector<Float, NX, NGHOST>& xm,
                      Matrix<Float, NX, NY, NGHOST>& vf_smooth) noexcept {
   // They used 4 in the paper but 16 seems to work better for me
   constexpr Index NUM_SMOOTHING_CELLS = 4;  // 16;
-  const Float SMOOTHING_LENGTH = NUM_SMOOTHING_CELLS * std::max(xm[1] - xm[0], ym[1] - ym[0]);
+  const Float SMOOTHING_LENGTH = NUM_SMOOTHING_CELLS * std::max(xm(1) - xm(0), ym(1) - ym(0));
   const auto smoothing_kernel  = [SMOOTHING_LENGTH](Float sqr_distance) {
     IGOR_ASSERT(sqr_distance >= 0.0, "Squared-distance must be positive but is {}", sqr_distance);
     sqr_distance /= Igor::sqr(SMOOTHING_LENGTH);
@@ -39,12 +39,12 @@ void smooth_vf_field(const Vector<Float, NX, NGHOST>& xm,
 #pragma omp parallel for collapse(2)
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      vf_smooth[i, j] = 0.0;
+      vf_smooth(i, j) = 0.0;
       for (Index di = -NUM_SMOOTHING_CELLS; di <= NUM_SMOOTHING_CELLS; ++di) {
         for (Index dj = -NUM_SMOOTHING_CELLS; dj <= NUM_SMOOTHING_CELLS; ++dj) {
           if (vf.is_valid_index(i + di, j + dj)) {
-            vf_smooth[i, j] += vf[i + di, j + dj] *
-                               smoothing_kernel(sqr_distance(xm[i], ym[j], xm[i + di], ym[j + dj]));
+            vf_smooth(i, j) += vf(i + di, j + dj) *
+                               smoothing_kernel(sqr_distance(xm(i), ym(j), xm(i + di), ym(j + dj)));
           }
         }
       }
@@ -69,10 +69,10 @@ auto extract_interface(Index i,
                        Index j,
                        const FS<Float, NX, NY, NGHOST>& fs,
                        const InterfaceReconstruction<NX, NY>& ir) -> Interface<Float> {
-  IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
+  IGOR_ASSERT((ir.interface(i, j).getNumberOfPlanes() == 1),
               "Expected exactly one plane but got {}",
-              (ir.interface[i, j].getNumberOfPlanes()));
-  const auto& plane    = ir.interface[i, j][0];
+              (ir.interface(i, j).getNumberOfPlanes()));
+  const auto& plane    = ir.interface(i, j)[0];
   const auto intersect = get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, plane);
 
   IGOR_ASSERT(std::abs(plane.normal()[NDIMS]) < 1e-12,
@@ -134,8 +134,8 @@ void sort_begin_end(Igor::StaticVector<Interface<Float>, CAPACITY>& interfaces) 
 // -------------------------------------------------------------------------------------------------
 template <typename Float>
 auto calc_cuvature_of_quad_poly(Float x, const Vector<Float, 3>& c) {
-  const auto first_der  = c[1] + 2.0 * c[2] * x;
-  const auto second_der = 2.0 * c[2];
+  const auto first_der  = c(1) + 2.0 * c(2) * x;
+  const auto second_der = 2.0 * c(2);
   return second_der / std::pow(1.0 + Igor::sqr(first_der), 1.5);
 }
 
@@ -163,7 +163,7 @@ auto calc_curv_quad_volume_matching_impl(
   for (Index i = 0; i < 3; ++i) {
     for (Index j = 0; j < 3; ++j) {
       for (size_t r = 0; r < interfaces.size(); ++r) {
-        A[i, j] += S[r][static_cast<size_t>(i)] * S[r][static_cast<size_t>(j)];
+        A(i, j) += S[r][static_cast<size_t>(i)] * S[r][static_cast<size_t>(j)];
       }
     }
   }
@@ -171,7 +171,7 @@ auto calc_curv_quad_volume_matching_impl(
   Vector<Float, 3> d{};
   for (Index i = 0; i < 3; ++i) {
     for (size_t r = 0; r < interfaces.size(); ++r) {
-      d[i] +=
+      d(i) +=
           S[r][static_cast<size_t>(i)] * (plic_param[r][0] * S[r][0] + plic_param[r][1] * S[r][1]);
     }
   }
@@ -198,7 +198,7 @@ void solve_linear_least_squares(
   for (Index i = 0; i < 3; ++i) {
     for (Index j = 0; j < 3; ++j) {
       for (const auto [xi, _] : points) {
-        A[i, j] += std::pow(xi, static_cast<Float>(i)) * std::pow(xi, static_cast<Float>(j));
+        A(i, j) += std::pow(xi, static_cast<Float>(i)) * std::pow(xi, static_cast<Float>(j));
       }
     }
   }
@@ -206,7 +206,7 @@ void solve_linear_least_squares(
   Vector<Float, 3> b{};
   for (Index i = 0; i < 3; ++i) {
     for (const auto [xi, yi] : points) {
-      b[i] += std::pow(xi, static_cast<Float>(i)) * yi;
+      b(i) += std::pow(xi, static_cast<Float>(i)) * yi;
     }
   }
 
@@ -250,9 +250,9 @@ void calc_curvature_quad_volume_matching(const FS<Float, NX, NY, NGHOST>& fs,
       //             interfaces[0].normal[Y]);
 
       sort_begin_end(interfaces);
-      vof.curv[i, j] = detail::calc_curv_quad_volume_matching_impl(interfaces);
+      vof.curv(i, j) = detail::calc_curv_quad_volume_matching_impl(interfaces);
     } else {
-      vof.curv[i, j] = 0.0;
+      vof.curv(i, j) = 0.0;
     }
   });
 }
@@ -297,9 +297,9 @@ void calc_curvature_quad_regression(const FS<Float, NX, NY, NGHOST>& fs,
       }
       Vector<Float, 3> c{};
       detail::solve_linear_least_squares(points, c);
-      vof.curv[i, j] = detail::calc_cuvature_of_quad_poly(points[0][X], c);
+      vof.curv(i, j) = detail::calc_cuvature_of_quad_poly(points[0][X], c);
     } else {
-      vof.curv[i, j] = 0.0;
+      vof.curv(i, j) = 0.0;
     }
   });
 }
@@ -329,29 +329,29 @@ void calc_curvature_convolved_vf(const FS<Float, NX, NY, NGHOST>& fs,
 
   for_each_i<Exec::Parallel>(curv_centered, [&](Index i, Index j) {
     const auto numer =
-        (dvfdxx[i, j] * Igor::sqr(dvfdy[i, j]) + dvfdyy[i, j] * Igor::sqr(dvfdx[i, j]) -
-         2.0 * dvfdx[i, j] * dvfdy[i, j] * dvfdxy[i, j]);
-    const auto denom    = std::pow(Igor::sqr(dvfdx[i, j]) + Igor::sqr(dvfdy[i, j]), 1.5);
-    curv_centered[i, j] = std::abs(denom) > 1e-8 ? -numer / denom : 0.0;
+        (dvfdxx(i, j) * Igor::sqr(dvfdy(i, j)) + dvfdyy(i, j) * Igor::sqr(dvfdx(i, j)) -
+         2.0 * dvfdx(i, j) * dvfdy(i, j) * dvfdxy(i, j));
+    const auto denom    = std::pow(Igor::sqr(dvfdx(i, j)) + Igor::sqr(dvfdy(i, j)), 1.5);
+    curv_centered(i, j) = std::abs(denom) > 1e-8 ? -numer / denom : 0.0;
   });
 
 #ifdef FS_CURV_NO_INTERPOLATION
   for_each_i<Exec::Parallel>(vof.curv, [&](Index i, Index j) {
     if (has_interface(vof.vf_old, i, j)) {
-      vof.curv[i, j] = curv_centered[i, j];
+      vof.curv(i, j) = curv_centered(i, j);
     } else {
-      vof.curv[i, j] = 0.0;
+      vof.curv(i, j) = 0.0;
     }
   });
 #else
   for_each_i<Exec::Parallel>(vof.curv, [&](Index i, Index j) {
     if (has_interface(vof.vf_old, i, j)) {
       const auto intersect =
-          get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, vof.ir.interface[i, j][0]);
+          get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, vof.ir.interface(i, j)[0]);
       const auto center = (intersect[0] + intersect[1]) / 2.0;
-      vof.curv[i, j]    = bilinear_interpolate(fs.xm, fs.ym, curv_centered, center[0], center[1]);
+      vof.curv(i, j)    = bilinear_interpolate(fs.xm, fs.ym, curv_centered, center[0], center[1]);
     } else {
-      vof.curv[i, j] = 0.0;
+      vof.curv(i, j) = 0.0;
     }
   });
 #endif
@@ -364,15 +364,15 @@ void calc_curvature_convolved_vf(const FS<Float, NX, NY, NGHOST>& fs,
 //                          Matrix<Float, NX, NY>& surface_length) noexcept {
 //   for (Index i = 0; i < NX; ++i) {
 //     for (Index j = 0; j < NY; ++j) {
-//       const auto& interface = ir.interface[i, j];
+//       const auto& interface = ir.interface(i, j);
 //       if (interface.getNumberOfPlanes() > 0) {
 //         IGOR_ASSERT(interface.getNumberOfPlanes() == 1,
 //                     "Expected exactly one plane but got {}",
 //                     interface.getNumberOfPlanes());
-//         surface_length[i, j] = get_interface_length<Float, NX, NY>(i, j, fs.x, fs.y,
+//         surface_length(i, j) = get_interface_length<Float, NX, NY>(i, j, fs.x, fs.y,
 //         interface[0]);
 //       } else {
-//         surface_length[i, j] = 0.0;
+//         surface_length(i, j) = 0.0;
 //       }
 //     }
 //   }

@@ -72,8 +72,8 @@ auto calc_center_of_mass(const Vector<Float, NX, NGHOST>& xm,
   Float weighted_x = 0.0;
   Float weighted_y = 0.0;
   for_each_i(vf, [&](Index i, Index j) {
-    weighted_x += xm[i] * vf[i, j];
-    weighted_y += ym[j] * vf[i, j];
+    weighted_x += xm(i) * vf(i, j);
+    weighted_y += ym(j) * vf(i, j);
   });
   weighted_x *= DX * DY;
   weighted_y *= DX * DY;
@@ -113,7 +113,7 @@ auto main() -> int {
       return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
     };
 
-    vof.vf[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    vof.vf(i, j) = quadrature(is_in, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
 
   fill(fs.curr.U, U0);

@@ -67,8 +67,8 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
   inflow  = 0.0;
   outflow = 0.0;
   for_each_a(fs.ym, [&](Index j) {
-    inflow  += fs.curr.rho_u_stag[-NGHOST, j] * fs.curr.U[-NGHOST, j];
-    outflow += fs.curr.rho_u_stag[NX + NGHOST, j] * fs.curr.U[NX + NGHOST, j];
+    inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j);
+    outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j);
   });
   mass_error = outflow - inflow;
 }
@@ -85,17 +85,17 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
   momentum_y = 0.0;
 
   for_each<0, NX, 0, NY>([&](Index i, Index j) {
-    mass += (ib_u_stag[i, j] * fs.curr.rho_u_stag[i, j] +
-             ib_u_stag[i + 1, j] * fs.curr.rho_u_stag[i + 1, j] +
-             ib_v_stag[i, j] * fs.curr.rho_v_stag[i, j] +
-             ib_v_stag[i, j + 1] * fs.curr.rho_v_stag[i, j + 1]) /
+    mass += (ib_u_stag(i, j) * fs.curr.rho_u_stag(i, j) +
+             ib_u_stag(i + 1, j) * fs.curr.rho_u_stag(i + 1, j) +
+             ib_v_stag(i, j) * fs.curr.rho_v_stag(i, j) +
+             ib_v_stag(i, j + 1) * fs.curr.rho_v_stag(i, j + 1)) /
             4.0 * fs.dx * fs.dy;
 
-    momentum_x += (ib_u_stag[i, j] * fs.curr.rho_u_stag[i, j] * fs.curr.U[i, j] +
-                   ib_u_stag[i + 1, j] * fs.curr.rho_u_stag[i + 1, j] * fs.curr.U[i + 1, j]) /
+    momentum_x += (ib_u_stag(i, j) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
+                   ib_u_stag(i + 1, j) * fs.curr.rho_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
                   2.0 * fs.dx * fs.dy;
-    momentum_y += (ib_v_stag[i, j] * fs.curr.rho_v_stag[i, j] * fs.curr.V[i, j] +
-                   ib_v_stag[i, j + 1] * fs.curr.rho_v_stag[i, j + 1] * fs.curr.V[i, j + 1]) /
+    momentum_y += (ib_v_stag(i, j) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
+                   ib_v_stag(i, j + 1) * fs.curr.rho_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
                   2.0 * fs.dx * fs.dy;
   });
 }
@@ -171,24 +171,24 @@ auto main() -> int {
 
   // = Initialize immersed boundaries ==============================================================
   for_each_a<Exec::Parallel>(ib_u_stag, [&](Index i, Index j) {
-    ib_u_stag[i, j] =
+    ib_u_stag(i, j) =
         quadrature(
-            immersed_wall, fs.x[i] - fs.dx / 2.0, fs.x[i] + fs.dx / 2.0, fs.y[j], fs.y[j + 1]) /
+            immersed_wall, fs.x(i) - fs.dx / 2.0, fs.x(i) + fs.dx / 2.0, fs.y(j), fs.y(j + 1)) /
         (fs.dx * fs.dy);
   });
 
   for_each_a<Exec::Parallel>(ib_v_stag, [&](Index i, Index j) {
-    ib_v_stag[i, j] =
+    ib_v_stag(i, j) =
         quadrature(
-            immersed_wall, fs.x[i], fs.x[i + 1], fs.y[j] - fs.dy / 2.0, fs.y[j] + fs.dy / 2.0) /
+            immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j) - fs.dy / 2.0, fs.y(j) + fs.dy / 2.0) /
         (fs.dx * fs.dy);
   });
   interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
   // = Initialize immersed boundaries ==============================================================
 
   // = Initialize flow field =======================================================================
-  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_0; });
-  for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
+  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.curr.U, Ui);
@@ -218,14 +218,14 @@ auto main() -> int {
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] = (1.0 - ib_u_stag[i, j]) *
-                          (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                          fs.curr.rho_u_stag[i, j];
+        fs.curr.U(i, j) = (1.0 - ib_u_stag(i, j)) *
+                          (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
+                          fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] = (1.0 - ib_v_stag[i, j]) *
-                          (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                          fs.curr.rho_v_stag[i, j];
+        fs.curr.V(i, j) = (1.0 - ib_v_stag(i, j)) *
+                          (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
+                          fs.curr.rho_v_stag(i, j);
       });
       apply_velocity_bconds(fs, bconds);
 
@@ -235,8 +235,8 @@ auto main() -> int {
       Float mass_error = 0.0;
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
       for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-        fs.curr.U[NX + NGHOST, j] -=
-            mass_error / (fs.curr.rho_u_stag[NX + NGHOST, j] * static_cast<Float>(NY + 2 * NGHOST));
+        fs.curr.U(NX + NGHOST, j) -=
+            mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
       });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -249,18 +249,18 @@ auto main() -> int {
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       // Correct pressure
-      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p(i, j) += delta_p(i, j); });
 
       // Correct velocity
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        const auto dpdx  = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx;
-        const auto rho   = fs.curr.rho_u_stag[i, j];
-        fs.curr.U[i, j] -= dpdx * dt / rho;
+        const auto dpdx  = (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx;
+        const auto rho   = fs.curr.rho_u_stag(i, j);
+        fs.curr.U(i, j) -= dpdx * dt / rho;
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        const auto dpdy  = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy;
-        const auto rho   = fs.curr.rho_v_stag[i, j];
-        fs.curr.V[i, j] -= dpdy * dt / rho;
+        const auto dpdy  = (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy;
+        const auto rho   = fs.curr.rho_v_stag(i, j);
+        fs.curr.V(i, j) -= dpdy * dt / rho;
       });
       // = Apply pressure correction ===============================================================
     }

@@ -83,8 +83,8 @@ void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
                             Float t,
                             Matrix<Float, NX + 1, NY, NGHOST>& U,
                             Matrix<Float, NX, NY + 1, NGHOST>& V) {
-  for_each_a<Exec::Parallel>(U, [&](Index i, Index j) { U[i, j] = u_analytical(x[i], ym[j], t); });
-  for_each_a<Exec::Parallel>(V, [&](Index i, Index j) { V[i, j] = v_analytical(xm[i], y[j], t); });
+  for_each_a<Exec::Parallel>(U, [&](Index i, Index j) { U(i, j) = u_analytical(x(i), ym(j), t); });
+  for_each_a<Exec::Parallel>(V, [&](Index i, Index j) { V(i, j) = v_analytical(xm(i), y(j), t); });
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -106,7 +106,7 @@ auto main() -> int {
 
   // = Setup velocity and vof field ================================================================
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
-    vof.vf[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    vof.vf(i, j) = quadrature(is_in, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
   localize_cells(fs.x, fs.y, vof.ir);
   reconstruct_interface(fs, vof.vf, vof.ir);

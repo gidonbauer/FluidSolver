@@ -93,11 +93,11 @@ auto main() -> int {
       return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
     };
 
-    vof.vf[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    vof.vf(i, j) = quadrature(is_in, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
 
-  for_each_a(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = fs.ym[j]; });
-  for_each_a(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = fs.xm[i]; });
+  for_each_a(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = fs.ym(j); });
+  for_each_a(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = fs.xm(i); });
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);

@@ -51,7 +51,7 @@ class Vector {
   constexpr auto operator=(Vector&& other) noexcept -> Vector&      = delete;
   ~Vector() noexcept                                                = default;
 
-  [[nodiscard]] constexpr auto operator[](Index idx) noexcept -> Contained& {
+  [[nodiscard]] constexpr auto operator()(Index idx) noexcept -> Contained& {
     IGOR_ASSERT(idx >= -NGHOST && idx < N + NGHOST,
                 "Index {} is out of bounds for Vector with dimension {}:{}",
                 idx,
@@ -60,7 +60,7 @@ class Vector {
     return *(get_data() + get_idx(idx));
   }
 
-  [[nodiscard]] constexpr auto operator[](Index idx) const noexcept -> const Contained& {
+  [[nodiscard]] constexpr auto operator()(Index idx) const noexcept -> const Contained& {
     IGOR_ASSERT(idx >= -NGHOST && idx < N + NGHOST,
                 "Index {} is out of bounds for Vector with dimension {}:{}",
                 idx,
@@ -151,7 +151,7 @@ class Matrix {
   constexpr auto operator=(Matrix&& other) noexcept -> Matrix&      = delete;
   ~Matrix() noexcept                                                = default;
 
-  constexpr auto operator[](Index i, Index j) noexcept -> Contained& {
+  constexpr auto operator()(Index i, Index j) noexcept -> Contained& {
     IGOR_ASSERT(i >= -NGHOST && i < M + NGHOST && j >= -NGHOST && j < N + NGHOST,
                 "Index ({}, {}) is out of bounds for Matrix of size {}:{}x{}:{}",
                 i,
@@ -163,7 +163,7 @@ class Matrix {
     return *(get_data() + get_idx(i, j));
   }
 
-  constexpr auto operator[](Index i, Index j) const noexcept -> const Contained& {
+  constexpr auto operator()(Index i, Index j) const noexcept -> const Contained& {
     IGOR_ASSERT(i >= -NGHOST && i < M + NGHOST && j >= -NGHOST && j < N + NGHOST,
                 "Index ({}, {}) is out of bounds for Matrix of size {}:{}x{}:{}",
                 i,

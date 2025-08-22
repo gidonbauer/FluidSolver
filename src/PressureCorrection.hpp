@@ -291,52 +291,52 @@ class PS {
     const Float vol = fs.dx * fs.dy;
 
     for_each_a<Exec::Parallel>(stencil_values, [&](Index i, Index j) {
-      std::array<Float, STENCIL_SIZE>& s = stencil_values[i, j];
+      std::array<Float, STENCIL_SIZE>& s = stencil_values(i, j);
       std::fill(s.begin(), s.end(), 0.0);
 
       // = x-components ==========================================================================
       if (i == -NGHOST) {
         // On left
-        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i + 1, j));
         s[S_LEFT]   += 0.0;
-        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
+        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i + 1, j));
       } else if (i == NX + NGHOST - 1) {
         // On right
-        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
-        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i, j));
+        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i, j));
         s[S_RIGHT]  += 0.0;
       } else {
         // In interior (x)
-        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]) +
-                               -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]));
-        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
-        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
+        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i, j)) +
+                               -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i + 1, j)));
+        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i, j));
+        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i + 1, j));
       }
 
       // = y-components ==========================================================================
       if (j == -NGHOST) {
         // On bottom
-        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1));
         s[S_BOTTOM] += 0.0;
-        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
+        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1));
       } else if (j == NY + NGHOST - 1) {
         // On top
-        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
-        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j));
+        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j));
         s[S_TOP]    += 0.0;
       } else {
         // In interior (y)
-        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]) +
-                               -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]));
-        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
-        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
+        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j)) +
+                               -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1)));
+        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j));
+        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1));
       }
     });
 
     switch (m_dirichlet_bc) {
       case PSDirichlet::LEFT:
         for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values[-NGHOST, j];
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(-NGHOST, j);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
@@ -346,7 +346,7 @@ class PS {
         break;
       case PSDirichlet::RIGHT:
         for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values[NX + NGHOST - 1, j];
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(NX + NGHOST - 1, j);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
@@ -356,7 +356,7 @@ class PS {
         break;
       case PSDirichlet::BOTTOM:
         for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values[i, -NGHOST];
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(i, -NGHOST);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
@@ -366,7 +366,7 @@ class PS {
         break;
       case PSDirichlet::TOP:
         for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values[i, NX + NGHOST - 1];
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(i, NX + NGHOST - 1);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
@@ -393,7 +393,7 @@ class PS {
                                   index.data(),
                                   STENCIL_SIZE,
                                   stencil_indices.data(),
-                                  stencil_values[i, j].data());
+                                  stencil_values(i, j).data());
     });
 #endif
   }
@@ -430,20 +430,20 @@ class PS {
     HYPRE_StructVectorSetBoxValues(m_sol, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Set right-hand side =======================================================================
-    for_each_a(rhs_values, [&](Index i, Index j) { rhs_values[i, j] = -vol * div[i, j] / dt; });
+    for_each_a(rhs_values, [&](Index i, Index j) { rhs_values(i, j) = -vol * div(i, j) / dt; });
 
     switch (m_dirichlet_bc) {
       case PSDirichlet::LEFT:
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values[-NGHOST, j] = 0.0; });
+        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values(-NGHOST, j) = 0.0; });
         break;
       case PSDirichlet::RIGHT:
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values[NX + NGHOST - 1, j] = 0.0; });
+        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values(NX + NGHOST - 1, j) = 0.0; });
         break;
       case PSDirichlet::BOTTOM:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values[i, -NGHOST] = 0.0; });
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values(i, -NGHOST) = 0.0; });
         break;
       case PSDirichlet::TOP:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values[i, NX + NGHOST - 1] = 0.0; });
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values(i, NX + NGHOST - 1) = 0.0; });
         break;
       case PSDirichlet::NONE:
         const Float mean_rhs = std::reduce(rhs_values.get_data(),
@@ -452,7 +452,7 @@ class PS {
                                            std::plus<>{}) /
                                static_cast<Float>(rhs_values.size());
         for_each_a<Exec::Parallel>(rhs_values,
-                                   [&](Index i, Index j) { rhs_values[i, j] -= mean_rhs; });
+                                   [&](Index i, Index j) { rhs_values(i, j) -= mean_rhs; });
         break;
     }
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
@@ -495,7 +495,7 @@ class PS {
 
     for_each_a<Exec::Parallel>(resP, [&](Index i, Index j) {
       std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
-      HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP[i, j]);
+      HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP(i, j));
     });
 
     if (pressure_residual != nullptr) { *pressure_residual = final_residual; }

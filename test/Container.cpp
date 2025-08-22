@@ -8,7 +8,7 @@ auto main() -> int {
 
     std::fill_n(vec.get_data(), vec.size(), 42.0);
     for (Index i = 0; i < vec.extent(0); ++i) {
-      if (vec[i] != 42.0) { Igor::Warn("Expect value {} but got", 42.0, vec[i]); }
+      if (vec(i) != 42.0) { Igor::Warn("Expect value {} but got", 42.0, vec(i)); }
     }
 
     Matrix<double, 10, 10> mat{};
@@ -16,7 +16,7 @@ auto main() -> int {
     std::fill_n(mat.get_data(), mat.size(), 42.0);
     for (Index i = 0; i < mat.extent(0); ++i) {
       for (Index j = 0; j < mat.extent(1); ++j) {
-        if (mat[i, j] != 42.0) { Igor::Warn("Expect value {} but got", 42.0, mat[i, j]); }
+        if (mat(i, j) != 42.0) { Igor::Warn("Expect value {} but got", 42.0, mat(i, j)); }
       }
     }
   }
@@ -28,7 +28,7 @@ auto main() -> int {
 
     std::fill_n(vec.get_data(), vec.size(), 42.0);
     for (Index i = 0; i < vec.extent(0); ++i) {
-      if (vec[i] != 42.0) { Igor::Warn("Expect value {} but got", 42.0, vec[i]); }
+      if (vec(i) != 42.0) { Igor::Warn("Expect value {} but got", 42.0, vec(i)); }
     }
 
     Matrix<double, 1000, 1000> mat{};
@@ -36,7 +36,7 @@ auto main() -> int {
     std::fill_n(mat.get_data(), mat.size(), 42.0);
     for (Index i = 0; i < mat.extent(0); ++i) {
       for (Index j = 0; j < mat.extent(1); ++j) {
-        if (mat[i, j] != 42.0) { Igor::Warn("Expect value {} but got", 42.0, mat[i, j]); }
+        if (mat(i, j) != 42.0) { Igor::Warn("Expect value {} but got", 42.0, mat(i, j)); }
       }
     }
   }
@@ -49,8 +49,8 @@ auto main() -> int {
 
     std::iota(vec.get_data(), vec.get_data() + vec.size(), -2.0);
     for (Index i = -2; i < vec.extent(0) + 2; ++i) {
-      if (std::abs(vec[i] - static_cast<double>(i)) > 1e-12) {
-        Igor::Warn("Expect value {} but got", 42.0, vec[i]);
+      if (std::abs(vec(i) - static_cast<double>(i)) > 1e-12) {
+        Igor::Warn("Expect value {} but got", 42.0, vec(i));
       }
     }
 
@@ -61,8 +61,8 @@ auto main() -> int {
     Index counter = 0;
     for (Index i = -2; i < mat.extent(0) + 2; ++i) {
       for (Index j = -2; j < mat.extent(1) + 2; ++j) {
-        if (std::abs(mat[i, j] - static_cast<double>(counter)) > 1e-12) {
-          Igor::Warn("Expect value {} but got {}", counter, mat[i, j]);
+        if (std::abs(mat(i, j) - static_cast<double>(counter)) > 1e-12) {
+          Igor::Warn("Expect value {} but got {}", counter, mat(i, j));
         }
         counter += 1;
       }
@@ -75,8 +75,8 @@ auto main() -> int {
     counter = 0;
     for (Index j = -2; j < mat_f.extent(1) + 2; ++j) {
       for (Index i = -2; i < mat_f.extent(0) + 2; ++i) {
-        if (std::abs(mat_f[i, j] - static_cast<double>(counter)) > 1e-12) {
-          Igor::Warn("Expect value {} but got {}", counter, mat_f[i, j]);
+        if (std::abs(mat_f(i, j) - static_cast<double>(counter)) > 1e-12) {
+          Igor::Warn("Expect value {} but got {}", counter, mat_f(i, j));
         }
         counter += 1;
       }
@@ -92,8 +92,8 @@ auto main() -> int {
 
     std::iota(vec.get_data(), vec.get_data() + vec.size(), -2.0);
     for (Index i = -2; i < vec.extent(0) + 2; ++i) {
-      if (std::abs(vec[i] - static_cast<double>(i)) > 1e-12) {
-        Igor::Warn("Expect value {} but got {}", i, vec[i]);
+      if (std::abs(vec(i) - static_cast<double>(i)) > 1e-12) {
+        Igor::Warn("Expect value {} but got {}", i, vec(i));
       }
     }
 
@@ -104,8 +104,8 @@ auto main() -> int {
     Index counter = 0;
     for (Index i = -2; i < mat.extent(0) + 2; ++i) {
       for (Index j = -2; j < mat.extent(1) + 2; ++j) {
-        if (std::abs(mat[i, j] - static_cast<double>(counter)) > 1e-12) {
-          Igor::Warn("Expect value {} but got {}", counter, mat[i, j]);
+        if (std::abs(mat(i, j) - static_cast<double>(counter)) > 1e-12) {
+          Igor::Warn("Expect value {} but got {}", counter, mat(i, j));
         }
         counter += 1;
       }
@@ -118,8 +118,8 @@ auto main() -> int {
     counter = 0;
     for (Index j = -2; j < mat_f.extent(1) + 2; ++j) {
       for (Index i = -2; i < mat_f.extent(0) + 2; ++i) {
-        if (std::abs(mat_f[i, j] - static_cast<double>(counter)) > 1e-12) {
-          Igor::Warn("Expect value {} but got {}", counter, mat_f[i, j]);
+        if (std::abs(mat_f(i, j) - static_cast<double>(counter)) > 1e-12) {
+          Igor::Warn("Expect value {} but got {}", counter, mat_f(i, j));
         }
         counter += 1;
       }

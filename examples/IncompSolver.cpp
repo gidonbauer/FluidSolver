@@ -70,8 +70,8 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
   inflow  = 0.0;
   outflow = 0.0;
   for_each_a(fs.ym, [&](Index j) {
-    inflow  += fs.curr.rho_u_stag[-NGHOST, j] * fs.curr.U[-NGHOST, j];
-    outflow += fs.curr.rho_u_stag[NX + NGHOST, j] * fs.curr.U[NX + NGHOST, j];
+    inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j);
+    outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j);
   });
   mass_error = outflow - inflow;
 }
@@ -138,8 +138,8 @@ auto main() -> int {
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_0; });
-  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
   calc_inflow_outflow(fs, inflow, outflow, mass_error);
 
@@ -170,12 +170,12 @@ auto main() -> int {
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                          fs.curr.rho_u_stag[i, j];
+        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
+                          fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                          fs.curr.rho_v_stag[i, j];
+        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
+                          fs.curr.rho_v_stag(i, j);
       });
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
@@ -183,8 +183,8 @@ auto main() -> int {
       // Correct the outflow
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
       for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-        fs.curr.U[NX + NGHOST, j] -=
-            mass_error / (fs.curr.rho_u_stag[NX + NGHOST, j] * static_cast<Float>(NY + 2 * NGHOST));
+        fs.curr.U(NX + NGHOST, j) -=
+            mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
       });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -193,13 +193,13 @@ auto main() -> int {
       pressure_iter += local_pressure_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p(i, j) += delta_p(i, j); });
 
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / RHO;
+        fs.curr.U(i, j) -= (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx * dt / RHO;
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / RHO;
+        fs.curr.V(i, j) -= (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy * dt / RHO;
       });
     }
     calc_inflow_outflow(fs, inflow, outflow, mass_error);

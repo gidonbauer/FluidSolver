@@ -48,7 +48,7 @@ class XDMFWriter {
     // - Write meta-data ---------------------------------------------------------------------------
 
     // Make sure that data is in Fortan order, this is incorrect for HDF5 but XDMF wants it...
-    for_each_i(scalar, [&](Index i, Index j) { m_local_storage[i, j] = scalar[i, j]; });
+    for_each_i(scalar, [&](Index i, Index j) { m_local_storage(i, j) = scalar(i, j); });
 
     constexpr hsize_t RANK                  = 3;
     constexpr std::array<hsize_t, RANK> DIM = {NX, NY, 1};

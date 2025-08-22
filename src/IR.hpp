@@ -29,7 +29,7 @@ inline constexpr double VF_HIGH = 1.0 - VF_LOW;
 template <typename Float, Index NX, Index NY, Index NGHOST>
 constexpr auto has_interface(const Matrix<Float, NX, NY, NGHOST>& vf, Index i, Index j) noexcept
     -> bool {
-  return VF_LOW < vf[i, j] && vf[i, j] < VF_HIGH;
+  return VF_LOW < vf(i, j) && vf(i, j) < VF_HIGH;
 }
 
 template <typename Float, Index NX, Index NY, Index NGHOST>

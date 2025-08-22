@@ -2,6 +2,7 @@
 #define FLUID_SOLVER_FS_HPP_
 
 #include <algorithm>
+#include <numbers>
 
 #include <Igor/Math.hpp>
 
@@ -101,6 +102,13 @@ auto adjust_dt(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max)
   Float CFLc_y = 0.0;
   Float CFLv_x = 0.0;
   Float CFLv_y = 0.0;
+  Float CFLst  = 0.0;
+
+  if (fs.sigma > 0.0) {
+    // Taken from NGA2 two phase solver
+    CFLst = 1.0 / std::sqrt(((fs.rho_gas + fs.rho_liquid) * std::pow(fs.dx * fs.dy, 3.0 / 2.0)) /
+                            (4.0 * std::numbers::pi_v<Float> * fs.sigma));
+  }
 
   for_each_i(fs.visc, [&](Index i, Index j) {
     CFLc_x         = std::max(CFLc_x, (fs.curr.U[i, j] + fs.curr.U[i + 1, j]) / 2 / fs.dx);
@@ -113,7 +121,7 @@ auto adjust_dt(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max)
     CFLv_y = std::max(CFLv_y, 4.0 * fs.visc[i, j] / (Igor::sqr(fs.dy) * rho));
   });
 
-  return std::min(cfl_max / std::max({CFLc_x, CFLc_y, CFLv_x, CFLv_y}), dt_max);
+  return std::min(cfl_max / std::max({CFLc_x, CFLc_y, CFLv_x, CFLv_y, CFLst}), dt_max);
 }
 
 // -------------------------------------------------------------------------------------------------

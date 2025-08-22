@@ -16,6 +16,7 @@ IB.dSYM
 PhaseChange
 PhaseChange.dSYM
 
+*.swp
 *.env
 run.slurm
 

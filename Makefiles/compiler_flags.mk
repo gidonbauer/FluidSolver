@@ -37,6 +37,7 @@ DEBUG    ?= 0
 FAST     ?= 0
 SANITIZE ?= 0
 SCOREP   ?= 0
+STDPAR   ?= 0
 
 ifeq (${DEBUG}, 1)
   CXX_FLAGS += ${CXX_DEBUG_FLAGS}
@@ -53,4 +54,8 @@ endif
 ifeq (${SCOREP}, 1)
   CXX_FLAGS += -g
   CXX := scorep ${CXX}
+endif
+
+ifeq (${STDPAR}, 1)
+  CXX_FLAGS += -DFS_STDPAR
 endif

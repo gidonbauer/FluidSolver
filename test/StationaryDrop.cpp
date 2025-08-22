@@ -28,20 +28,22 @@ constexpr Float X_MAX           = 1.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 5.0;
-constexpr Float DT_MAX          = 1e-2;
+constexpr Float T_END           = 100.0;
+constexpr Float DT_MAX          = 1e-1;
 constexpr Float CFL_MAX         = 0.5;
-constexpr Float DT_WRITE        = 1e-2;
+constexpr Float DT_WRITE        = 1e-0;
 
-constexpr Float VISC_G          = 1e-3;  // 1e-0;
+constexpr Float VISC_G          = 1e-6;  // 1e-0;
 constexpr Float RHO_G           = 1.0;
-constexpr Float VISC_L          = 1e-3;
+constexpr Float VISC_L          = 1e-6;
 constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
+constexpr Float CX              = 0.5;
+constexpr Float CY              = 0.5;
 constexpr Float R0              = 0.25;
 constexpr auto vof0             = [](Float x, Float y) {
-  return static_cast<Float>(Igor::sqr(x) + Igor::sqr(y) <= Igor::sqr(R0));
+  return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
 
 constexpr int PRESSURE_MAX_ITER = 50;
@@ -196,6 +198,7 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("StationaryDrop");
+  bool any_test_failed = false;
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
@@ -268,9 +271,10 @@ auto main() -> int {
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // ===== Add capillary forces ================================================================
+      // calc_curvature_convolved_vf(fs, vof);
       // calc_curvature_quad_regression(fs, vof);
-      // calc_curvature_quad_volume_matching(fs, vof);
-      calc_curvature_convolved_vf(fs, vof);
+      calc_curvature_quad_volume_matching(fs, vof);
+      apply_neumann_bconds(vof.curv);
       if (std::any_of(vof.curv.get_data(), vof.curv.get_data() + vof.curv.size(), [](Float x) {
             return std::isnan(x);
           })) {
@@ -282,6 +286,8 @@ auto main() -> int {
       copy(fs.p_jump_u_stag, delta_pj_u_stag);
       copy(fs.p_jump_v_stag, delta_pj_v_stag);
       calc_pressure_jump(vof.vf_old, vof.curv, fs);
+      apply_neumann_bconds(fs.p_jump_u_stag);
+      apply_neumann_bconds(fs.p_jump_v_stag);
       for_each_a<Exec::Parallel>(delta_pj_u_stag, [&](Index i, Index j) {
         delta_pj_u_stag[i, j] = fs.p_jump_u_stag[i, j] - delta_pj_u_stag[i, j];
       });
@@ -289,7 +295,7 @@ auto main() -> int {
         delta_pj_v_stag[i, j] = fs.p_jump_v_stag[i, j] - delta_pj_v_stag[i, j];
       });
 
-      for_each_i<Exec::Parallel>(div, [&](Index i, Index j) {
+      for_each_a<Exec::Parallel>(div, [&](Index i, Index j) {
         div[i, j] += dt * ((delta_pj_u_stag[i + 1, j] / fs.curr.rho_u_stag[i + 1, j] -
                             delta_pj_u_stag[i, j] / fs.curr.rho_u_stag[i, j]) /
                                fs.dx +
@@ -339,10 +345,41 @@ auto main() -> int {
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     // p_max = abs_max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
+
+    {
+      if (vof_min < -1e-8) {
+        Igor::Warn(
+            "Incorrect vf_min at time {:.6e}, expected {:.6e} but got {:.6e}", t, 0.0, vof_min);
+        any_test_failed = true;
+      }
+      if (vof_max > 1.0 + 1e-8) {
+        Igor::Warn(
+            "Incorrect vf_max at time {:.6e}, expected {:.6e} but got {:.6e}", t, 1.0, vof_max);
+        any_test_failed = true;
+      }
+      if (std::abs(vof_loss) > 1e-8) {
+        Igor::Warn("High volume loss at time {:.6e}: {:.6e}", t, vof_loss);
+        any_test_failed = true;
+      }
+    }
+
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
   }
+
+  // L1-error of last solution to initial condition
+  std::atomic<Float> L1_error = 0.0;
+  for_each_i<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
+    const auto expected =
+        quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    const auto actual  = vof.vf[i, j];
+    L1_error          += std::abs(expected - actual);
+  });
+  L1_error = L1_error * fs.dx * fs.dy;
+  Igor::Debug("L1 error final solution = {:.6e}", static_cast<Float>(L1_error));
+
+  return any_test_failed ? 1 : 0;
 }

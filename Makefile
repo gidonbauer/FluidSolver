@@ -25,13 +25,8 @@ include Makefiles/libs.mk
 
 all: ${TARGETS}
 
-INTEL_RT_DIR = /cvmfs/software.hpc.rwth.de/Linux/RH9/x86_64/intel/sapphirerapids/software/intel-compilers/2024.2.0/compiler/latest
-INTEL_RT_LIBS = -Wl,-rpath ${INTEL_RT_DIR}/lib -L${INTEL_RT_DIR}/lib -lirc -limf
-
-CUDA_LIBS = -lcudart -lcurand -lcublas -lcusolver -lcusparse
-
 %: examples/%.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB} ${INTEL_RT_LIBS} ${CUDA_LIBS}
+	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB}
 
 clean: clean-test
 	${RM} -r ${TARGETS} ${addsuffix .dSYM, ${TARGETS}}

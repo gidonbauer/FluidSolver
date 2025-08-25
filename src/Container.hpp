@@ -23,6 +23,10 @@ template <typename Contained, Index N, Index NGHOST>
 requires(N > 0 && NGHOST >= 0)
 class Vector;
 
+template <typename Contained, Index M, Index N, Index NGHOST, Layout LAYOUT>
+requires(M > 0 && N > 0 && NGHOST >= 0)
+class Matrix;
+
 // =================================================================================================
 template <typename Contained, Index N, Index NGHOST = 0>
 requires(N > 0 && NGHOST >= 0)
@@ -156,11 +160,6 @@ class Vector {
     return VectorView(*this);
   }
 };
-
-// =================================================================================================
-template <typename Contained, Index M, Index N, Index NGHOST, Layout LAYOUT>
-requires(M > 0 && N > 0 && NGHOST >= 0)
-class Matrix;
 
 // =================================================================================================
 template <typename Contained, Index M, Index N, Index NGHOST = 0, Layout LAYOUT = Layout::C>
@@ -301,8 +300,8 @@ class Matrix {
     return -NGHOST <= i && i < M + NGHOST && -NGHOST <= j && j < N + NGHOST;
   }
 
-  [[nodiscard]] constexpr auto
-  view() const noexcept -> MatrixView<const Contained, M, N, NGHOST, LAYOUT> {
+  [[nodiscard]] constexpr auto view() const noexcept
+      -> MatrixView<const Contained, M, N, NGHOST, LAYOUT> {
     return MatrixView(*this);
   }
   [[nodiscard]] constexpr auto view() noexcept -> MatrixView<Contained, M, N, NGHOST, LAYOUT> {

@@ -9,7 +9,6 @@
 #include "BoundaryConditions.hpp"
 #include "Container.hpp"
 #include "ForEach.hpp"
-// #include "IR.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>

@@ -98,7 +98,7 @@ auto main() -> int {
   vtk_writer.add_vector("velocity", &Ui, &Vi);
   // = Output ======================================================================================
 
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
 
   // = Initialize flow field =======================================================================
   for_each_i<Exec::Parallel>(

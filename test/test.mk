@@ -8,7 +8,8 @@ TESTS = LaminarChannel_0     \
         MovingDrop           \
         Operators            \
         Container            \
-        Utility
+        Utility              \
+        OffloadGPU
 
 test: ${addprefix test/, ${TESTS}} ${addprefix test-, ${TESTS}}
 
@@ -18,6 +19,9 @@ test-%: test/%
 
 test/%: test/%.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB}
+
+test/OffloadGPU: test/OffloadGPU.cpp ${HEADERS}
+	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB} ${INTEL_RT_LIBS} ${CUDA_LIBS}
 
 test/LaminarChannel_0: test/LaminarChannel.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} -DLC_U_INIT=0 ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB}

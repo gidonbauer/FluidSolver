@@ -14,7 +14,8 @@
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
-#include "XDMFWriter.hpp"
+// #include "XDMFWriter.hpp"
+#include "VTKWriter.hpp"
 
 // = Config ========================================================================================
 using Float                     = double;
@@ -110,11 +111,12 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  XDMFWriter<Float, NX, NY, NGHOST> data_writer(
-      Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
-      Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
-      &fs.x,
-      &fs.y);
+  // XDMFWriter<Float, NX, NY, NGHOST> data_writer(
+  //     Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
+  //     Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
+  //     &fs.x,
+  //     &fs.y);
+  VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   calc_rho_and_visc(fs);
 
   data_writer.add_scalar("pressure", &fs.p);

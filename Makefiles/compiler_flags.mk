@@ -34,7 +34,7 @@ else ifeq (${BASENAME_CXX}, nvc++)
 	CXX_FAST_FLAGS = -O3 -Mipa -fastsse -Mvect=simd:256
 	CXX_DEBUG_FLAGS = -O0 -g
 	CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
-	CXX_OPENMP_FLAGS = -mp
+	CXX_OPENMP_FLAGS = -stdpar -Minfo=accel,par,stdpar -DFS_STDPAR
 
 else
 

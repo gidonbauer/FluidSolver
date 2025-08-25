@@ -11,6 +11,17 @@
 #include "IR.hpp"
 #include "Operators.hpp"
 
+template <typename Float, Index NX, Index NY, Index NGHOST>
+requires(NGHOST > 0)
+struct VOF {
+  InterfaceReconstruction<NX, NY> ir{};
+
+  Matrix<Float, NX, NY, NGHOST> vf_old{};
+  Matrix<Float, NX, NY, NGHOST> vf{};
+
+  Matrix<Float, NX, NY, NGHOST> curv{};
+};
+
 static constexpr std::array CUBOID_OFFSETS{
     std::array<Index, 3>{1, 0, 0},  // 0
     std::array<Index, 3>{1, 1, 0},  // 1
@@ -48,246 +59,292 @@ static_assert(CUBOID_OFFSETS.size() + FACE_VERTICES.size() ==
               "IRL::Polyhedron24::getNumberOfVertices()");
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 constexpr auto advect_point(const IRL::Pt& pt,
-                            const Vector<Float, NX>& xm,
-                            const Vector<Float, NY>& ym,
-                            const Matrix<Float, NX, NY>& Ui,
-                            const Matrix<Float, NX, NY>& Vi,
+                            const FS<Float, NX, NY, NGHOST>& fs,
+                            const Matrix<Float, NX, NY, NGHOST>& Ui,
+                            const Matrix<Float, NX, NY, NGHOST>& Vi,
                             Float dt) -> IRL::Pt {
-#ifdef ADVECT_EULER
-  const auto [u, v] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
-  return {pt[0] - dt * u, pt[1] - dt * v, pt[2]};
-#elif defined(ADVECT_RK2)
-  const auto [u1, v1] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
+  const auto [u1, v1] = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0], pt[1]);
   const auto [u2, v2] =
-      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - dt / 2.0 * u1, pt[1] - dt / 2.0 * v1);
-  return {pt[0] - dt * u2, pt[1] - dt * v2, pt[2]};
-#else
-  const auto [u1, v1] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0], pt[1]);
-  const auto [u2, v2] =
-      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
+      eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
   const auto [u3, v3] =
-      eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
-  const auto [u4, v4] = eval_flow_field_at(xm, ym, Ui, Vi, pt[0] - dt * u3, pt[1] - dt * v3);
+      eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
+  const auto [u4, v4] = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0] - dt * u3, pt[1] - dt * v3);
 
   return {
       pt[0] - dt / 6.0 * (u1 + 2.0 * u2 + 2.0 * u3 + u4),
       pt[1] - dt / 6.0 * (v1 + 2.0 * v2 + 2.0 * v3 + v4),
       pt[2],
   };
-#endif
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void localize_cells(const Vector<Float, NX + 1>& x,
-                    const Vector<Float, NY + 1>& y,
+template <typename Float, Index NX, Index NY, Index NGHOST>
+constexpr auto advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY, NGHOST>& fs, Float dt)
+    -> IRL::Pt {
+  const auto u1 = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0], pt[1]);
+  const auto v1 = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0], pt[1]);
+
+  const auto u2 =
+      bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
+  const auto v2 =
+      bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
+
+  const auto u3 =
+      bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
+  const auto v3 =
+      bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0] - 0.5 * dt * u2, pt[1] - 0.5 * dt * v2);
+
+  const auto u4 = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0] - dt * u3, pt[1] - dt * v3);
+  const auto v4 = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0] - dt * u3, pt[1] - dt * v3);
+
+  return {
+      pt[0] - dt / 6.0 * (u1 + 2.0 * u2 + 2.0 * u3 + u4),
+      pt[1] - dt / 6.0 * (v1 + 2.0 * v2 + 2.0 * v3 + v4),
+      pt[2],
+  };
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void localize_cells(const Vector<Float, NX + 1, NGHOST>& x,
+                    const Vector<Float, NY + 1, NGHOST>& y,
                     InterfaceReconstruction<NX, NY>& ir) {
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      // Localize the cell for volume calculation
-      constexpr std::array<IRL::Normal, 6> plane_normals = {
-          IRL::Normal(-1.0, 0.0, 0.0),
-          IRL::Normal(1.0, 0.0, 0.0),
-          IRL::Normal(0.0, -1.0, 0.0),
-          IRL::Normal(0.0, 1.0, 0.0),
-          IRL::Normal(0.0, 0.0, -1.0),
-          IRL::Normal(0.0, 0.0, 1.0),
-      };
-      auto& l = ir.cell_localizer[i, j];
-      l.setNumberOfPlanes(6);
-      l[0] = IRL::Plane(plane_normals[0], -x[i]);
-      l[1] = IRL::Plane(plane_normals[1], x[i + 1]);
-      l[2] = IRL::Plane(plane_normals[2], -y[j]);
-      l[3] = IRL::Plane(plane_normals[3], y[j + 1]);
-      l[4] = IRL::Plane(plane_normals[4], 0.5);
-      l[5] = IRL::Plane(plane_normals[5], 0.5);
-    }
-  }
+  for_each_i<Exec::Parallel>(ir.cell_localizer, [&](Index i, Index j) {
+    // Localize the cell for volume calculation
+    constexpr std::array<IRL::Normal, 6> plane_normals = {
+        IRL::Normal(-1.0, 0.0, 0.0),
+        IRL::Normal(1.0, 0.0, 0.0),
+        IRL::Normal(0.0, -1.0, 0.0),
+        IRL::Normal(0.0, 1.0, 0.0),
+        IRL::Normal(0.0, 0.0, -1.0),
+        IRL::Normal(0.0, 0.0, 1.0),
+    };
+    auto& l = ir.cell_localizer(i, j);
+    l.setNumberOfPlanes(6);
+    l[0] = IRL::Plane(plane_normals[0], -x(i));
+    l[1] = IRL::Plane(plane_normals[1], x(i + 1));
+    l[2] = IRL::Plane(plane_normals[2], -y(j));
+    l[3] = IRL::Plane(plane_normals[3], y(j + 1));
+    l[4] = IRL::Plane(plane_normals[4], 0.5);
+    l[5] = IRL::Plane(plane_normals[5], 0.5);
+  });
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void reconstruct_interface(const Vector<Float, NX + 1>& x,
-                           const Vector<Float, NY + 1>& y,
-                           const Matrix<Float, NX, NY>& vof,
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void reconstruct_interface(const FS<Float, NX, NY, NGHOST>& fs,
+                           const Matrix<Float, NX, NY, NGHOST>& vf,
                            InterfaceReconstruction<NX, NY>& ir) {
   constexpr IRL::UnsignedIndex_t NEIGHBORHOOD_SIZE = 9;
 
   // Reset ir.interface
-  std::fill_n(ir.interface.get_data(), ir.interface.size(), IRL::PlanarSeparator{});
+  fill(ir.interface, IRL::PlanarSeparator{});
 
-  for (Index i = 1; i < vof.extent(0) - 1; ++i) {
-    for (Index j = 1; j < vof.extent(1) - 1; ++j) {
-      // Calculate the interface; skip if does not contain an interface
-      if (!has_interface(vof, i, j)) { continue; }
+  for_each_i<Exec::Parallel>(ir.interface, [&](Index i, Index j) {
+    // Calculate the interface; skip if does not contain an interface
+    if (!has_interface(vf, i, j)) { return; }
 
-      IRL::ELVIRANeighborhood neighborhood{};
-      neighborhood.resize(NEIGHBORHOOD_SIZE);
-      std::array<IRL::RectangularCuboid, NEIGHBORHOOD_SIZE> cells{};
-      std::array<Float, NEIGHBORHOOD_SIZE> cells_vof{};
+    IRL::ELVIRANeighborhood neighborhood{};
+    neighborhood.resize(NEIGHBORHOOD_SIZE);
+    std::array<IRL::RectangularCuboid, NEIGHBORHOOD_SIZE> cells{};
+    std::array<Float, NEIGHBORHOOD_SIZE> cells_vf{};
 
-      size_t counter = 0;
-      for (Index di = -1; di <= 1; ++di) {
-        for (Index dj = -1; dj <= 1; ++dj) {
-          cells[counter] = IRL::RectangularCuboid::fromBoundingPts(
-              IRL::Pt{x[i + di], y[j + dj], -0.5}, IRL::Pt{x[i + di + 1], y[j + dj + 1], 0.5});
-          cells_vof[counter] = vof[i + di, j + dj];
-          neighborhood.setMember(&cells[counter], &cells_vof[counter], di, dj);
-          counter += 1;
-        }
+    size_t counter = 0;
+    for (Index di = -1; di <= 1; ++di) {
+      for (Index dj = -1; dj <= 1; ++dj) {
+        const Float x_lo = fs.x(i + di);
+        const Float x_hi = fs.x(i + di + 1);
+        const Float y_lo = fs.y(j + dj);
+        const Float y_hi = fs.y(j + dj + 1);
+        const Float z_lo = -0.5;
+        const Float z_hi = 0.5;
+
+        cells[counter]   = IRL::RectangularCuboid::fromBoundingPts(IRL::Pt{x_lo, y_lo, z_lo},
+                                                                 IRL::Pt{x_hi, y_hi, z_hi});
+        // TODO: Assume that vf is always zero outside of the domain, i.e. Dirichlet Boundary
+        //       conditions
+        cells_vf[counter] = vf(i + di, j + dj);
+        neighborhood.setMember(&cells[counter], &cells_vf[counter], di, dj);
+        counter += 1;
       }
-      ir.interface[i, j] = IRL::reconstructionWithELVIRA2D(neighborhood);
-      IGOR_ASSERT((ir.interface[i, j].getNumberOfPlanes() == 1),
-                  "({}, {}): Expected one plane but got {}",
-                  i,
-                  j,
-                  (ir.interface[i, j].getNumberOfPlanes()));
     }
-  }
+    ir.interface(i, j) = IRL::reconstructionWithELVIRA2D(neighborhood);
+    IGOR_ASSERT((ir.interface(i, j).getNumberOfPlanes() == 1),
+                "({}, {}): Expected one plane but got {}",
+                i,
+                j,
+                (ir.interface(i, j).getNumberOfPlanes()));
+  });
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void advect_cells(const FS<Float, NX, NY>& fs,
-                  const Matrix<Float, NX, NY>& vof_old,
-                  const Matrix<Float, NX, NY>& Ui,
-                  const Matrix<Float, NX, NY>& Vi,
-                  Float dt,
-                  const InterfaceReconstruction<NX, NY>& ir,
-                  Matrix<Float, NX, NY>& vof,
-                  Float* max_volume_error = nullptr) {
+template <typename Float, Index NX, Index NY, Index NGHOST>
+[[nodiscard]] auto advect_single_cell(Index i,
+                                      Index j,
+                                      const FS<Float, NX, NY, NGHOST>& fs,
+                                      [[maybe_unused]] const Matrix<Float, NX, NY, NGHOST>& Ui,
+                                      [[maybe_unused]] const Matrix<Float, NX, NY, NGHOST>& Vi,
+                                      Float dt,
+                                      VOF<Float, NX, NY, NGHOST>& vof) -> Float {
   constexpr Index NEIGHBORHOOD_OFFSET = 1;
+  Float volume_error                  = 0.0;
 
-  Float local_max_volume_error        = 0.0;
-#pragma omp parallel for schedule(dynamic) collapse(2) reduction(max : local_max_volume_error)
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      // Early exit of loop iteration if we are entirely inside or outside of liquid phase
-      {
-        Float neighborhood_vof_sum = 0.0;
-        for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
-             ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
-             ++ii) {
-          for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
-               jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
-               ++jj) {
-            neighborhood_vof_sum += vof_old[ii, jj];
-          }
-        }
-        if (neighborhood_vof_sum < VOF_LOW) { continue; }
-        if (neighborhood_vof_sum >= Igor::sqr(2.0 * NEIGHBORHOOD_OFFSET + 1.0) * VOF_HIGH) {
-          vof[i, j] = 1.0;
-          continue;
-        }
+  // Early exit of loop iteration if we are entirely inside or outside of liquid phase
+  {
+    Float neighborhood_vf_sum = 0.0;
+    for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
+         ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
+         ++ii) {
+      for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
+           jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
+           ++jj) {
+        neighborhood_vf_sum += vof.vf_old(ii, jj);
       }
-
-#ifndef VOF_NO_CORRECTION
-      IRL::Polyhedron24 advected_cell{};
-#else
-      IRL::Dodecahedron advected_cell{};
-#endif
-
-      auto offset_to_pt = [i, j, &fs](Index di, Index dj, Index dk) {
-        return IRL::Pt{fs.x[i + di], fs.y[j + dj], dk == 1 ? 0.5 : -0.5};
-      };
-
-      // = Set cuboid vertices =====================================================================
-      for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < CUBOID_OFFSETS.size(); ++cell_idx) {
-        const auto [di, dj, dk] = CUBOID_OFFSETS[cell_idx];
-        advected_cell[cell_idx] = advect_point(offset_to_pt(di, dj, dk), fs.xm, fs.ym, Ui, Vi, dt);
-      }
-
-#ifndef VOF_NO_CORRECTION
-      // = Set other vertices to barycenter ========================================================
-      for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < FACE_VERTICES.size(); ++cell_idx) {
-        const auto& vertices = FACE_VERTICES[cell_idx];
-        IRL::Pt barycenter   = IRL::Pt::fromScalarConstant(0.0);
-        for (auto idx : vertices) {
-          barycenter += advected_cell[idx];
-        }
-        barycenter                                      /= 4.0;
-        advected_cell[cell_idx + CUBOID_OFFSETS.size()]  = barycenter;
-      }
-#endif  // VOF_NO_CORRECTION
-
-      const auto original_cell_vol = (fs.x[i + 1] - fs.x[i]) * (fs.y[j + 1] - fs.y[j]);
-
-#ifndef VOF_NO_CORRECTION
-      // = Adjust other vertices to have correct cell volume =======================================
-      for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < FACE_VERTICES.size(); ++cell_idx) {
-        const auto& vertices = FACE_VERTICES[cell_idx];
-        // We have a two dimensional problem, therefore we do not adjust the vertices in z-direction
-        if (FACE_DIRECTION[cell_idx] == Dir::ZM || FACE_DIRECTION[cell_idx] == Dir::ZP) {
-          continue;
-        }
-
-        const Float correct_flux_vol = [&] {
-          switch (FACE_DIRECTION[cell_idx]) {
-            case Dir::XM: return -fs.curr.U[i, j] * fs.dy * dt;
-            case Dir::XP: return fs.curr.U[i + 1, j] * fs.dy * dt;
-            case Dir::YM: return -fs.curr.V[i, j] * fs.dx * dt;
-            case Dir::YP: return fs.curr.V[i, j + 1] * fs.dx * dt;
-            case Dir::ZM:
-            case Dir::ZP: Igor::Panic("Unreachable"); std::unreachable();
-          }
-        }();
-
-        IRL::CappedDodecahedron advected_face{};
-        IRL::UnsignedIndex_t counter = 0;
-        for (auto idx : vertices) {
-          // Vertices 0-3 are the ones of the original eulerian cell
-          const auto [di, dj, dk] = CUBOID_OFFSETS[idx];
-          advected_face[counter]  = offset_to_pt(di, dj, dk);
-
-          // Vertices 4-7 are the advected vertices of the face
-          const auto o                = advected_face.getNumberOfVertices() / 2;
-          advected_face[counter + o]  = advected_cell[idx];
-
-          counter                    += 1;
-        }
-        constexpr IRL::UnsignedIndex_t ADJUSTED_VERTEX = 8;
-        // Barycenter of advected vertices is initial guess for vertex 8
-        advected_face[ADJUSTED_VERTEX] = advected_cell[cell_idx + CUBOID_OFFSETS.size()];
-
-        advected_face.adjustCapToMatchVolume(correct_flux_vol);
-        advected_cell[cell_idx + CUBOID_OFFSETS.size()] = advected_face[ADJUSTED_VERTEX];
-      }
-#endif  // VOF_NO_CORRECTION
-
-      local_max_volume_error =
-          std::max(local_max_volume_error,
-                   std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume()));
-
-      Float overlap_vol = 0.0;
-      for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
-           ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
-           ++ii) {
-        for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
-             jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
-             ++jj) {
-          if (vof_old[ii, jj] > VOF_LOW) {
-            overlap_vol += IRL::getVolumeMoments<IRL::Volume, IRL::RecursiveSimplexCutting>(
-                advected_cell,
-                IRL::LocalizedSeparator(&ir.cell_localizer[ii, jj], &ir.interface[ii, jj]));
-          }
-        }
-      }
-
-      vof[i, j] = overlap_vol / advected_cell.calculateAbsoluteVolume();
+    }
+    if (neighborhood_vf_sum < VF_LOW) { return volume_error; }
+    if (neighborhood_vf_sum >= Igor::sqr(2.0 * NEIGHBORHOOD_OFFSET + 1.0) * VF_HIGH) {
+      vof.vf(i, j) = 1.0;
+      return volume_error;
     }
   }
 
+#ifndef VOF_NO_CORRECTION
+  IRL::Polyhedron24 advected_cell{};
+#else
+  IRL::Dodecahedron advected_cell{};
+#endif
+
+  auto offset_to_pt = [i, j, &fs](Index di, Index dj, Index dk) {
+    return IRL::Pt{fs.x(i + di), fs.y(j + dj), dk == 1 ? 0.5 : -0.5};
+  };
+
+  // = Set cuboid vertices =====================================================================
+  for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < CUBOID_OFFSETS.size(); ++cell_idx) {
+    const auto [di, dj, dk] = CUBOID_OFFSETS[cell_idx];
+#ifndef FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
+    advected_cell[cell_idx] = advect_point(offset_to_pt(di, dj, dk), fs, Ui, Vi, dt);
+#else
+    advected_cell[cell_idx] = advect_point2(offset_to_pt(di, dj, dk), fs, dt);
+#endif  // FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
+  }
+
+#ifndef VOF_NO_CORRECTION
+  // = Set other vertices to barycenter ========================================================
+  for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < FACE_VERTICES.size(); ++cell_idx) {
+    const auto& vertices = FACE_VERTICES[cell_idx];
+    IRL::Pt barycenter   = IRL::Pt::fromScalarConstant(0.0);
+    for (auto idx : vertices) {
+      barycenter += advected_cell[idx];
+    }
+    barycenter                                      /= 4.0;
+    advected_cell[cell_idx + CUBOID_OFFSETS.size()]  = barycenter;
+  }
+#endif  // VOF_NO_CORRECTION
+
+  const auto original_cell_vol = (fs.x(i + 1) - fs.x(i)) * (fs.y(j + 1) - fs.y(j));
+
+#ifndef VOF_NO_CORRECTION
+  // = Adjust other vertices to have correct cell volume =======================================
+  for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < FACE_VERTICES.size(); ++cell_idx) {
+    const auto& vertices = FACE_VERTICES[cell_idx];
+    // We have a two dimensional problem, therefore we do not adjust the vertices in z-direction
+    if (FACE_DIRECTION[cell_idx] == Dir::ZM || FACE_DIRECTION[cell_idx] == Dir::ZP) { continue; }
+
+    const Float correct_flux_vol = [&] {
+      switch (FACE_DIRECTION[cell_idx]) {
+        case Dir::XM: return -fs.curr.U(i, j) * fs.dy * dt;
+        case Dir::XP: return fs.curr.U(i + 1, j) * fs.dy * dt;
+        case Dir::YM: return -fs.curr.V(i, j) * fs.dx * dt;
+        case Dir::YP: return fs.curr.V(i, j + 1) * fs.dx * dt;
+        case Dir::ZM:
+        case Dir::ZP: Igor::Panic("Unreachable"); std::unreachable();
+      }
+    }();
+
+    IRL::CappedDodecahedron advected_face{};
+    IRL::UnsignedIndex_t counter = 0;
+    for (auto idx : vertices) {
+      // Vertices 0-3 are the ones of the original eulerian cell
+      const auto [di, dj, dk] = CUBOID_OFFSETS[idx];
+      advected_face[counter]  = offset_to_pt(di, dj, dk);
+
+      // Vertices 4-7 are the advected vertices of the face
+      const auto o                = advected_face.getNumberOfVertices() / 2;
+      advected_face[counter + o]  = advected_cell[idx];
+
+      counter                    += 1;
+    }
+    constexpr IRL::UnsignedIndex_t ADJUSTED_VERTEX = 8;
+    // Barycenter of advected vertices is initial guess for vertex 8
+    advected_face[ADJUSTED_VERTEX] = advected_cell[cell_idx + CUBOID_OFFSETS.size()];
+
+    advected_face.adjustCapToMatchVolume(correct_flux_vol);
+    advected_cell[cell_idx + CUBOID_OFFSETS.size()] = advected_face[ADJUSTED_VERTEX];
+  }
+#endif  // VOF_NO_CORRECTION
+
+  volume_error      = std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume());
+
+  Float overlap_vol = 0.0;
+  for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
+       ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
+       ++ii) {
+    for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
+         jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
+         ++jj) {
+      if (vof.vf_old(ii, jj) > VF_LOW) {
+        overlap_vol += IRL::getVolumeMoments<IRL::Volume, IRL::RecursiveSimplexCutting>(
+            advected_cell,
+            IRL::LocalizedSeparator(&vof.ir.cell_localizer(ii, jj), &vof.ir.interface(ii, jj)));
+      }
+    }
+  }
+
+  vof.vf(i, j) = overlap_vol / advected_cell.calculateAbsoluteVolume();
+
+  return volume_error;
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void advect_cells(const FS<Float, NX, NY, NGHOST>& fs,
+                  [[maybe_unused]] const Matrix<Float, NX, NY, NGHOST>& Ui,
+                  [[maybe_unused]] const Matrix<Float, NX, NY, NGHOST>& Vi,
+                  Float dt,
+                  VOF<Float, NX, NY, NGHOST>& vof,
+                  Float* max_volume_error = nullptr) {
+  Float local_max_volume_error = 0.0;
+  for_each_i<Exec::ParallelDynamic>(vof.vf, [&](Index i, Index j) {
+    const auto local_volume_error = advect_single_cell(i, j, fs, Ui, Vi, dt, vof);
+#pragma omp critical
+    { local_max_volume_error = std::max(local_max_volume_error, local_volume_error); }
+  });
   if (max_volume_error) { *max_volume_error = local_max_volume_error; }
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
+// template <typename Float, Index NX, Index NY, Index NGHOST>
+// [[nodiscard]] constexpr auto get_interface_length(Index i,
+//                                                   Index j,
+//                                                   const Vector<Float, NX + 1>& x,
+//                                                   const Vector<Float, NY + 1>& y,
+//                                                   const IRL::Plane& plane) noexcept -> Float {
+//   const auto [p1, p2] = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
+//   IGOR_ASSERT(
+//       std::abs(p1[2]) < 1e-12, "Expected z-component of p1 to be zero but is {:.6e}", p1[2]);
+//   IGOR_ASSERT(
+//       std::abs(p2[2]) < 1e-12, "Expected z-component of p2 to be zero but is {:.6e}", p2[2]);
+//   return std::sqrt(Igor::sqr(p1[0] - p2[0]) + Igor::sqr(p1[1] - p2[1]));
+// }
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
 [[nodiscard]] constexpr auto get_intersections_with_cell(Index i,
                                                          Index j,
-                                                         const Vector<Float, NX + 1>& x,
-                                                         const Vector<Float, NY + 1>& y,
+                                                         const Vector<Float, NX + 1, NGHOST>& x,
+                                                         const Vector<Float, NY + 1, NGHOST>& y,
                                                          const IRL::Plane& plane)
     -> std::array<IRL::Pt, 2> {
   Igor::StaticVector<IRL::Pt, 4> trial_points{};
@@ -302,16 +359,16 @@ template <typename Float, Index NX, Index NY>
   constexpr Float EPS = 1e-6;
   for (size_t idx = 0; idx < offsets.size(); ++idx) {
     const auto [di0, dj0] = offsets[idx];
-    IRL::Pt p0(x[i + di0], y[j + dj0], 0.0);
+    IRL::Pt p0(x(i + di0), y(j + dj0), 0.0);
 
     const auto [di1, dj1] = offsets[(idx + 1) % offsets.size()];
-    IRL::Pt p1(x[i + di1], y[j + dj1], 0.0);
+    IRL::Pt p1(x(i + di1), y(j + dj1), 0.0);
 
     const auto tp = IRL::Pt::fromEdgeIntersection(
         p0, plane.signedDistanceToPoint(p0), p1, plane.signedDistanceToPoint(p1));
 
-    if (x[i] - EPS <= tp[0] && tp[0] <= x[i + 1] + EPS &&  //
-        y[j] - EPS <= tp[1] && tp[1] <= y[j + 1] + EPS) {
+    if (x(i) - EPS <= tp[0] && tp[0] <= x(i + 1) + EPS &&  //
+        y(j) - EPS <= tp[1] && tp[1] <= y(j + 1) + EPS) {
       trial_points.push_back(tp);
     }
   }
@@ -340,33 +397,31 @@ template <typename Float, Index NX, Index NY>
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 auto save_interface(const std::string& filename,
-                    const Vector<Float, NX + 1>& x,
-                    const Vector<Float, NY + 1>& y,
+                    const Vector<Float, NX + 1, NGHOST>& x,
+                    const Vector<Float, NY + 1, NGHOST>& y,
                     const Matrix<IRL::PlanarSeparator, NX, NY>& interface) -> bool {
   // - Find intersection points of planar separator and grid =======================================
-  // TODO: Implement a proper algorithm for this and handle the edge cases
   static std::vector<IRL::Pt> points{};
   points.resize(0);
 
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (interface[i, j].getNumberOfPlanes() != 1) {
-        IGOR_ASSERT((interface[i, j].getNumberOfPlanes() == 0),
-                    "{}, {}: Number of planes can only be 0 or 1 but is {}",
-                    i,
-                    j,
-                    interface[i, j].getNumberOfPlanes());
-        continue;
-      }
-      const IRL::Plane& plane  = interface[i, j][0];
-      const auto intersections = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
-      static_assert(intersections.size() == 2);
-      points.push_back(intersections[0]);
-      points.push_back(intersections[1]);
+  for_each_i(interface, [&](Index i, Index j) {
+    if (interface(i, j).getNumberOfPlanes() != 1) {
+      IGOR_ASSERT((interface(i, j).getNumberOfPlanes() == 0),
+                  "{}, {}: Number of planes can only be 0 or 1 but is {}",
+                  i,
+                  j,
+                  interface(i, j).getNumberOfPlanes());
+      return;
     }
-  }
+    const IRL::Plane& plane = interface(i, j)[0];
+    const auto intersections =
+        get_intersections_with_cell<Float, NX, NY, NGHOST>(i, j, x, y, plane);
+    static_assert(intersections.size() == 2);
+    points.push_back(intersections[0]);
+    points.push_back(intersections[1]);
+  });
   std::ofstream out(filename);
   if (!out) {
     Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));

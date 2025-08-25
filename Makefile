@@ -1,50 +1,37 @@
-HEADERS = src/Container.hpp          \
+HEADERS = src/BoundaryConditions.hpp \
+          src/Container.hpp          \
+          src/Curvature.hpp          \
+          src/ForEach.hpp            \
           src/FS.hpp                 \
           src/IO.hpp                 \
+          src/IotaIter.hpp           \
+          src/IR.hpp                 \
+          src/Macros.hpp             \
+          src/Monitor.hpp            \
           src/Operators.hpp          \
           src/PressureCorrection.hpp \
-          src/IR.hpp                 \
-          src/VOF.hpp                \
-          src/Monitor.hpp            \
           src/Quadrature.hpp         \
           src/QuadratureTables.hpp   \
+          src/StdparOpenMP.hpp       \
+          src/Utility.hpp            \
+          src/VOF.hpp                \
           src/VTKWriter.hpp          \
-          src/Curvature.hpp
+          src/XDMFWriter.hpp
 
-TARGETS = IncompSolver VOF Curvature TwoPhaseSolver
+TARGETS = IncompSolver VOF Curvature TwoPhaseSolver IB PhaseChange
 
 include Makefiles/compiler_flags.mk
 include Makefiles/libs.mk
 
 all: ${TARGETS}
 
-IncompSolver: examples/IncompSolver.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
+INTEL_RT_DIR = /cvmfs/software.hpc.rwth.de/Linux/RH9/x86_64/intel/sapphirerapids/software/intel-compilers/2024.2.0/compiler/latest
+INTEL_RT_LIBS = -Wl,-rpath ${INTEL_RT_DIR}/lib -L${INTEL_RT_DIR}/lib -lirc -limf
 
-VOF: examples/VOF.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
+CUDA_LIBS = -lcudart -lcurand -lcublas -lcusolver -lcusparse
 
-Curvature: examples/Curvature.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
-
-# TwoPhaseSolver: examples/TwoPhaseSolver.cpp ${HEADERS}
-# 	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB}
-
-TwoPhaseSolver: examples/TwoPhaseSolver.cpp ${HEADERS}
-	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} \
-		${INC} \
-		${IGOR_INC} \
-		-I${HOME}/opt/hypre-2.33.0-Cuda/src/hypre/include \
-		${IRL_INC} \
-		${EIGEN_INC} \
-		-I${HOME}/opt/fmt-11.2.0/fmt/include -DIGOR_USE_FMT \
-		-o $@ $< \
-		-L${HOME}/opt/hypre-2.33.0-Cuda/src/hypre/lib -lHYPRE \
-		${IRL_LIB} \
-		-L${HOME}/opt/fmt-11.2.0/fmt/lib64 -lfmt \
-		-lcudart -lcurand -lcublas -lcusolver -lcusparse \
-		-Wl,-rpath /cvmfs/software.hpc.rwth.de/Linux/RH9/x86_64/intel/sapphirerapids/software/intel-compilers/2024.2.0/compiler/latest/lib \
-		-L/cvmfs/software.hpc.rwth.de/Linux/RH9/x86_64/intel/sapphirerapids/software/intel-compilers/2024.2.0/compiler/latest/lib -lirc -limf
+%: examples/%.cpp ${HEADERS}
+	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB} ${INTEL_RT_LIBS} ${CUDA_LIBS}
 
 clean: clean-test
 	${RM} -r ${TARGETS} ${addsuffix .dSYM, ${TARGETS}}

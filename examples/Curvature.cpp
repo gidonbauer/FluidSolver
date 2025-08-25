@@ -1,11 +1,13 @@
-// Reference: Cummins, S. J., Francois, M. M., and Kothe, D. B. “Estimating curvature from volume
-// fractions”. Computers & Structures. Frontier of Multi-Phase Flow Analysis and
-// Fluid-StructureFrontier of MultiPhase Flow Analysis and Fluid-Structure 83.6 (2005), pp. 425–434.
+#include <numbers>
+#include <random>
 
 #include <Igor/Logging.hpp>
 #include <Igor/Math.hpp>
+#include <Igor/ProgressBar.hpp>
+#include <Igor/StaticVector.hpp>
 #include <Igor/Timer.hpp>
 
+// #define FS_CURV_NO_INTERPOLATION
 #include "Curvature.hpp"
 #include "FS.hpp"
 #include "IO.hpp"
@@ -16,163 +18,94 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float           = double;
-constexpr Index NX    = 33;
-constexpr Index NY    = 33;
-constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 1.0;
-constexpr Float Y_MIN = 0.0;
-constexpr Float Y_MAX = 1.0;
-constexpr auto DX     = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY     = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+using Float                   = double;
+constexpr Index N             = 64;
+constexpr Index NGHOST        = 1;
 
-constexpr Float R     = 0.25;
-constexpr auto vof0(Float x, Float y) {
-  return static_cast<Float>(Igor::sqr(x - 0.5) + Igor::sqr(y - 0.5) <= Igor::sqr(R));
-}
+constexpr Float X_MIN         = 0.0;
+constexpr Float X_MAX         = 1.0;
+constexpr Float Y_MIN         = 0.0;
+constexpr Float Y_MAX         = 1.0;
+constexpr Float DX            = (X_MAX - X_MIN) / static_cast<Float>(N);
+constexpr Float DY            = (Y_MAX - Y_MIN) / static_cast<Float>(N);
 
-constexpr auto OUTPUT_DIR = "output/Curvature";
+constexpr Index NUM_TEST_ITER = 50'000;
+
+constexpr auto OUTPUT_DIR     = "output/Curvature";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-void curvature_from_smoothed_vof(const FS<Float, NX, NY>& fs,
-                                 const InterfaceReconstruction<NX, NY>& ir,
-                                 const Matrix<Float, NX, NY>& vof,
-                                 Matrix<Float, NX, NY>& vof_smooth,
-                                 Matrix<Float, NX, NY>& curv,
-                                 Matrix<Float, NX, NY>& curv_interpolated,
-                                 Matrix<Float, NX, NY>& dvofdx,
-                                 Matrix<Float, NX, NY>& dvofdy,
-                                 Matrix<Float, NX, NY>& dvofdxx,
-                                 Matrix<Float, NX, NY>& dvofdyy,
-                                 Matrix<Float, NX, NY>& dvofdxy) {
-  // = Calculate curvature =========================================================================
-  IGOR_TIME_SCOPE("Smoothing") { smooth_vof_field(fs.xm, fs.ym, vof, vof_smooth); }
-  IGOR_TIME_SCOPE("Calculating the gradient") {
-    calc_grad_of_centered_points(vof_smooth, DX, DY, dvofdx, dvofdy);
-    calc_grad_of_centered_points(dvofdx, DX, DY, dvofdxx, dvofdxy);
-    calc_grad_of_centered_points(dvofdy, DX, DY, dvofdxy, dvofdyy);
-  }
-
-  Float min_curv  = std::numeric_limits<Float>::max();
-  Float max_curv  = -std::numeric_limits<Float>::max();
-  Float mean_curv = 0.0;
-  Float mse_curv  = 0.0;
-  Index count     = 0;
-  IGOR_TIME_SCOPE("Calculating the curvature") {
-    std::fill_n(curv.get_data(), curv.size(), std::numeric_limits<Float>::quiet_NaN());
-
-    // TODO: Find center of interface an interpolate curvture at that point
-    for (Index i = 1; i < NX - 1; ++i) {
-      for (Index j = 1; j < NY - 1; ++j) {
-        if (has_interface_in_neighborhood(vof, i, j, 2)) {
-          curv[i, j] =
-              (dvofdxx[i, j] * Igor::sqr(dvofdy[i, j]) + dvofdyy[i, j] * Igor::sqr(dvofdx[i, j]) -
-               2.0 * dvofdx[i, j] * dvofdy[i, j] * dvofdxy[i, j]) /
-              std::pow(Igor::sqr(dvofdx[i, j]) + Igor::sqr(dvofdy[i, j]), 1.5);
-
-          if (has_interface(vof, i, j)) {
-            min_curv   = std::min(curv[i, j], min_curv);
-            max_curv   = std::max(curv[i, j], max_curv);
-            mean_curv += curv[i, j];
-            mse_curv  += Igor::sqr(curv[i, j] + 1.0 / R);
-            count     += 1;
-          }
-        }
-      }
-    }
-
-    mean_curv /= static_cast<Float>(count);
-    mse_curv  /= static_cast<Float>(count);
-  }
-  Igor::Info("NX={}, NY={}", NX, NY);
-  Igor::Info("Mean curvature     = {:.6e}", mean_curv);
-  Igor::Info("Min. curvature     = {:.6e}", min_curv);
-  Igor::Info("Max. curvature     = {:.6e}", max_curv);
-  Igor::Info("Expected curvature = {:.6e}", -1.0 / R);
-  Igor::Info("MSE curvature      = {:.6e}", mse_curv);
-  // = Calculate curvature =========================================================================
-
-  // = Interpolate curvature to interface center ===================================================
-  std::fill_n(curv_interpolated.get_data(),
-              curv_interpolated.size(),
-              std::numeric_limits<Float>::quiet_NaN());
-
-  min_curv  = std::numeric_limits<Float>::max();
-  max_curv  = -std::numeric_limits<Float>::max();
-  mean_curv = 0.0;
-  mse_curv  = 0.0;
-  count     = 0;
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (has_interface(vof, i, j)) {
-        const auto intersect =
-            get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]);
-        const auto center        = (intersect[0] + intersect[1]) / 2.0;
-        curv_interpolated[i, j]  = bilinear_interpolate(fs.xm, fs.ym, curv, center[0], center[1]);
-
-        min_curv                 = std::min(curv[i, j], min_curv);
-        max_curv                 = std::max(curv[i, j], max_curv);
-        mean_curv               += curv_interpolated[i, j];
-        mse_curv                += Igor::sqr(curv_interpolated[i, j] + 1.0 / R);
-        count                   += 1;
-      }
-    }
-  }
-  mean_curv /= static_cast<Float>(count);
-  mse_curv  /= static_cast<Float>(count);
-  Igor::Info("Mean curvature (interpolated)     = {:.6e}", mean_curv);
-  Igor::Info("Min. curvature (interpolated)     = {:.6e}", min_curv);
-  Igor::Info("Max. curvature (interpolated)     = {:.6e}", max_curv);
-  Igor::Info("Expected curvature (interpolated) = {:.6e}", -1.0 / R);
-  Igor::Info("MSE curvature (interpolated)      = {:.6e}", mse_curv);
-
-  // = Interpolate curvature to interface center ===================================================
-}
+struct CurvatureMetrics {
+  Float expected_curv{};
+  Float min_curv{};
+  Float max_curv{};
+  Float mean_curv{};
+  Float mse_curv{};
+  Float mrse_curv{};
+  Float init_error{};
+};
 
 // -------------------------------------------------------------------------------------------------
-void curvature_from_quad_reconstruction(const FS<Float, NX, NY>& fs,
-                                        const InterfaceReconstruction<NX, NY>& ir,
-                                        const Matrix<Float, NX, NY>& vof,
-                                        Matrix<Float, NX, NY>& poly_curv) {
-  (void)poly_curv;
-  {
-    const Index i = 3 * NX / 4;
-    Index j       = 1;
-    while (!has_interface(vof, i, j)) {
-      j += 1;
+template <typename CURV_FUNC>
+void test_curvature(CURV_FUNC calc_curv,
+                    Float cx,
+                    Float cy,
+                    Float r,
+                    bool invert_phases,
+                    const FS<Float, N, N, NGHOST>& fs,
+                    VOF<Float, N, N, NGHOST>& vof,
+                    Matrix<Float, N, N, NGHOST>& curv,
+                    CurvatureMetrics& metrics) {
+
+  auto vof0 = [cx, cy, r, invert_phases](Float x, Float y) {
+    if (invert_phases) {
+      return static_cast<Float>(Igor::sqr(x - cx) + Igor::sqr(y - cy) > Igor::sqr(r));
     }
+    return static_cast<Float>(Igor::sqr(x - cx) + Igor::sqr(y - cy) <= Igor::sqr(r));
+  };
 
-    // Igor::Debug("{}, {}: normal = {}", i, j, ir.interface[i, j][0].normal());
+  for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
+    vof.vf_old(i, j) =
+        quadrature<64>(vof0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
+    vof.vf(i, j) = vof.vf_old(i, j);
+  });
+  std::fill_n(vof.ir.interface.get_data(), vof.ir.interface.size(), IRL::PlanarSeparator{});
+  reconstruct_interface(fs, vof.vf, vof.ir);
 
-    for (Index di = -1; di <= 1; ++di) {
-      for (Index dj = -1; dj <= 1; ++dj) {
-        if (has_interface(vof, i + di, j + dj)) {
-          const auto intersects = get_intersections_with_cell<Float, NX, NY>(
-              i + di, j + dj, fs.x, fs.y, ir.interface[i + di, j + dj][0]);
-          const IRL::Pt center = 0.5 * (intersects[0] + intersects[1]);
-
-          Igor::Debug(
-              "{}, {}: center = ({}, {}, {})", i + di, j + dj, center[0], center[1], center[2]);
-        }
-      }
-    }
+  if (invert_phases) {
+    const auto domain_area = (X_MAX - X_MIN) * (Y_MAX - Y_MIN);
+    metrics.init_error     = std::abs((domain_area - integrate(fs.dx, fs.dy, vof.vf)) -
+                                  std::numbers::pi * Igor::sqr(r)) /
+                         (std::numbers::pi * Igor::sqr(r));
+  } else {
+    metrics.init_error =
+        std::abs(integrate(fs.dx, fs.dy, vof.vf) - std::numbers::pi * Igor::sqr(r)) /
+        (std::numbers::pi * Igor::sqr(r));
   }
 
-  std::cout << "all_p = np.array([";
-  for (Index i = 0; i < NX; ++i) {
-    for (Index j = 0; j < NY; ++j) {
-      if (has_interface(vof, i, j)) {
-        const auto intersects =
-            get_intersections_with_cell<Float, NX, NY>(i, j, fs.x, fs.y, ir.interface[i, j][0]);
-        const IRL::Pt center = 0.5 * (intersects[0] + intersects[1]);
-        std::cout << "                  [" << center[0] << ", " << center[1] << "],\n";
-      }
-    }
-  }
-  std::cout << "])\n";
+  calc_curv(fs, vof);
+  std::copy_n(vof.curv.get_data(), vof.curv.size(), curv.get_data());
 
-  Igor::Todo("Curvature calculation using a quadratic reconstruction.");
+  metrics.expected_curv = 1.0 / r * (invert_phases ? -1.0 : 1.0);
+  metrics.min_curv      = std::numeric_limits<Float>::max();
+  metrics.max_curv      = -std::numeric_limits<Float>::max();
+  metrics.mean_curv     = 0.0;
+  metrics.mse_curv      = 0.0;
+  metrics.mrse_curv     = 0.0;
+  Index count           = 0;
+  for_each_i(curv, [&](Index i, Index j) {
+    if (has_interface(vof.vf, i, j)) {
+      metrics.min_curv   = std::min(curv(i, j), metrics.min_curv);
+      metrics.max_curv   = std::max(curv(i, j), metrics.max_curv);
+      metrics.mean_curv += curv(i, j);
+      metrics.mse_curv  += Igor::sqr(curv(i, j) - metrics.expected_curv);
+      metrics.mrse_curv +=
+          Igor::sqr(curv(i, j) - metrics.expected_curv) / Igor::sqr(metrics.expected_curv);
+      count += 1;
+    }
+  });
+  metrics.mean_curv /= static_cast<Float>(count);
+  metrics.mse_curv  /= static_cast<Float>(count);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -180,75 +113,137 @@ auto main() -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY> fs{};
-  InterfaceReconstruction<NX, NY> ir{};
+  FS<Float, N, N, NGHOST> fs{};
+  init_grid(X_MIN, X_MAX, N, Y_MIN, Y_MAX, N, fs);
 
-  Matrix<Float, NX, NY> vof{};
-  Matrix<Float, NX, NY> vof_smooth{};
-  Matrix<Float, NX, NY> smooth_curv{};
-  Matrix<Float, NX, NY> smooth_curv_interpolated{};
+  VOF<Float, N, N, NGHOST> vof{};
+  localize_cells(fs.x, fs.y, vof.ir);
 
-  Matrix<Float, NX, NY> dvofdx{};
-  Matrix<Float, NX, NY> dvofdy{};
-  Matrix<Float, NX, NY> dvofdxx{};
-  Matrix<Float, NX, NY> dvofdyy{};
-  Matrix<Float, NX, NY> dvofdxy{};
+  Matrix<Float, N, N, NGHOST> curv_cv{};
+  Matrix<Float, N, N, NGHOST> curv_quad_vol_match{};
+  Matrix<Float, N, N, NGHOST> curv_quad_regression{};
 
-  Matrix<Float, NX, NY> poly_curv{};
+  VTKWriter<Float, N, N, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  vtk_writer.add_scalar("VOF", &vof.vf);
+  vtk_writer.add_scalar("curv_cv", &curv_cv);
+  vtk_writer.add_scalar("curv_quad_vol_match", &curv_quad_vol_match);
+  vtk_writer.add_scalar("curv_quad_regression", &curv_quad_regression);
+
+  Index iter        = 0;
+  Float cx          = 0.0;
+  Float cy          = 0.0;
+  Float r           = 0.0;
+  Float cells_per_r = 0.0;
+  Index invert      = 0;
+  CurvatureMetrics metrics_cv{};
+  CurvatureMetrics metrics_quad_vol_match{};
+  CurvatureMetrics metrics_quad_regression{};
+  Float runtime_cv              = 0.0;
+  Float runtime_quad_vol_match  = 0.0;
+  Float runtime_quad_regression = 0.0;
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
-  VTKWriter<Float, NX, NY> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  vtk_writer.add_scalar("VOF", &vof);
-  vtk_writer.add_scalar("VOF_smooth", &vof_smooth);
-  vtk_writer.add_scalar("smooth_curv", &smooth_curv);
-  vtk_writer.add_scalar("smooth_curv_interpolated", &smooth_curv_interpolated);
-  vtk_writer.add_scalar("poly_curv", &poly_curv);
+  monitor.add_variable(&iter, "iteration");
+  monitor.add_variable(&cx, "center-x");
+  monitor.add_variable(&cy, "center-y");
+  monitor.add_variable(&r, "radius");
+  monitor.add_variable(&cells_per_r, "cells-per-radius");
+  monitor.add_variable(&invert, "invert");
+  monitor.add_variable(&metrics_cv.expected_curv, "expect(curv)");
+  monitor.add_variable(&metrics_cv.init_error, "init. error");
 
-  vtk_writer.add_scalar("dVOFdx", &dvofdx);
-  vtk_writer.add_scalar("dVOFdy", &dvofdy);
-  vtk_writer.add_scalar("dVOFdxx", &dvofdxx);
-  vtk_writer.add_scalar("dVOFdyy", &dvofdyy);
-  vtk_writer.add_scalar("dVOFdxy", &dvofdxy);
+  monitor.add_variable(&metrics_cv.min_curv, "cv-min(curv)");
+  monitor.add_variable(&metrics_cv.max_curv, "cv-max(curv)");
+  monitor.add_variable(&metrics_cv.mean_curv, "cv-mean(curv)");
+  monitor.add_variable(&metrics_cv.mse_curv, "cv-mse(curv)");
+  monitor.add_variable(&metrics_cv.mrse_curv, "cv-mrse(curv)");
+  monitor.add_variable(&runtime_cv, "cv-runtime [us]");
+
+  monitor.add_variable(&metrics_quad_vol_match.min_curv, "quad-vol-min(curv)");
+  monitor.add_variable(&metrics_quad_vol_match.max_curv, "quad-vol-max(curv)");
+  monitor.add_variable(&metrics_quad_vol_match.mean_curv, "quad-vol-mean(curv)");
+  monitor.add_variable(&metrics_quad_vol_match.mse_curv, "quad-vol-mse(curv)");
+  monitor.add_variable(&metrics_quad_vol_match.mrse_curv, "quad-vol-mrse(curv)");
+  monitor.add_variable(&runtime_quad_vol_match, "quad-vol-runtime [us]");
+
+  monitor.add_variable(&metrics_quad_regression.min_curv, "quad-reg-min(curv)");
+  monitor.add_variable(&metrics_quad_regression.max_curv, "quad-reg-max(curv)");
+  monitor.add_variable(&metrics_quad_regression.mean_curv, "quad-reg-mean(curv)");
+  monitor.add_variable(&metrics_quad_regression.mse_curv, "quad-reg-mse(curv)");
+  monitor.add_variable(&metrics_quad_regression.mrse_curv, "quad-reg-mrse(curv)");
+  monitor.add_variable(&runtime_quad_regression, "quad-reg-runtime [us]");
   // = Allocate memory =============================================================================
 
-  // = Setup grid and cell localizers ==============================================================
-  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
+  static std::mt19937 generator(std::random_device{}());
+  std::uniform_real_distribution c_dist(0.35, 0.65);
+  std::uniform_real_distribution r_dist(2 * std::min(DX, DY), 20 * std::min(DX, DY));
+  std::uniform_int_distribution<Index> i_dist(0, 1);
 
-  // Localize the cells
-  localize_cells(fs.x, fs.y, ir);
-  // = Setup grid and cell localizers ==============================================================
+  IGOR_TIME_SCOPE("Testing cuvature") {
+    Igor::ProgressBar bar(NUM_TEST_ITER, 63);
+    for (iter = 0; iter < NUM_TEST_ITER; ++iter) {
+      cx     = c_dist(generator);
+      cy     = c_dist(generator);
+      r      = r_dist(generator);
+      invert = i_dist(generator);
 
-  // = Initialize VOF field ========================================================================
-  IGOR_TIME_SCOPE("Initializing VOF") {
-    for (Index i = 0; i < NX; ++i) {
-      for (Index j = 0; j < NY; ++j) {
-        vof[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+      while ((cx - (r + 2 * DX) < X_MIN) || (cx + (r + 2 * DX) > X_MAX) ||
+             (cy - (r + 2 * DY) < Y_MIN) || (cy + (r + 2 * DY) > Y_MAX)) {
+        r /= 2.0;
       }
+
+      auto t_begin = std::chrono::high_resolution_clock::now();
+      test_curvature(calc_curvature_convolved_vf<Float, N, N, NGHOST>,
+                     cx,
+                     cy,
+                     r,
+                     invert == 1,
+                     fs,
+                     vof,
+                     curv_cv,
+                     metrics_cv);
+      auto t_end = std::chrono::high_resolution_clock::now();
+      runtime_cv = std::chrono::duration<double, std::micro>(t_end - t_begin).count();
+
+      t_begin    = std::chrono::high_resolution_clock::now();
+      test_curvature(calc_curvature_quad_volume_matching<Float, N, N, NGHOST>,
+                     cx,
+                     cy,
+                     r,
+                     invert == 1,
+                     fs,
+                     vof,
+                     curv_quad_vol_match,
+                     metrics_quad_vol_match);
+      t_end                  = std::chrono::high_resolution_clock::now();
+      runtime_quad_vol_match = std::chrono::duration<double, std::micro>(t_end - t_begin).count();
+
+      t_begin                = std::chrono::high_resolution_clock::now();
+      test_curvature(calc_curvature_quad_regression<Float, N, N, NGHOST>,
+                     cx,
+                     cy,
+                     r,
+                     invert == 1,
+                     fs,
+                     vof,
+                     curv_quad_regression,
+                     metrics_quad_regression);
+      t_end                   = std::chrono::high_resolution_clock::now();
+      runtime_quad_regression = std::chrono::duration<double, std::micro>(t_end - t_begin).count();
+
+      if (invert == 1) { r *= -1.0; }
+      cells_per_r = r * N;
+
+      if (!vtk_writer.write()) { return 1; }
+      if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, iter),
+                          fs.x,
+                          fs.y,
+                          vof.ir.interface)) {
+        return 1;
+      }
+      monitor.write();
+      bar.update();
     }
+    std::cout << '\n';
   }
-  reconstruct_interface(fs.x, fs.y, vof, ir);
-  // = Initialize VOF field ========================================================================
-
-  // curvature_from_smoothed_vof(fs,
-  //                             ir,
-  //                             vof,
-  //                             vof_smooth,
-  //                             smooth_curv,
-  //                             smooth_curv_interpolated,
-  //                             dvofdx,
-  //                             dvofdy,
-  //                             dvofdxx,
-  //                             dvofdyy,
-  //                             dvofdxy);
-
-  if (!vtk_writer.write()) { return 1; }
-  if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, 0),
-                      fs.x,
-                      fs.y,
-                      ir.interface)) {
-    return 1;
-  }
-  monitor.write();
-
-  curvature_from_quad_reconstruction(fs, ir, vof, poly_curv);
 }

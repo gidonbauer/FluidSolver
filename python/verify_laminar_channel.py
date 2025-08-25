@@ -7,9 +7,10 @@ from vtk.util import numpy_support as vtk_np
 
 import sys
 
-def analytic_u_profile(y, dpdx):
+def analytic_u_profile(y, dpdx, dy=0.0):
     mu = 1e-3
-    return dpdx/(2*mu) * (y**2 - y)
+    return dpdx/(2*mu) * (y**2 - y - (dy/2) - (dy/2)**2)
+    # return dpdx/(2*mu) * (y**2 - y)
 
 
 if len(sys.argv) < 2:
@@ -104,11 +105,12 @@ idx = 3*X.shape[1]//4 # X.shape[1] - 2
 plt.plot(Y[:, idx], U[:, idx, 0], label=f"Simulation")
 
 dx = X[0, 1] - X[0, 0]
+dy = Y[1, 0] - Y[0, 0]
 dpdx = (P[X.shape[0]//2, idx+1] - P[X.shape[0]//2, idx-1]) / (2*dx)
 print(f"dpdx = {dpdx}")
-plt.plot(Y[:, idx], analytic_u_profile(Y[:, idx], dpdx), label=f"Analytical", linestyle="--")
+plt.plot(Y[:, idx], analytic_u_profile(Y[:, idx], dpdx, dy), label=f"Analytical", linestyle="--")
 
-L1_error = simpson(np.abs(analytic_u_profile(Y[:, idx], dpdx) - U[:, idx, 0]), Y[:, idx])
+L1_error = simpson(np.abs(analytic_u_profile(Y[:, idx], dpdx, dy) - U[:, idx, 0]), Y[:, idx])
 plt.text(0.5, 0.1, f"L1 error = {L1_error:.8f}", ha='center', bbox={'boxstyle': 'square', 'fill': False})
 
 plt.xlabel(R"$y$")

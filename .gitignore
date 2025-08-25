@@ -1,5 +1,6 @@
 .DS_Store
 .cache/
+.vscode/
 compile_commands.json
 
 IncompSolver
@@ -10,19 +11,17 @@ Curvature
 Curvature.dSYM
 TwoPhaseSolver
 TwoPhaseSolver.dSYM
+IB
+IB.dSYM
+PhaseChange
+PhaseChange.dSYM
 
+*.swp
 *.env
 run.slurm
 
-output/
 output*/
 notes/
-python/*
-!python/verify_laminar_channel.py
-!python/verify_couette.py
-venv/
-*.ipynb
-sample.txt
 
 *.stdout
 *.stderr

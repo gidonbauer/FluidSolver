@@ -14,8 +14,11 @@
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
-// #include "VTKWriter.hpp"
 #include "XDMFWriter.hpp"
+
+// TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
+//       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
+//       conditions.
 
 // = Config ========================================================================================
 using Float                     = double;
@@ -29,27 +32,22 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 1.0;
+constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-2;
-constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 5e-2;
+constexpr Float CFL_MAX         = 0.5;
+constexpr Float DT_WRITE        = 1e-4;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-3;
+constexpr Float VISC_G          = 1e-0;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
-constexpr Float CX              = 1.0;
-constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.1;
-constexpr auto vof0             = [](Float x, Float y) {
-  return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
-};
+constexpr auto vof0             = [](Float x, Float _) { return static_cast<Float>(x > 1.0); };
 
-constexpr Float WEBER_NUMBER    = RHO_L * Igor::sqr(U_BCOND) * 2.0 * R0 / SURFACE_TENSION;
+constexpr Float WEBER_NUMBER = RHO_L * Igor::sqr(U_BCOND) * 2.0 * (Y_MAX - Y_MIN) / SURFACE_TENSION;
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -64,7 +62,7 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
-constexpr auto OUTPUT_DIR = "output/TwoPhaseSolver/";
+constexpr auto OUTPUT_DIR = "output/PhaseChange/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -157,7 +155,6 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  // VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   XDMFWriter<Float, NX, NY, NGHOST> data_writer(
       Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
       Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
@@ -203,7 +200,7 @@ auto main() -> int {
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
     vof.vf(i, j) = quadrature(vof0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
-  const Float init_vf_integral = integrate<true>(fs.dx, fs.dy, vof.vf);
+  const Float init_vf_integral = integrate(fs.dx, fs.dy, vof.vf);
   localize_cells(fs.x, fs.y, vof.ir);
   reconstruct_interface(fs, vof.vf, vof.ir);
   // = Initialize VOF field ========================================================================
@@ -214,7 +211,7 @@ auto main() -> int {
   apply_velocity_bconds(fs, bconds);
 
   calc_rho_and_visc(vof.vf, fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
@@ -240,7 +237,7 @@ auto main() -> int {
 
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
-    std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
+    copy(vof.vf, vof.vf_old);
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);
@@ -277,7 +274,6 @@ auto main() -> int {
         fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
                           fs.curr.rho_v_stag(i, j);
       });
-      // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
       // Correct the outflow

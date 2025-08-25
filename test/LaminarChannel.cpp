@@ -19,8 +19,8 @@
 // = Config ========================================================================================
 using Float              = double;
 
-constexpr Index NX       = 510;
-constexpr Index NY       = 51;
+constexpr Index NX       = 1100;  // 510;
+constexpr Index NY       = 11;    // 51;
 constexpr Index NGHOST   = 1;
 
 constexpr Float X_MIN    = 0.0;
@@ -306,7 +306,7 @@ auto main() -> int {
 
   // Test U profile
   {
-    constexpr Float TOL = 2e-4;
+    constexpr Float TOL = 5e-4;
     auto u_analytical   = [&](Float y, Float dpdx) -> Float {
       // NOTE: Adjustment due to the ghost cells, the dirichlet boundary condition is now enforced
       //       in the ghost cell

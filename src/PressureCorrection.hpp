@@ -221,14 +221,26 @@ class PS {
         break;
 
       case PSPrecond::PFMG:
-        HYPRE_StructPFMGCreate(COMM, &m_precond);
-        HYPRE_StructPFMGSetMaxIter(m_precond, 1);
-        HYPRE_StructPFMGSetTol(m_precond, 0.0);
-        HYPRE_StructPFMGSetZeroGuess(m_precond);
-        HYPRE_StructPFMGSetNumPreRelax(m_precond, 1);
-        HYPRE_StructPFMGSetNumPostRelax(m_precond, 1);
-        precond_setup = HYPRE_StructPFMGSetup;
-        precond_solve = HYPRE_StructPFMGSolve;
+        {
+          HYPRE_StructPFMGCreate(COMM, &m_precond);
+          HYPRE_StructPFMGSetMaxIter(m_precond, 1);
+#ifndef PS_PFMG_MAX_LEVELS
+          constexpr HYPRE_Int MAX_LEVELS = 16;
+#else
+          static_assert(
+              std::is_convertible_v<std::remove_cvref_t<decltype(PS_PFMG_MAX_LEVELS)>, HYPRE_Int>,
+              "PS_PFMG_MAX_LEVELS must have a value that must be convertible to HYPRE_Int.");
+          constexpr HYPRE_Int MAX_LEVELS = PS_PFMG_MAX_LEVELS;
+#endif
+          HYPRE_StructPFMGSetMaxLevels(m_precond, MAX_LEVELS);
+          HYPRE_StructPFMGSetRAPType(m_precond, 1);
+          HYPRE_StructPFMGSetTol(m_precond, 0.0);
+          HYPRE_StructPFMGSetZeroGuess(m_precond);
+          HYPRE_StructPFMGSetNumPreRelax(m_precond, 1);
+          HYPRE_StructPFMGSetNumPostRelax(m_precond, 1);
+          precond_setup = HYPRE_StructPFMGSetup;
+          precond_solve = HYPRE_StructPFMGSolve;
+        }
         break;
 
       case PSPrecond::NONE: break;

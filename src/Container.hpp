@@ -1,6 +1,7 @@
 #ifndef FLUID_SOLVER_CONTAINER_HPP_
 #define FLUID_SOLVER_CONTAINER_HPP_
 
+#include <cassert>
 #include <cstddef>
 #include <memory>
 #include <numeric>
@@ -17,43 +18,6 @@ using Index = FS_INDEX_TYPE;
 #endif  // FS_INDEX_TYPE
 
 enum class Layout : uint8_t { C, F };
-
-// =================================================================================================
-template <typename Contained, Index N, Index NGHOST>
-requires(N > 0 && NGHOST >= 0)
-class Vector;
-
-// =================================================================================================
-template <typename Contained, Index N, Index NGHOST = 0>
-requires(N > 0 && NGHOST >= 0)
-class VectorView {
-  Contained* m_ptr;
-
-  [[nodiscard]] static constexpr auto get_idx(Index i) noexcept -> Index { return i + NGHOST; }
-
-  constexpr auto operator[](Index i) noexcept -> Contained& { return *(m_ptr + i); }
-  constexpr auto operator[](Index i) const noexcept -> const Contained& { return *(m_ptr + i); }
-
- public:
-  template <typename Contained2>
-  requires(std::is_same_v<Contained2, std::remove_const_t<Contained>>)
-  constexpr VectorView(Vector<Contained2, N, NGHOST>& vector)
-      : m_ptr(vector.get_data()) {}
-  template <typename Contained2>
-  requires(std::is_same_v<Contained2, std::remove_const_t<Contained>>)
-  constexpr VectorView(const Vector<Contained2, N, NGHOST>& vector)
-      : m_ptr(vector.get_data()) {}
-
-  constexpr auto operator()(Index i) noexcept -> Contained& { return (*this)[get_idx(i)]; }
-  constexpr auto operator()(Index i) const noexcept -> const Contained& {
-    return (*this)[get_idx(i)];
-  }
-};
-
-template <typename T, Index N, Index NGHOST>
-VectorView(Vector<T, N, NGHOST>&) -> VectorView<T, N, NGHOST>;
-template <typename T, Index N, Index NGHOST>
-VectorView(const Vector<T, N, NGHOST>&) -> VectorView<const T, N, NGHOST>;
 
 // =================================================================================================
 template <typename Contained, Index N, Index NGHOST = 0>
@@ -148,59 +112,7 @@ class Vector {
   [[nodiscard]] constexpr auto is_valid_index(Index i) const noexcept -> bool {
     return -NGHOST <= i && i < N + NGHOST;
   }
-
-  [[nodiscard]] constexpr auto view() const noexcept -> VectorView<const Contained, N, NGHOST> {
-    return VectorView(*this);
-  }
-  [[nodiscard]] constexpr auto view() noexcept -> VectorView<Contained, N, NGHOST> {
-    return VectorView(*this);
-  }
 };
-
-// =================================================================================================
-template <typename Contained, Index M, Index N, Index NGHOST, Layout LAYOUT>
-requires(M > 0 && N > 0 && NGHOST >= 0)
-class Matrix;
-
-// =================================================================================================
-template <typename Contained, Index M, Index N, Index NGHOST = 0, Layout LAYOUT = Layout::C>
-requires(M > 0 && N > 0 && NGHOST >= 0)
-class MatrixView {
-  Contained* m_ptr;
-
-  [[nodiscard]] static constexpr auto get_idx(Index i, Index j) noexcept -> Index {
-    if constexpr (LAYOUT == Layout::C) {
-      return (j + NGHOST) + (i + NGHOST) * (N + 2 * NGHOST);
-    } else {
-      return (i + NGHOST) + (j + NGHOST) * (M + 2 * NGHOST);
-    }
-  }
-
-  constexpr auto operator[](Index i) noexcept -> Contained& { return *(m_ptr + i); }
-  constexpr auto operator[](Index i) const noexcept -> const Contained& { return *(m_ptr + i); }
-
- public:
-  template <typename Contained2>
-  requires(std::is_same_v<Contained2, std::remove_const_t<Contained>>)
-  constexpr MatrixView(Matrix<Contained2, M, N, NGHOST, LAYOUT>& matrix)
-      : m_ptr(matrix.get_data()) {}
-  template <typename Contained2>
-  requires(std::is_same_v<Contained2, std::remove_const_t<Contained>>)
-  constexpr MatrixView(const Matrix<Contained2, M, N, NGHOST, LAYOUT>& matrix)
-      : m_ptr(matrix.get_data()) {}
-
-  constexpr auto operator()(Index i, Index j) noexcept -> Contained& {
-    return (*this)[get_idx(i, j)];
-  }
-  constexpr auto operator()(Index i, Index j) const noexcept -> const Contained& {
-    return (*this)[get_idx(i, j)];
-  }
-};
-
-template <typename T, Index M, Index N, Index NGHOST, Layout LAYOUT>
-MatrixView(Matrix<T, M, N, NGHOST, LAYOUT>&) -> MatrixView<T, M, N, NGHOST, LAYOUT>;
-template <typename T, Index M, Index N, Index NGHOST, Layout LAYOUT>
-MatrixView(const Matrix<T, M, N, NGHOST, LAYOUT>&) -> MatrixView<const T, M, N, NGHOST, LAYOUT>;
 
 // =================================================================================================
 template <typename Contained, Index M, Index N, Index NGHOST = 0, Layout LAYOUT = Layout::C>
@@ -299,14 +211,6 @@ class Matrix {
   }
   [[nodiscard]] constexpr auto is_valid_index(Index i, Index j) const noexcept -> bool {
     return -NGHOST <= i && i < M + NGHOST && -NGHOST <= j && j < N + NGHOST;
-  }
-
-  [[nodiscard]] constexpr auto
-  view() const noexcept -> MatrixView<const Contained, M, N, NGHOST, LAYOUT> {
-    return MatrixView(*this);
-  }
-  [[nodiscard]] constexpr auto view() noexcept -> MatrixView<Contained, M, N, NGHOST, LAYOUT> {
-    return MatrixView(*this);
   }
 };
 

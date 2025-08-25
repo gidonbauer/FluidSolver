@@ -5,7 +5,6 @@
 #include <Igor/Timer.hpp>
 
 #define FS_PARALLEL_THRESHOLD 1000
-#define FS_INDEX_TYPE std::int64_t
 
 #include "Container.hpp"
 #include "ForEach.hpp"
@@ -47,72 +46,76 @@ auto is_equal(const Matrix<Float, M, N, NGHOST, LAYOUT>& A,
 
 // -------------------------------------------------------------------------------------------------
 auto vecadd() -> bool {
-  Vector<Float, M, 0> A{};
-  std::generate_n(A.get_data(), A.size(), rand_float);
-  Vector<Float, M> B{};
-  std::generate_n(B.get_data(), B.size(), rand_float);
+  struct {
+    Vector<Float, M, 0> A{};
+    Vector<Float, M, 0> B{};
+    Vector<Float, M, 0> C{};
+    Vector<Float, M, 0> C_ref{};
+  } data{};
+  std::generate_n(data.A.get_data(), data.A.size(), rand_float);
+  std::generate_n(data.B.get_data(), data.B.size(), rand_float);
 
-  Vector<Float, M, 0> C_ref{};
-  IGOR_TIME_SCOPE("Vector addition: Reference solution") {
-    for_each_i(C_ref, [&](Index i) { C_ref(i) = A(i) + B(i); });
+  IGOR_TIME_SCOPE("Vector addition: CPU solution") {
+    for_each_i(data.C_ref, [&](Index i) { data.C_ref(i) = data.A(i) + data.B(i); });
   }
 
-  Vector<Float, M, 0> C{};
   IGOR_TIME_SCOPE("Vector addition: GPU solution") {
-    for_each_i<Exec::Parallel>(
-        C, [A = A.view(), B = B.view(), C = C.view()](Index i) mutable { C(i) = A(i) + B(i); });
+    for_each_i<Exec::Parallel>(data.C, [&](Index i) { data.C(i) = data.A(i) + data.B(i); });
   }
 
-  return is_equal(C, C_ref);
+  return is_equal(data.C, data.C_ref);
 }
 
 // -------------------------------------------------------------------------------------------------
 auto matmul() -> bool {
-  Matrix<Float, M, K, 0> A{};
-  std::generate_n(A.get_data(), A.size(), rand_float);
-  Matrix<Float, K, N, 0, Layout::F> B{};
-  std::generate_n(B.get_data(), B.size(), rand_float);
+  struct {
+    Matrix<Float, M, K, 0> A{};
+    Matrix<Float, K, N, 0, Layout::F> B{};
+    Matrix<Float, M, N, 0> C{};
+    Matrix<Float, M, N, 0> C_ref{};
+  } data{};
+  std::generate_n(data.A.get_data(), data.A.size(), rand_float);
+  std::generate_n(data.B.get_data(), data.B.size(), rand_float);
 
-  Matrix<Float, M, N, 0> C_ref{};
-  IGOR_TIME_SCOPE("Matrix multiplication: Reference solution") {
-    for_each_i(C_ref, [&](Index i, Index j) {
+  IGOR_TIME_SCOPE("Matrix multiplication: CPU solution") {
+    for_each_i(data.C_ref, [&](Index i, Index j) {
       for (Index k = 0; k < K; ++k) {
-        C_ref(i, j) += A(i, k) * B(k, j);
+        data.C_ref(i, j) += data.A(i, k) * data.B(k, j);
       }
     });
   }
 
-  Matrix<Float, M, N, 0> C{};
   IGOR_TIME_SCOPE("Matrix multiplication: GPU solution") {
-    for_each_i<Exec::Parallel>(
-        C, [A = A.view(), B = B.view(), C = C.view()](Index i, Index j) mutable {
-          for (Index k = 0; k < K; ++k) {
-            C(i, j) += A(i, k) * B(k, j);
-          }
-        });
+    for_each_i<Exec::Parallel>(data.C, [&](Index i, Index j) {
+      for (Index k = 0; k < K; ++k) {
+        data.C(i, j) += data.A(i, k) * data.B(k, j);
+      }
+    });
   }
 
-  return is_equal(C, C_ref);
+  return is_equal(data.C, data.C_ref);
 }
 
 // -------------------------------------------------------------------------------------------------
 auto dotprod() -> bool {
-  Vector<Float, M, 0> A{};
-  std::generate_n(A.get_data(), A.size(), rand_float);
-  Vector<Float, M> B{};
-  std::generate_n(B.get_data(), B.size(), rand_float);
+  struct {
+    Vector<Float, M, 0> A{};
+    Vector<Float, M> B{};
+    std::atomic<Float> C = 0.0;
+    Float C_ref          = 0.0;
+  } data{};
+  std::generate_n(data.A.get_data(), data.A.size(), rand_float);
+  std::generate_n(data.B.get_data(), data.B.size(), rand_float);
 
-  Float C_ref = 0.0;
-  IGOR_TIME_SCOPE("Dot-product: Reference solution") {
-    for_each_i(A, [&](Index i) { C_ref += A(i) * B(i); });
+  IGOR_TIME_SCOPE("Dot-product: CPU solution") {
+    for_each_i(data.A, [&](Index i) { data.C_ref += data.A(i) * data.B(i); });
   }
 
-  std::atomic<Float> C = 0.0;
   IGOR_TIME_SCOPE("Dot-product: GPU solution") {
-    for_each_i<Exec::Parallel>(A, [A = A.view(), B = B.view(), &C](Index i) { C += A(i) * B(i); });
+    for_each_i<Exec::Parallel>(data.A, [&](Index i) { data.C += data.A(i) * data.B(i); });
   }
 
-  return is_equal(static_cast<Float>(C), C_ref);
+  return is_equal(static_cast<Float>(data.C), data.C_ref);
 }
 
 // -------------------------------------------------------------------------------------------------

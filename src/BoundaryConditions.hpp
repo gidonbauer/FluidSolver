@@ -10,7 +10,7 @@ struct FS;
 
 // -------------------------------------------------------------------------------------------------
 // TODO: Clipped Neumann?
-enum class BCond : uint8_t { DIRICHLET, NEUMANN, PERIODIC };
+enum class BCond : uint8_t { DIRICHLET, NEUMANN, PERIODIC, SYMMETRY };
 enum : Index { LEFT, RIGHT, BOTTOM, TOP, NSIDES };
 
 template <typename Float>
@@ -32,6 +32,10 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::DIRICHLET: fs.curr.U(-NGHOST, j) = bconds.U[LEFT]; break;
       case BCond::NEUMANN:   fs.curr.U(-NGHOST, j) = fs.curr.U(0, j); break;
       case BCond::PERIODIC:  fs.curr.U(-NGHOST, j) = fs.curr.U(NX - 1, j); break;
+      case BCond::SYMMETRY:
+        fs.curr.U(-NGHOST, j) = -fs.curr.U(1, j);
+        fs.curr.U(0, j)       = 0.0;
+        break;
     }
 
     // RIGHT
@@ -39,6 +43,10 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::DIRICHLET: fs.curr.U(NX + NGHOST, j) = bconds.U[RIGHT]; break;
       case BCond::NEUMANN:   fs.curr.U(NX + NGHOST, j) = fs.curr.U(NX, j); break;
       case BCond::PERIODIC:  fs.curr.U(NX + NGHOST, j) = fs.curr.U(1, j); break;
+      case BCond::SYMMETRY:
+        fs.curr.U(NX + NGHOST, j) = -fs.curr.U(NX - 1, j);
+        fs.curr.U(NX, j)          = 0.0;
+        break;
     }
   });
 
@@ -48,6 +56,7 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::DIRICHLET: fs.curr.U(i, -NGHOST) = bconds.U[BOTTOM]; break;
       case BCond::NEUMANN:   fs.curr.U(i, -NGHOST) = fs.curr.U(i, 0); break;
       case BCond::PERIODIC:  fs.curr.U(i, -NGHOST) = fs.curr.U(i, NY - 1); break;
+      case BCond::SYMMETRY:  fs.curr.U(i, -NGHOST) = fs.curr.U(i, 0); break;
     }
 
     // TOP
@@ -55,6 +64,7 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::DIRICHLET: fs.curr.U(i, NY + NGHOST - 1) = bconds.U[TOP]; break;
       case BCond::NEUMANN:   fs.curr.U(i, NY + NGHOST - 1) = fs.curr.U(i, NY - 1); break;
       case BCond::PERIODIC:  fs.curr.U(i, NY + NGHOST - 1) = fs.curr.U(i, 0); break;
+      case BCond::SYMMETRY:  fs.curr.U(i, NY + NGHOST - 1) = fs.curr.U(i, NY - 1); break;
     }
   });
 
@@ -65,6 +75,7 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::DIRICHLET: fs.curr.V(-NGHOST, j) = bconds.V[LEFT]; break;
       case BCond::NEUMANN:   fs.curr.V(-NGHOST, j) = fs.curr.V(0, j); break;
       case BCond::PERIODIC:  fs.curr.V(-NGHOST, j) = fs.curr.V(NX - 1, j); break;
+      case BCond::SYMMETRY:  fs.curr.V(-NGHOST, j) = fs.curr.V(0, j); break;
     }
 
     // RIGHT
@@ -72,6 +83,7 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::DIRICHLET: fs.curr.V(NX + NGHOST - 1, j) = bconds.V[RIGHT]; break;
       case BCond::NEUMANN:   fs.curr.V(NX + NGHOST - 1, j) = fs.curr.V(NX - 1, j); break;
       case BCond::PERIODIC:  fs.curr.V(NX + NGHOST - 1, j) = fs.curr.V(0, j); break;
+      case BCond::SYMMETRY:  fs.curr.V(NX + NGHOST - 1, j) = fs.curr.V(NX - 1, j); break;
     }
   });
 
@@ -81,6 +93,10 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::DIRICHLET: fs.curr.V(i, -NGHOST) = bconds.V[BOTTOM]; break;
       case BCond::NEUMANN:   fs.curr.V(i, -NGHOST) = fs.curr.V(i, 0); break;
       case BCond::PERIODIC:  fs.curr.V(i, -NGHOST) = fs.curr.V(i, NY - 1); break;
+      case BCond::SYMMETRY:
+        fs.curr.V(i, -NGHOST) = -fs.curr.V(i, 1);
+        fs.curr.V(i, 0)       = 0.0;
+        break;
     }
 
     // TOP
@@ -88,6 +104,10 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       case BCond::DIRICHLET: fs.curr.V(i, NY + NGHOST) = bconds.V[TOP]; break;
       case BCond::NEUMANN:   fs.curr.V(i, NY + NGHOST) = fs.curr.V(i, NY); break;
       case BCond::PERIODIC:  fs.curr.V(i, NY + NGHOST) = fs.curr.V(i, 1); break;
+      case BCond::SYMMETRY:
+        fs.curr.V(i, NY + NGHOST) = -fs.curr.V(i, NY - 1);
+        fs.curr.V(i, NY)          = 0.0;
+        break;
     }
   });
 }

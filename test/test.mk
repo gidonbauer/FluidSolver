@@ -6,6 +6,7 @@ TESTS = LaminarChannel_0     \
         LinearVelocityVOF    \
         TaylorGreenVortexVOF \
         MovingDrop           \
+        StationaryDrop       \
         Operators            \
         Container            \
         Utility

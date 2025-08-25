@@ -95,7 +95,8 @@ FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
   }();
 #else
   constexpr auto policy = []() {
-    if constexpr (EXEC == Exec::Serial || (I_MAX - I_MIN) < FS_PARALLEL_THRESHOLD_COUNT) {
+    if constexpr (EXEC == Exec::Serial ||
+                  (I_MAX - I_MIN) * (J_MAX - J_MIN) < FS_PARALLEL_THRESHOLD_COUNT) {
       return std::execution::seq;
     } else {
       return std::execution::par_unseq;

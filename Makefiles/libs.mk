@@ -32,3 +32,9 @@ ifdef HDF_DIR
 else
   HDF_INC = -DFS_DISABLE_HDF
 endif
+
+ifeq (${BASENAME_CXX}, nvc++)
+  INTEL_RT_DIR = /cvmfs/software.hpc.rwth.de/Linux/RH9/x86_64/intel/sapphirerapids/software/intel-compilers/2024.2.0/compiler/latest
+  INTEL_RT_LIB = -Wl,-rpath ${INTEL_RT_DIR}/lib -L${INTEL_RT_DIR}/lib -lirc -limf
+  CUDA_LIB = -lcudart -lcurand -lcublas -lcusolver -lcusparse
+endif

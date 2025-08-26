@@ -23,8 +23,8 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 5 * 128;
-constexpr Index NY              = 128;
+constexpr Index NX              = 5 * 32;
+constexpr Index NY              = 32;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
@@ -32,14 +32,13 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 5.0;
+constexpr Float T_END           = 1.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-8;
 
-constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-0;
+constexpr Float VISC_G          = 1e-3;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
@@ -47,7 +46,7 @@ constexpr Float RHO_L           = 1e3;
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr auto vof0             = [](Float x, Float _) { return static_cast<Float>(x > 1.0); };
 
-constexpr Float WEBER_NUMBER = RHO_L * Igor::sqr(U_BCOND) * 2.0 * (Y_MAX - Y_MIN) / SURFACE_TENSION;
+constexpr Float WEBER_NUMBER    = RHO_L * Igor::sqr(0.0) * 2.0 * (Y_MAX - Y_MIN) / SURFACE_TENSION;
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -56,9 +55,9 @@ constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    //        LEFT              RIGHT           BOTTOM            TOP
-    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {U_BCOND, 0.0, 0.0, 0.0},
+    //        LEFT              RIGHT           BOTTOM          TOP
+    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::NEUMANN, BCond::NEUMANN},
+    .U     = {0.0, 0.0, 0.0, 0.0},
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
@@ -140,14 +139,14 @@ auto main() -> int {
   Float div_max = 0.0;
   // Float div_L1        = 0.0;
 
-  Float curv_min      = 0.0;
-  Float curv_max      = 0.0;
+  Float curv_min     = 0.0;
+  Float curv_max     = 0.0;
 
-  Float vof_min       = 0.0;
-  Float vof_max       = 0.0;
-  Float vof_integral  = 0.0;
-  Float vof_loss      = 0.0;
-  Float vof_vol_error = 0.0;
+  Float vf_min       = 0.0;
+  Float vf_max       = 0.0;
+  Float vf_integral  = 0.0;
+  Float vf_loss      = 0.0;
+  Float vf_vol_error = 0.0;
 
   // Float p_max         = 0.0;
   Float p_res  = 0.0;
@@ -185,11 +184,11 @@ auto main() -> int {
   monitor.add_variable(&curv_min, "min(curv)");
   monitor.add_variable(&curv_max, "max(curv)");
 
-  monitor.add_variable(&vof_min, "min(vof)");
-  monitor.add_variable(&vof_max, "max(vof)");
-  // monitor.add_variable(&vof_integral, "int(vof)");
-  monitor.add_variable(&vof_loss, "loss(vof)");
-  // monitor.add_variable(&vof_vol_error, "max(vol. error)");
+  monitor.add_variable(&vf_min, "min(vof)");
+  monitor.add_variable(&vf_max, "max(vof)");
+  // monitor.add_variable(&vf_integral, "int(vof)");
+  monitor.add_variable(&vf_loss, "loss(vof)");
+  // monitor.add_variable(&vf_vol_error, "max(vol. error)");
 
   // monitor.add_variable(&mass, "mass");
   // monitor.add_variable(&mom_x, "momentum (x)");
@@ -200,7 +199,7 @@ auto main() -> int {
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
     vof.vf(i, j) = quadrature(vof0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
-  const Float init_vf_integral = integrate(fs.dx, fs.dy, vof.vf);
+  const Float init_vf_integral = integrate<true>(fs.dx, fs.dy, vof.vf);
   localize_cells(fs.x, fs.y, vof.ir);
   reconstruct_interface(fs, vof.vf, vof.ir);
   // = Initialize VOF field ========================================================================
@@ -211,7 +210,7 @@ auto main() -> int {
   apply_velocity_bconds(fs, bconds);
 
   calc_rho_and_visc(vof.vf, fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
@@ -224,7 +223,7 @@ auto main() -> int {
   curv_max = max(vof.curv);
   // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
   // p_max = max(fs.p);
-  calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
+  calc_vof_stats(fs, vof.vf, init_vf_integral, vf_min, vf_max, vf_integral, vf_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
@@ -246,7 +245,8 @@ auto main() -> int {
     calc_rho_and_visc(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
-    advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
+    advect_cells(fs, Ui, Vi, dt, vof, &vf_vol_error);
+    apply_neumann_bconds(vof.vf);
 
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
@@ -346,7 +346,7 @@ auto main() -> int {
     curv_max = max(vof.curv);
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     // p_max = max(fs.p);
-    calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
+    calc_vof_stats(fs, vof.vf, init_vf_integral, vf_min, vf_max, vf_integral, vf_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }

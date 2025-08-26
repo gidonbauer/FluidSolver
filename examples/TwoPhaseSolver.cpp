@@ -29,7 +29,7 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 1.0;
+constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.9;
 constexpr Float DT_WRITE        = 5e-2;
@@ -298,7 +298,8 @@ auto main() -> int {
       // NOTE: Save old pressure jump in delta_p_jump_[uv]_stag
       copy(fs.p_jump_u_stag, delta_p_jump_u_stag);
       copy(fs.p_jump_v_stag, delta_p_jump_v_stag);
-      calc_pressure_jump(vof.vf_old, vof.curv, fs);
+      calc_interface_length(fs, vof);
+      calc_pressure_jump(vof.vf_old, vof.curv, vof.interface_length, fs);
       for_each_a<Exec::Parallel>(delta_p_jump_u_stag, [&](Index i, Index j) {
         delta_p_jump_u_stag(i, j) = fs.p_jump_u_stag(i, j) - delta_p_jump_u_stag(i, j);
       });

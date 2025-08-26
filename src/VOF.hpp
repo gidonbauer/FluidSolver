@@ -20,6 +20,7 @@ struct VOF {
   Matrix<Float, NX, NY, NGHOST> vf{};
 
   Matrix<Float, NX, NY, NGHOST> curv{};
+  Matrix<Float, NX, NY, NGHOST> interface_length{};
 };
 
 static constexpr std::array CUBOID_OFFSETS{
@@ -325,19 +326,37 @@ void advect_cells(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-// template <typename Float, Index NX, Index NY, Index NGHOST>
-// [[nodiscard]] constexpr auto get_interface_length(Index i,
-//                                                   Index j,
-//                                                   const Vector<Float, NX + 1>& x,
-//                                                   const Vector<Float, NY + 1>& y,
-//                                                   const IRL::Plane& plane) noexcept -> Float {
-//   const auto [p1, p2] = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
-//   IGOR_ASSERT(
-//       std::abs(p1[2]) < 1e-12, "Expected z-component of p1 to be zero but is {:.6e}", p1[2]);
-//   IGOR_ASSERT(
-//       std::abs(p2[2]) < 1e-12, "Expected z-component of p2 to be zero but is {:.6e}", p2[2]);
-//   return std::sqrt(Igor::sqr(p1[0] - p2[0]) + Igor::sqr(p1[1] - p2[1]));
-// }
+template <typename Float, Index NX, Index NY, Index NGHOST>
+[[nodiscard]] constexpr auto get_interface_length(Index i,
+                                                  Index j,
+                                                  const Vector<Float, NX + 1, NGHOST>& x,
+                                                  const Vector<Float, NY + 1, NGHOST>& y,
+                                                  const IRL::Plane& plane) noexcept -> Float {
+  const auto [p1, p2] = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
+  IGOR_ASSERT(
+      std::abs(p1[2]) < 1e-12, "Expected z-component of p1 to be zero but is {:.6e}", p1[2]);
+  IGOR_ASSERT(
+      std::abs(p2[2]) < 1e-12, "Expected z-component of p2 to be zero but is {:.6e}", p2[2]);
+  return std::sqrt(Igor::sqr(p1[0] - p2[0]) + Igor::sqr(p1[1] - p2[1]));
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+constexpr void calc_interface_length(const FS<Float, NX, NY, NGHOST>& fs,
+                                     VOF<Float, NX, NY, NGHOST>& vof) noexcept {
+  for_each_i<Exec::Parallel>(vof.vf_old, [&](Index i, Index j) {
+    if (has_interface(vof.vf_old, i, j)) {
+      const auto& interface = vof.ir.interface(i, j);
+      IGOR_ASSERT(interface.getNumberOfPlanes() == 1,
+                  "Expected exactly one plane but got {}",
+                  interface.getNumberOfPlanes());
+      vof.interface_length(i, j) =
+          get_interface_length<Float, NX, NY, NGHOST>(i, j, fs.x, fs.y, interface[0]);
+    } else {
+      vof.interface_length(i, j) = 0.0;
+    }
+  });
+}
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>

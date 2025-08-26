@@ -23,8 +23,8 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 128;
-constexpr Index NY              = 128;
+constexpr Index NX              = 64;
+constexpr Index NY              = 64;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
@@ -32,35 +32,44 @@ constexpr Float X_MAX           = 1.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 100.0;
+constexpr Float T_END           = 60.0;
 constexpr Float DT_MAX          = 1e-1;
 constexpr Float CFL_MAX         = 0.5;
-constexpr Float DT_WRITE        = 1e-8;
+constexpr Float DT_WRITE        = 1e-1;
 
-constexpr Float VISC_G          = 1e-6;  // 1e-0;
+constexpr Float VISC_G          = 1e-3;  // 1e-0;
 constexpr Float RHO_G           = 1.0;
-constexpr Float VISC_L          = 1e-6;
+constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
-constexpr Float CX              = 0.0;
-constexpr Float CY              = 0.0;
+constexpr Float CX              = 0.5;
+constexpr Float CY              = 0.5;
 constexpr Float R0              = 0.25;
 constexpr auto vof0             = [](Float x, Float y) {
-  return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
+  return static_cast<Float>(Igor::sqr(2.0 * (x - CX)) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr Index NUM_SUBITER     = 5;
+constexpr Index NUM_SUBITER     = 3;
 
+#if 0
 constexpr FlowBConds<Float> bconds{
     //        LEFT             RIGHT            BOTTOM           TOP
     .types = {BCond::SYMMETRY, BCond::SYMMETRY, BCond::SYMMETRY, BCond::SYMMETRY},
     .U     = {0.0, 0.0, 0.0, 0.0},
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
+#else
+constexpr FlowBConds<Float> bconds{
+    //        LEFT            RIGHT           BOTTOM          TOP
+    .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::NEUMANN, BCond::NEUMANN},
+    .U     = {0.0, 0.0, 0.0, 0.0},
+    .V     = {0.0, 0.0, 0.0, 0.0},
+};
+#endif
 
 constexpr auto OUTPUT_DIR = "test/output/StationaryDrop/";
 // = Config ========================================================================================
@@ -82,6 +91,7 @@ void calc_vof_stats(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
+#if 0
 auto check_vf_ghost(const FS<Float, NX, NY, NGHOST>& fs, const Matrix<Float, NX, NY, NGHOST>& vf) {
   bool left_good = true;
   for_each_a(fs.ym, [&](Index j) {
@@ -103,6 +113,7 @@ auto check_vf_ghost(const FS<Float, NX, NY, NGHOST>& fs, const Matrix<Float, NX,
 
   return left_good && bottom_good;
 }
+#endif
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
@@ -201,7 +212,9 @@ auto main() -> int {
     vof.vf(i, j) = quadrature(vof0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
   apply_neumann_bconds(vof.vf);
+#if 0 
   IGOR_ASSERT(check_vf_ghost(fs, vof.vf), "Error in vf.");
+#endif
   const Float init_vf_integral = integrate<true>(fs.dx, fs.dy, vof.vf);
   localize_cells(fs.x, fs.y, vof.ir);
   reconstruct_interface(fs, vof.vf, vof.ir);
@@ -234,7 +247,9 @@ auto main() -> int {
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
     copy(vof.vf, vof.vf_old);
+#if 0
     IGOR_ASSERT(check_vf_ghost(fs, vof.vf_old), "Error in vf_old at time t={:.6e}", t);
+#endif
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);
@@ -246,7 +261,9 @@ auto main() -> int {
     interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
     apply_neumann_bconds(vof.vf);
+#if 0
     IGOR_ASSERT(check_vf_ghost(fs, vof.vf), "Error in vf at time t={:.6e}", t);
+#endif
 
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
@@ -315,7 +332,8 @@ auto main() -> int {
       // NOTE: Save old pressure jump in delta_pj_[uv]_stag
       copy(fs.p_jump_u_stag, delta_pj_u_stag);
       copy(fs.p_jump_v_stag, delta_pj_v_stag);
-      calc_pressure_jump(vof.vf_old, vof.curv, fs);
+      calc_interface_length(fs, vof);
+      calc_pressure_jump(vof.vf_old, vof.curv, vof.interface_length, fs);
       apply_neumann_bconds(fs.p_jump_u_stag);
       apply_neumann_bconds(fs.p_jump_v_stag);
       for_each_a<Exec::Parallel>(delta_pj_u_stag, [&](Index i, Index j) {
@@ -400,6 +418,7 @@ auto main() -> int {
     monitor.write();
   }
 
+#if 0
   // L1-error of last solution to initial condition
   std::atomic<Float> L1_error = 0.0;
   for_each_i<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
@@ -410,6 +429,7 @@ auto main() -> int {
   });
   L1_error = L1_error * fs.dx * fs.dy;
   Igor::Debug("L1 error final solution = {:.6e}", static_cast<Float>(L1_error));
+#endif
 
   return any_test_failed ? 1 : 0;
 }

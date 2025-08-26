@@ -359,30 +359,29 @@ void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void calc_pressure_jump(const Matrix<Float, NX, NY, NGHOST>& vf,
                         const Matrix<Float, NX, NY, NGHOST>& curv,
+                        const Matrix<Float, NX, NY, NGHOST>& interface_length,
                         FS<Float, NX, NY, NGHOST>& fs) noexcept {
   fill(fs.p_jump_u_stag, 0.0);
   fill(fs.p_jump_v_stag, 0.0);
 
   for_each_i<Exec::Parallel>(fs.p_jump_u_stag, [&](Index i, Index j) {
-    const auto minus_has_interface = static_cast<Float>(has_interface(vf, i - 1, j));
-    const auto plus_has_interface  = static_cast<Float>(has_interface(vf, i, j));
-    const auto curv_i =
-        (plus_has_interface + minus_has_interface) > 0.0
-            ? (curv(i, j) * plus_has_interface + curv(i - 1, j) * minus_has_interface) /
-                  (plus_has_interface + minus_has_interface)
-            : 0.0;
-    fs.p_jump_u_stag(i, j) = fs.sigma * curv_i * (vf(i, j) - vf(i - 1, j)) / fs.dx;
+    const auto minus_length = interface_length(i - 1, j);
+    const auto plus_length  = interface_length(i, j);
+    const auto curv_i       = (plus_length + minus_length) > 0.0
+                                  ? (curv(i, j) * plus_length + curv(i - 1, j) * minus_length) /
+                                  (plus_length + minus_length)
+                                  : 0.0;
+    fs.p_jump_u_stag(i, j)  = fs.sigma * curv_i * (vf(i, j) - vf(i - 1, j)) / fs.dx;
   });
 
   for_each_i<Exec::Parallel>(fs.p_jump_v_stag, [&](Index i, Index j) {
-    const auto minus_has_interface = static_cast<Float>(has_interface(vf, i, j - 1));
-    const auto plus_has_interface  = static_cast<Float>(has_interface(vf, i, j));
-    const auto curv_i =
-        (plus_has_interface + minus_has_interface) > 0.0
-            ? (curv(i, j) * plus_has_interface + curv(i, j - 1) * minus_has_interface) /
-                  (plus_has_interface + minus_has_interface)
-            : 0.0;
-    fs.p_jump_v_stag(i, j) = fs.sigma * curv_i * (vf(i, j) - vf(i, j - 1)) / fs.dy;
+    const auto minus_length = interface_length(i, j - 1);
+    const auto plus_length  = interface_length(i, j);
+    const auto curv_i       = (plus_length + minus_length) > 0.0
+                                  ? (curv(i, j) * plus_length + curv(i, j - 1) * minus_length) /
+                                  (plus_length + minus_length)
+                                  : 0.0;
+    fs.p_jump_v_stag(i, j)  = fs.sigma * curv_i * (vf(i, j) - vf(i, j - 1)) / fs.dy;
   });
 }
 

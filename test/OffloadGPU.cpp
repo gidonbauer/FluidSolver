@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <random>
 
 #include <Igor/Logging.hpp>

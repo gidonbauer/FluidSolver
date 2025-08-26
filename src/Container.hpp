@@ -26,7 +26,7 @@ class Vector {
   static constexpr auto ARRAY_SIZE = static_cast<size_t>(N + 2 * NGHOST);
 
  public:
-  static constexpr bool is_small = ARRAY_SIZE * sizeof(Contained) < 1024UZ;
+  static constexpr bool is_small = N <= 5 && ARRAY_SIZE * sizeof(Contained) < 1024UZ;
 
  private:
   using StorageType = std::conditional_t<is_small,
@@ -121,7 +121,7 @@ class Matrix {
   static constexpr auto ARRAY_SIZE = (M + 2 * NGHOST) * (N + 2 * NGHOST);
 
  public:
-  static constexpr bool is_small = ARRAY_SIZE * sizeof(Contained) < 1024UZ;
+  static constexpr bool is_small = M <= 5 && N <= 5 && ARRAY_SIZE * sizeof(Contained) < 1024UZ;
 
  private:
   using StorageType = std::conditional_t<is_small,

@@ -58,6 +58,14 @@ class XDMFWriter {
   }
 
  public:
+  constexpr XDMFWriter(const std::string& output_path,
+                       const Vector<Float, NX + 1, NGHOST>* x,
+                       const Vector<Float, NY + 1, NGHOST>* y)
+      : XDMFWriter(Igor::detail::format("{}/solution.xdmf2", output_path),
+                   Igor::detail::format("{}/solution.h5", output_path),
+                   x,
+                   y) {}
+
   constexpr XDMFWriter(std::string xdmf_path,
                        std::string data_path,
                        const Vector<Float, NX + 1, NGHOST>* x,

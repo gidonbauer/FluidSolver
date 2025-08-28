@@ -46,12 +46,10 @@ constexpr Float RHO_L           = 1e3;
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr auto vof0             = [](Float x, Float _) { return static_cast<Float>(x > 1.0); };
 
-constexpr Float WEBER_NUMBER    = RHO_L * Igor::sqr(0.0) * 2.0 * (Y_MAX - Y_MIN) / SURFACE_TENSION;
-
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
-constexpr Index NUM_SUBITER     = 5;
+constexpr Index NUM_SUBITER     = 2;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -98,8 +96,6 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 auto main() -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
-
-  Igor::Info("Weber number = {:.6e}", WEBER_NUMBER);
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{.visc_gas    = VISC_G,

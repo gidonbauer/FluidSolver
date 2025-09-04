@@ -8,6 +8,7 @@
 
 // #define FS_HYPRE_VERBOSE
 #define FS_SILENCE_CONV_WARN
+#define FS_PARALLEL_THRESHOLD 50000
 
 #include "FS.hpp"
 #include "IO.hpp"
@@ -20,8 +21,8 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 64 * 10;
-constexpr Index NY              = 64;
+constexpr Index NX              = 640 * 10;
+constexpr Index NY              = 640;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
@@ -30,9 +31,9 @@ constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
 constexpr Float T_END           = 1.0;
-constexpr Float DT_MAX          = 1e-1;
+constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 1e-1;
+constexpr Float DT_WRITE        = 1e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;

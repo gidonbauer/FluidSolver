@@ -37,10 +37,10 @@ consteval auto get_exec_policy() noexcept {
   } else if constexpr (EXEC == Exec::ParallelDynamic) {
     return StdparOpenMP::ParallelDynamic;
   } else if constexpr (EXEC == Exec::ParallelGPU) {
-#ifndef FS_STDPAR
-    return StdparOpenMP::Parallel;
-#else
+#ifdef FS_STDPAR
     return std::execution::par_unseq;
+#else
+    return StdparOpenMP::Parallel;
 #endif  // FS_STDPAR
   }
 

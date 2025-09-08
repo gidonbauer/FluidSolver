@@ -505,7 +505,9 @@ class PS {
         break;
     }
 
-    for_each_a<Exec::Parallel>(resP, [&](Index i, Index j) {
+    // NOTE: This cannot be parallel for GPU offloading with nvc++ because
+    //       `HYPRE_StructVectorGetValues` is a library function.
+    for_each_a<Exec::Serial>(resP, [&](Index i, Index j) {
       std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
       HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP(i, j));
     });

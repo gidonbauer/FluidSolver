@@ -82,8 +82,8 @@ constexpr auto advect_point(const IRL::Pt& pt,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr auto advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY, NGHOST>& fs, Float dt)
-    -> IRL::Pt {
+constexpr auto
+advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY, NGHOST>& fs, Float dt) -> IRL::Pt {
   const auto u1 = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0], pt[1]);
   const auto v1 = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0], pt[1]);
 
@@ -260,7 +260,8 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
         case Dir::YM: return -fs.curr.V(i, j) * fs.dx * dt;
         case Dir::YP: return fs.curr.V(i, j + 1) * fs.dx * dt;
         case Dir::ZM:
-        case Dir::ZP: Igor::Panic("Unreachable"); std::unreachable();
+        case Dir::ZP:
+        default:      Igor::Panic("Unreachable"); std::unreachable();
       }
     }();
 
@@ -360,12 +361,12 @@ constexpr void calc_interface_length(const FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-[[nodiscard]] constexpr auto get_intersections_with_cell(Index i,
-                                                         Index j,
-                                                         const Vector<Float, NX + 1, NGHOST>& x,
-                                                         const Vector<Float, NY + 1, NGHOST>& y,
-                                                         const IRL::Plane& plane)
-    -> std::array<IRL::Pt, 2> {
+[[nodiscard]] constexpr auto
+get_intersections_with_cell(Index i,
+                            Index j,
+                            const Vector<Float, NX + 1, NGHOST>& x,
+                            const Vector<Float, NY + 1, NGHOST>& y,
+                            const IRL::Plane& plane) -> std::array<IRL::Pt, 2> {
   Igor::StaticVector<IRL::Pt, 4> trial_points{};
   constexpr std::array offsets{
       std::pair<Index, Index>{0, 0},

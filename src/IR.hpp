@@ -1,19 +1,9 @@
 #ifndef FLUID_SOLVER_IR_HPP_
 #define FLUID_SOLVER_IR_HPP_
 
-// Disable warnings for IRL
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wconversion"
-#pragma clang diagnostic ignored "-Wall"
-#pragma clang diagnostic ignored "-Wextra"
-#pragma clang diagnostic ignored "-Wnullability-extension"
-#pragma clang diagnostic ignored "-Wgcc-compat"
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#pragma clang diagnostic ignored "-Wnan-infinity-disabled"
 #include <irl/geometry/general/pt.h>
 #include <irl/interface_reconstruction_methods/elvira_neighborhood.h>
 #include <irl/interface_reconstruction_methods/reconstruction_interface.h>
-#pragma clang diagnostic pop
 
 #include "Container.hpp"
 
@@ -27,8 +17,8 @@ inline constexpr double VF_LOW  = 1e-8;
 inline constexpr double VF_HIGH = 1.0 - VF_LOW;
 
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr auto has_interface(const Matrix<Float, NX, NY, NGHOST>& vf, Index i, Index j) noexcept
-    -> bool {
+constexpr auto
+has_interface(const Matrix<Float, NX, NY, NGHOST>& vf, Index i, Index j) noexcept -> bool {
   return VF_LOW < vf(i, j) && vf(i, j) < VF_HIGH;
 }
 

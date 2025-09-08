@@ -57,13 +57,15 @@ FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
 
 // -------------------------------------------------------------------------------------------------
 template <Exec EXEC = Exec::Serial, typename Float, Index N, Index NGHOST, ForEachFunc1D FUNC>
-FS_ALWAYS_INLINE void for_each_i(const Vector<Float, N, NGHOST>& _, FUNC&& f) noexcept {
+FS_ALWAYS_INLINE void for_each_i([[maybe_unused]] const Vector<Float, N, NGHOST>& _,
+                                 FUNC&& f) noexcept {
   for_each<0, N, EXEC>(std::forward<FUNC&&>(f));
 }
 
 // -------------------------------------------------------------------------------------------------
 template <Exec EXEC = Exec::Serial, typename Float, Index N, Index NGHOST, ForEachFunc1D FUNC>
-FS_ALWAYS_INLINE void for_each_a(const Vector<Float, N, NGHOST>& _, FUNC&& f) noexcept {
+FS_ALWAYS_INLINE void for_each_a([[maybe_unused]] const Vector<Float, N, NGHOST>& _,
+                                 FUNC&& f) noexcept {
   for_each<-NGHOST, N + NGHOST, EXEC>(std::forward<FUNC&&>(f));
 }
 
@@ -135,7 +137,7 @@ template <Exec EXEC = Exec::Serial,
           Index NGHOST,
           Layout LAYOUT,
           ForEachFunc2D FUNC>
-FS_ALWAYS_INLINE void for_each_i(const Matrix<Float, NX, NY, NGHOST, LAYOUT>& _,
+FS_ALWAYS_INLINE void for_each_i([[maybe_unused]] const Matrix<Float, NX, NY, NGHOST, LAYOUT>& _,
                                  FUNC&& f) noexcept {
   for_each<0, NX, 0, NY, EXEC, LAYOUT>(std::forward<FUNC&&>(f));
 }
@@ -148,7 +150,7 @@ template <Exec EXEC = Exec::Serial,
           Index NGHOST,
           Layout LAYOUT,
           ForEachFunc2D FUNC>
-FS_ALWAYS_INLINE void for_each_a(const Matrix<Float, NX, NY, NGHOST, LAYOUT>& _,
+FS_ALWAYS_INLINE void for_each_a([[maybe_unused]] const Matrix<Float, NX, NY, NGHOST, LAYOUT>& _,
                                  FUNC&& f) noexcept {
   for_each<-NGHOST, NX + NGHOST, -NGHOST, NY + NGHOST, EXEC, LAYOUT>(std::forward<FUNC&&>(f));
 }

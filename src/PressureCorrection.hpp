@@ -386,7 +386,7 @@ class PS {
           s[S_TOP]                           = 0.0;
         });
         break;
-      case PSDirichlet::NONE:
+      case PSDirichlet::NONE: break;
     }
 
 #if 1

@@ -19,7 +19,7 @@ PhaseChange.dSYM
 *.swp
 *.env
 compile.out
-run.slurm
+*.slurm
 
 output*/
 notes/

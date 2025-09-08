@@ -14,7 +14,7 @@ else
 endif
 
 ifdef IRL_DIR
-  IRL_INC = -I${IRL_DIR}/include
+  IRL_INC = -isystem${IRL_DIR}/include
   IRL_LIB = -L${IRL_DIR}/lib -lirl
 else
   ${error "Need to define the path to interface reconstruction library (IRL) in `IRL_DIR`."}

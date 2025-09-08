@@ -11,7 +11,7 @@ ifeq (${BASENAME_CXX}, clang++)
 
 else ifeq (${BASENAME_CXX}, ${filter ${BASENAME_CXX}, g++ g++-15})
 
-	CXX_FLAGS = -Wall -Wextra -pedantic -Wshadow -Wconversion -Winline -std=c++23
+	CXX_FLAGS = -Wall -Wextra -pedantic -Wshadow -Wconversion -std=c++23
 	CXX_RELEASE_FLAGS = -march=native -O3
 	CXX_FAST_FLAGS = ${CXX_RELEASE_FLAGS} -ffast-math -DIGOR_NDEBUG
 	CXX_DEBUG_FLAGS = -O0 -g

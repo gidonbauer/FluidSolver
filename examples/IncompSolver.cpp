@@ -21,8 +21,8 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 256 * 10;
-constexpr Index NY              = 256;
+constexpr Index NX              = 640 * 10;
+constexpr Index NY              = 640;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;

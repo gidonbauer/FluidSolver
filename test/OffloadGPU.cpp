@@ -57,11 +57,11 @@ auto vecadd() -> bool {
   std::generate_n(data.B.get_data(), data.B.size(), rand_float);
 
   IGOR_TIME_SCOPE("Vector addition: CPU solution") {
-    for_each_i(data.C_ref, [&](Index i) { data.C_ref(i) = data.A(i) + data.B(i); });
+    for_each_i<Exec::Parallel>(data.C_ref, [&](Index i) { data.C_ref(i) = data.A(i) + data.B(i); });
   }
 
   IGOR_TIME_SCOPE("Vector addition: GPU solution") {
-    for_each_i<Exec::Parallel>(data.C, [&](Index i) { data.C(i) = data.A(i) + data.B(i); });
+    for_each_i<Exec::ParallelGPU>(data.C, [&](Index i) { data.C(i) = data.A(i) + data.B(i); });
   }
 
   return is_equal(data.C, data.C_ref);
@@ -79,7 +79,7 @@ auto matmul() -> bool {
   std::generate_n(data.B.get_data(), data.B.size(), rand_float);
 
   IGOR_TIME_SCOPE("Matrix multiplication: CPU solution") {
-    for_each_i(data.C_ref, [&](Index i, Index j) {
+    for_each_i<Exec::Parallel>(data.C_ref, [&](Index i, Index j) {
       for (Index k = 0; k < K; ++k) {
         data.C_ref(i, j) += data.A(i, k) * data.B(k, j);
       }
@@ -87,7 +87,7 @@ auto matmul() -> bool {
   }
 
   IGOR_TIME_SCOPE("Matrix multiplication: GPU solution") {
-    for_each_i<Exec::Parallel>(data.C, [&](Index i, Index j) {
+    for_each_i<Exec::ParallelGPU>(data.C, [&](Index i, Index j) {
       for (Index k = 0; k < K; ++k) {
         data.C(i, j) += data.A(i, k) * data.B(k, j);
       }
@@ -109,11 +109,11 @@ auto dotprod() -> bool {
   std::generate_n(data.B.get_data(), data.B.size(), rand_float);
 
   IGOR_TIME_SCOPE("Dot-product: CPU solution") {
-    for_each_i(data.A, [&](Index i) { data.C_ref += data.A(i) * data.B(i); });
+    for_each_i<Exec::Parallel>(data.A, [&](Index i) { data.C_ref += data.A(i) * data.B(i); });
   }
 
   IGOR_TIME_SCOPE("Dot-product: GPU solution") {
-    for_each_i<Exec::Parallel>(data.A, [&](Index i) { data.C += data.A(i) * data.B(i); });
+    for_each_i<Exec::ParallelGPU>(data.A, [&](Index i) { data.C += data.A(i) * data.B(i); });
   }
 
   return is_equal(static_cast<Float>(data.C), data.C_ref);

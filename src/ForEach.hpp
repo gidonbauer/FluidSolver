@@ -30,17 +30,17 @@ concept ForEachFunc1D = requires(FUNC f) {
 
 template <Exec EXEC, Index NITER>
 consteval auto get_exec_policy() noexcept {
-  if (NITER < FS_PARALLEL_THRESHOLD_COUNT) { return StdparOpenMP::Serial; }
-
-  switch (EXEC) {
-    case Exec::Serial:          return StdparOpenMP::Serial;
-    case Exec::Parallel:        return StdparOpenMP::Parallel;
-    case Exec::ParallelDynamic: return StdparOpenMP::ParallelDynamic;
-    case Exec::ParallelGPU:
+  if constexpr (EXEC == Exec::Serial || NITER < FS_PARALLEL_THRESHOLD_COUNT) {
+    return StdparOpenMP::Serial;
+  } else if constexpr (EXEC == Exec::Parallel) {
+    return StdparOpenMP::Parallel;
+  } else if constexpr (EXEC == Exec::ParallelDynamic) {
+    return StdparOpenMP::ParallelDynamic;
+  } else if constexpr (EXEC == Exec::ParallelGPU) {
 #ifndef FS_STDPAR
-      return StdparOpenMP::Parallel;
+    return StdparOpenMP::Parallel;
 #else
-      return std::execution::par_unseq;
+    return std::execution::par_unseq;
 #endif  // FS_STDPAR
   }
 

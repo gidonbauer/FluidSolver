@@ -14,29 +14,37 @@
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
-// #include "VTKWriter.hpp"
+
+#ifdef USE_VTK
+#include "VTKWriter.hpp"
+template <typename Float, int NX, int NY, int NGHOST>
+using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
+#else
 #include "XDMFWriter.hpp"
+template <typename Float, int NX, int NY, int NGHOST>
+using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
+#endif  // USE_VTK
 
 // = Config ========================================================================================
-using Float                     = double;
+using Float              = double;
 
-constexpr Index NX              = 5 * 128;
-constexpr Index NY              = 128;
-constexpr Index NGHOST          = 1;
+constexpr Index NX       = 5 * 256;
+constexpr Index NY       = 256;
+constexpr Index NGHOST   = 1;
 
-constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 5.0;
-constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 1.0;
+constexpr Float X_MIN    = 0.0;
+constexpr Float X_MAX    = 5.0;
+constexpr Float Y_MIN    = 0.0;
+constexpr Float Y_MAX    = 1.0;
 
-constexpr Float T_END           = 5.0;
-constexpr Float DT_MAX          = 1e-2;
-constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 5e-2;
+constexpr Float T_END    = 5.0;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.9;
+constexpr Float DT_WRITE = 5e-2;
 
-constexpr Float U_BCOND         = 1.0;
-constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-3;
+constexpr Float U_BCOND  = 0.25;  // 1.0;
+// constexpr Float U_0             = 0.0;
+constexpr Float VISC_G          = 1e-6;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
@@ -57,10 +65,17 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
+// constexpr FlowBConds<Float> bconds{
+//     //        LEFT              RIGHT           BOTTOM            TOP
+//     .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+//     .U     = {U_BCOND, 0.0, 0.0, 0.0},
+//     .V     = {0.0, 0.0, 0.0, 0.0},
+// };
+
 constexpr FlowBConds<Float> bconds{
-    //        LEFT              RIGHT           BOTTOM            TOP
-    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {U_BCOND, 0.0, 0.0, 0.0},
+    //        LEFT            RIGHT           BOTTOM            TOP
+    .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+    .U     = {0.0, 0.0, 0.0, 0.0},
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
@@ -157,12 +172,7 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  // VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  XDMFWriter<Float, NX, NY, NGHOST> data_writer(
-      Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
-      Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
-      &fs.x,
-      &fs.y);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   data_writer.add_scalar("density", &rhoi);
   data_writer.add_scalar("viscosity", &fs.visc);
   data_writer.add_scalar("pressure", &fs.p);
@@ -209,7 +219,10 @@ auto main() -> int {
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  // for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+    fs.curr.U(i, j) = U_BCOND * (vof.vf(i - 1, j) + vof.vf(i, j)) / 2.0;
+  });
   for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 

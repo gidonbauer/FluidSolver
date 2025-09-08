@@ -176,7 +176,7 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
   // FXU = -rho*U*U + mu*(dUdx + dUdx - 2/3*(dUdx + dVdy)) - p
   //     = -rho*U^2 + mu*(2*dUdx -2/3*(dUdx + dVdy)) - p
   //     = -rho*U^2 + 2*mu*dUdx - p
-  for_each<-1, NX + 1, 0, NY, Exec::Parallel>([&](Index i, Index j) {
+  for_each<-1, NX + 1, 0, NY, Exec::ParallelGPU>([&](Index i, Index j) {
     const auto [rho_i_hybrid, U_i_hybrid] = hybrid_interp(rho_eps,
                                                           fs.old.rho_u_stag(i, j),
                                                           fs.old.rho_u_stag(i + 1, j),
@@ -192,7 +192,7 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
 
   // = On corner mesh ======================
   // FYU = -rho*U*V + mu*(dUdy + dVdx)
-  for_each_i<Exec::Parallel>(FYU, [&](Index i, Index j) {
+  for_each_i<Exec::ParallelGPU>(FYU, [&](Index i, Index j) {
     const auto [rho_i_hybrid, U_i_hybrid] = hybrid_interp(rho_eps,
                                                           fs.old.rho_u_stag(i, j - 1),
                                                           fs.old.rho_u_stag(i, j),
@@ -210,7 +210,7 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
     FYU(i, j)       = -rho_i_hybrid * U_i_hybrid * V_i + visc_corner * (dUdy + dVdx);
   });
 
-  for_each_i<Exec::Parallel>(dmomUdt, [&](Index i, Index j) {
+  for_each_i<Exec::ParallelGPU>(dmomUdt, [&](Index i, Index j) {
     dmomUdt(i, j) = (FXU(i, j) - FXU(i - 1, j)) / fs.dx +  //
                     (FYU(i, j + 1) - FYU(i, j)) / fs.dy +  //
                     fs.p_jump_u_stag(i, j);
@@ -220,7 +220,7 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
 
   // = On corner mesh ======================
   // FXV = -rho*U*V + mu*(dVdx + dUdy)
-  for_each_i<Exec::Parallel>(FXV, [&](Index i, Index j) {
+  for_each_i<Exec::ParallelGPU>(FXV, [&](Index i, Index j) {
     const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(rho_eps,
                                                           fs.old.rho_v_stag(i - 1, j),
                                                           fs.old.rho_v_stag(i, j),
@@ -242,7 +242,7 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
   // FYV = -rho*V*V + mu*(dVdy + dVdy - 2/3*(dUdx + dVdy)) - p
   //     = -rho*V^2 + mu*(2*dVdy - 2/3*(dUdx + dVdy)) - p
   //     = -rho*V^2 + 2*mu*dVdy - p
-  for_each<0, NX, -1, NY + 1, Exec::Parallel>([&](Index i, Index j) {
+  for_each<0, NX, -1, NY + 1, Exec::ParallelGPU>([&](Index i, Index j) {
     const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(rho_eps,
                                                           fs.old.rho_v_stag(i, j),
                                                           fs.old.rho_v_stag(i, j + 1),
@@ -257,7 +257,7 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
     FYV(i, j) = -rho_i_hybrid * V_i_hybrid * V_i + 2.0 * fs.visc(i, j) * dVdy - fs.p(i, j);
   });
 
-  for_each_i<Exec::Parallel>(dmomVdt, [&](Index i, Index j) {
+  for_each_i<Exec::ParallelGPU>(dmomVdt, [&](Index i, Index j) {
     dmomVdt(i, j) = (FXV(i + 1, j) - FXV(i, j)) / fs.dx +  //
                     (FYV(i, j) - FYV(i, j - 1)) / fs.dy +  //
                     fs.p_jump_v_stag(i, j);

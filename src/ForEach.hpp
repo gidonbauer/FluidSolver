@@ -9,9 +9,7 @@
 #include "Container.hpp"
 #include "IotaIter.hpp"
 #include "Macros.hpp"
-#ifndef FS_STDPAR
 #include "StdparOpenMP.hpp"
-#endif  // FS_STDPAR
 
 #ifndef FS_PARALLEL_THRESHOLD
 constexpr Index FS_PARALLEL_THRESHOLD_COUNT = 1000;
@@ -22,7 +20,7 @@ constexpr Index FS_PARALLEL_THRESHOLD_COUNT = FS_PARALLEL_THRESHOLD;
 #endif  // FS_PARALLEL_THRESHOLD
 
 // -------------------------------------------------------------------------------------------------
-enum class Exec : uint8_t { Serial, Parallel, ParallelDynamic };
+enum class Exec : uint8_t { Serial, Parallel, ParallelDynamic, ParallelGPU };
 
 // -------------------------------------------------------------------------------------------------
 template <typename FUNC>
@@ -30,29 +28,33 @@ concept ForEachFunc1D = requires(FUNC f) {
   { f(std::declval<Index>()) } -> std::same_as<void>;
 };
 
+template <Exec EXEC, Index NITER>
+consteval auto get_exec_policy() noexcept {
+  if (NITER < FS_PARALLEL_THRESHOLD_COUNT) { return StdparOpenMP::Serial; }
+
+  switch (EXEC) {
+    case Exec::Serial:          return StdparOpenMP::Serial;
+    case Exec::Parallel:        return StdparOpenMP::Parallel;
+    case Exec::ParallelDynamic: return StdparOpenMP::ParallelDynamic;
+    case Exec::ParallelGPU:
+#ifndef FS_STDPAR
+      return StdparOpenMP::Parallel;
+#else
+      return std::execution::par_unseq;
+#endif  // FS_STDPAR
+  }
+
+  Igor::Panic("Unreachable");
+  std::unreachable();
+}
+
 // -------------------------------------------------------------------------------------------------
 template <Index I_MIN, Index I_MAX, Exec EXEC = Exec::Serial, ForEachFunc1D FUNC>
 FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
-#ifndef FS_STDPAR
-  constexpr StdparOpenMP policy = []() {
-    if constexpr (EXEC == Exec::Serial || (I_MAX - I_MIN) < FS_PARALLEL_THRESHOLD_COUNT) {
-      return StdparOpenMP::Serial;
-    } else if constexpr (EXEC == Exec::Parallel) {
-      return StdparOpenMP::Parallel;
-    } else {
-      return StdparOpenMP::ParallelDynamic;
-    }
-  }();
-#else
-  constexpr auto policy = []() {
-    if constexpr (EXEC == Exec::Serial || (I_MAX - I_MIN) < FS_PARALLEL_THRESHOLD_COUNT) {
-      return std::execution::seq;
-    } else {
-      return std::execution::par_unseq;
-    }
-  }();
-#endif  // FS_STDPAR
-  std::for_each(policy, IotaIter<Index>(I_MIN), IotaIter<Index>(I_MAX), std::forward<FUNC&&>(f));
+  std::for_each(get_exec_policy<EXEC, I_MAX - I_MIN>(),
+                IotaIter<Index>(I_MIN),
+                IotaIter<Index>(I_MAX),
+                std::forward<FUNC&&>(f));
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -84,28 +86,6 @@ template <Index I_MIN,
           Layout LAYOUT = Layout::C,
           ForEachFunc2D FUNC>
 FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
-#ifndef FS_STDPAR
-  constexpr StdparOpenMP policy = []() {
-    if constexpr (EXEC == Exec::Serial ||
-                  (I_MAX - I_MIN) * (J_MAX - J_MIN) < FS_PARALLEL_THRESHOLD_COUNT) {
-      return StdparOpenMP::Serial;
-    } else if constexpr (EXEC == Exec::Parallel) {
-      return StdparOpenMP::Parallel;
-    } else {
-      return StdparOpenMP::ParallelDynamic;
-    }
-  }();
-#else
-  constexpr auto policy = []() {
-    if constexpr (EXEC == Exec::Serial ||
-                  (I_MAX - I_MIN) * (J_MAX - J_MIN) < FS_PARALLEL_THRESHOLD_COUNT) {
-      return std::execution::seq;
-    } else {
-      return std::execution::par_unseq;
-    }
-  }();
-#endif  // FS_STDPAR
-
   constexpr auto from_linear_index = [](Index idx) noexcept -> std::pair<Index, Index> {
     if constexpr (LAYOUT == Layout::C) {
       return {
@@ -120,7 +100,7 @@ FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
     }
   };
 
-  std::for_each(policy,
+  std::for_each(get_exec_policy<EXEC, (I_MAX - I_MIN) * (J_MAX - J_MIN)>(),
                 IotaIter<Index>(0),
                 IotaIter<Index>((I_MAX - I_MIN) * (J_MAX - J_MIN)),
                 [&](Index idx) {

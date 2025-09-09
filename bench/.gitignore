@@ -1,0 +1,6 @@
+*
+
+!.gitignore
+!bench.mk
+!*.hpp
+!*.cpp

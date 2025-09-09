@@ -28,9 +28,10 @@ all: ${TARGETS}
 %: examples/%.cpp ${HEADERS}
 	${CXX} ${CXX_FLAGS} ${CXX_OPENMP_FLAGS} ${INC} ${IGOR_INC} ${HYPRE_INC} ${IRL_INC} ${EIGEN_INC} ${HDF_INC} -o $@ $< ${HYPRE_LIB} ${IRL_LIB} ${HDF_LIB} ${INTEL_RT_LIB} ${CUDA_LIB}
 
-clean: clean-test
+clean: clean-test clean-bench
 	${RM} -r ${TARGETS} ${addsuffix .dSYM, ${TARGETS}}
 
 include test/test.mk
+include bench/bench.mk
 
 .PHONY: all clean

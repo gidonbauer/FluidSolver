@@ -102,8 +102,8 @@ auto dotprod() -> bool {
   struct {
     Vector<Float, M, 0> A{};
     Vector<Float, M> B{};
-    std::atomic<Float> C = 0.0;
-    Float C_ref          = 0.0;
+    std::atomic<Float> C     = 0.0;
+    std::atomic<Float> C_ref = 0.0;
   } data{};
   std::generate_n(data.A.get_data(), data.A.size(), rand_float);
   std::generate_n(data.B.get_data(), data.B.size(), rand_float);
@@ -116,7 +116,7 @@ auto dotprod() -> bool {
     for_each_i<Exec::ParallelGPU>(data.A, [&](Index i) { data.C += data.A(i) * data.B(i); });
   }
 
-  return is_equal(static_cast<Float>(data.C), data.C_ref);
+  return is_equal(static_cast<Float>(data.C), static_cast<Float>(data.C_ref));
 }
 
 // -------------------------------------------------------------------------------------------------

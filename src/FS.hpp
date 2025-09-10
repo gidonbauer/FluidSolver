@@ -171,7 +171,97 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
   const auto rho_eps = calc_rho_eps(fs);
 
   // = Calculate dmomUdt ===========================================================================
+#if 1
+  // Calculate F[XY][UV]
+  for_each<-1, NX + 1, -1, NY + 1, Exec::ParallelGPU>([&](Index i, Index j) {
+    if (-1 <= i && i < NX + 1 && 0 <= j && j < NY) {
+      // FXU = -rho*U*U + mu*(dUdx + dUdx - 2/3*(dUdx + dVdy)) - p
+      //     = -rho*U^2 + mu*(2*dUdx -2/3*(dUdx + dVdy)) - p
+      //     = -rho*U^2 + 2*mu*dUdx - p
+      const auto [rho_i_hybrid, U_i_hybrid] = hybrid_interp(rho_eps,
+                                                            fs.old.rho_u_stag(i, j),
+                                                            fs.old.rho_u_stag(i + 1, j),
+                                                            fs.curr.U(i, j),
+                                                            fs.curr.U(i + 1, j),
+                                                            fs.curr.U(i, j),
+                                                            fs.curr.U(i + 1, j));
+      const auto U_i                        = ((fs.curr.U(i + 1, j) + fs.curr.U(i, j)) / 2);
+      const auto dUdx                       = (fs.curr.U(i + 1, j) - fs.curr.U(i, j)) / fs.dx;
 
+      FXU(i, j) = -rho_i_hybrid * U_i_hybrid * U_i + 2.0 * fs.visc(i, j) * dUdx - fs.p(i, j);
+    }
+
+    if (0 <= i && i < NX + 1 && 0 <= j && j < NY + 1) {
+      // FYU = -rho*U*V + mu*(dUdy + dVdx)
+      const auto [rho_i_hybrid, U_i_hybrid] = hybrid_interp(rho_eps,
+                                                            fs.old.rho_u_stag(i, j - 1),
+                                                            fs.old.rho_u_stag(i, j),
+                                                            fs.curr.U(i, j - 1),
+                                                            fs.curr.U(i, j),
+                                                            fs.curr.V(i - 1, j),
+                                                            fs.curr.V(i, j));
+      const auto V_i                        = (fs.curr.V(i - 1, j) + fs.curr.V(i, j)) / 2;
+
+      const auto visc_corner =
+          (fs.visc(i, j) + fs.visc(i - 1, j) + fs.visc(i, j - 1) + fs.visc(i - 1, j - 1)) / 4.0;
+      const auto dUdy = (fs.curr.U(i, j) - fs.curr.U(i, j - 1)) / fs.dy;
+      const auto dVdx = (fs.curr.V(i, j) - fs.curr.V(i - 1, j)) / fs.dx;
+
+      FYU(i, j)       = -rho_i_hybrid * U_i_hybrid * V_i + visc_corner * (dUdy + dVdx);
+    }
+
+    if (0 <= i && i < NX + 1 && 0 <= j && j < NY + 1) {
+      // FXV = -rho*U*V + mu*(dVdx + dUdy)
+      const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(rho_eps,
+                                                            fs.old.rho_v_stag(i - 1, j),
+                                                            fs.old.rho_v_stag(i, j),
+                                                            fs.curr.V(i - 1, j),
+                                                            fs.curr.V(i, j),
+                                                            fs.curr.U(i, j - 1),
+                                                            fs.curr.U(i, j));
+      const auto U_i                        = (fs.curr.U(i, j) + fs.curr.U(i, j - 1)) / 2;
+
+      const auto visc_corner =
+          (fs.visc(i, j) + fs.visc(i - 1, j) + fs.visc(i, j - 1) + fs.visc(i - 1, j - 1)) / 4.0;
+      const auto dUdy = (fs.curr.U(i, j) - fs.curr.U(i, j - 1)) / fs.dy;
+      const auto dVdx = (fs.curr.V(i, j) - fs.curr.V(i - 1, j)) / fs.dx;
+
+      FXV(i, j)       = -rho_i_hybrid * U_i * V_i_hybrid + visc_corner * (dUdy + dVdx);
+    }
+
+    if (0 <= i && i < NX && -1 <= j && j < NY + 1) {
+      // FYV = -rho*V*V + mu*(dVdy + dVdy - 2/3*(dUdx + dVdy)) - p
+      //     = -rho*V^2 + mu*(2*dVdy - 2/3*(dUdx + dVdy)) - p
+      //     = -rho*V^2 + 2*mu*dVdy - p
+      const auto [rho_i_hybrid, V_i_hybrid] = hybrid_interp(rho_eps,
+                                                            fs.old.rho_v_stag(i, j),
+                                                            fs.old.rho_v_stag(i, j + 1),
+                                                            fs.curr.V(i, j),
+                                                            fs.curr.V(i, j + 1),
+                                                            fs.curr.V(i, j),
+                                                            fs.curr.V(i, j + 1));
+      const auto V_i                        = (fs.curr.V(i, j) + fs.curr.V(i, j + 1)) / 2;
+
+      const auto dVdy                       = (fs.curr.V(i, j + 1) - fs.curr.V(i, j)) / fs.dy;
+
+      FYV(i, j) = -rho_i_hybrid * V_i_hybrid * V_i + 2.0 * fs.visc(i, j) * dVdy - fs.p(i, j);
+    }
+  });
+
+  for_each<0, NX + 1, 0, NY + 1, Exec::ParallelGPU>([&](Index i, Index j) {
+    if (0 <= i && i < NX + 1 && 0 <= j && j < NY) {
+      dmomUdt(i, j) = (FXU(i, j) - FXU(i - 1, j)) / fs.dx +  //
+                      (FYU(i, j + 1) - FYU(i, j)) / fs.dy +  //
+                      fs.p_jump_u_stag(i, j);
+    }
+
+    if (0 <= i && i < NX && 0 <= j && j < NY + 1) {
+      dmomVdt(i, j) = (FXV(i + 1, j) - FXV(i, j)) / fs.dx +  //
+                      (FYV(i, j) - FYV(i, j - 1)) / fs.dy +  //
+                      fs.p_jump_v_stag(i, j);
+    }
+  });
+#else
   // = On center mesh ========================
   // FXU = -rho*U*U + mu*(dUdx + dUdx - 2/3*(dUdx + dVdy)) - p
   //     = -rho*U^2 + mu*(2*dUdx -2/3*(dUdx + dVdy)) - p
@@ -262,6 +352,7 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
                     (FYV(i, j) - FYV(i, j - 1)) / fs.dy +  //
                     fs.p_jump_v_stag(i, j);
   });
+#endif
 }
 
 // -------------------------------------------------------------------------------------------------

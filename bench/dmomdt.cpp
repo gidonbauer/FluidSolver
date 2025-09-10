@@ -90,11 +90,14 @@ auto main() -> int {
     }
   }
 
-  const auto mean_runtime   = mean(runtimes);
-  const auto stddev_runtime = stddev(runtimes, mean_runtime);
+  const auto mean_runtime     = mean(runtimes);
+  const auto stddev_runtime   = stddev(runtimes, mean_runtime);
+  const auto [min_it, max_it] = std::minmax_element(runtimes.cbegin(), runtimes.cend());
   Igor::Info("NX = {}", NX);
   Igor::Info("NY = {}", NY);
   Igor::Info("Total cells = {}", NX * NY);
   Igor::detail::Time("mean_runtime   = {:.6f}s", mean_runtime);
   Igor::detail::Time("stddev_runtime = {:.6f}s", stddev_runtime);
+  Igor::detail::Time("min_runtime    = {:.6f}s", *min_it);
+  Igor::detail::Time("max_runtime    = {:.6f}s", *max_it);
 }

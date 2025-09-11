@@ -7,8 +7,8 @@
 #include "Quadrature.hpp"
 
 using Float                     = double;
-constexpr Index NX              = 5 * (1 << 12);
-constexpr Index NY              = 1 << 12;
+constexpr Index NX              = 5 * (1 << 13);
+constexpr Index NY              = 1 << 13;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;

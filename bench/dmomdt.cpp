@@ -2,6 +2,7 @@
 
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
+#include <Igor/MemoryToString.hpp>
 
 #include "FS.hpp"
 #include "Quadrature.hpp"
@@ -54,6 +55,9 @@ constexpr auto stddev(const std::vector<Float>& values, Float mean) -> Float {
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  Igor::Info("Approximate memory requirement for single field: {}",
+             Igor::memory_to_string((NX + 2*NGHOST) * (NY + 2*NGHOST) * sizeof(Float)));
+
   FS<Float, NX, NY, NGHOST> fs{.visc_gas    = VISC_G,
                                .visc_liquid = VISC_L,
                                .rho_gas     = RHO_G,

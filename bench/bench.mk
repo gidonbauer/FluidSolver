@@ -5,7 +5,7 @@ BENCHMARKS = dmomdt-no-fuse   \
 bench: ${addprefix bench/, ${BENCHMARKS}} ${addprefix bench-, ${BENCHMARKS}}
 
 bench-%: bench/%
-	@printf "\033[32m[TEST]\033[0m Running benchmark $*...\n"
+	@printf "\033[94m[BENCH]\033[0m Running benchmark $*...\n"
 	@$<
 	@echo ""
 

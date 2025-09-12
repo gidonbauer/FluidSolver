@@ -1,6 +1,7 @@
 BENCHMARKS = dmomdt-no-fuse   \
              dmomdt-fuse-flux \
-             dmomdt-fuse-all
+             dmomdt-fuse-all  \
+             update-velo-fuse
 
 bench: ${addprefix bench/, ${BENCHMARKS}} ${addprefix bench-, ${BENCHMARKS}}
 

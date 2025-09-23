@@ -15,6 +15,8 @@ IB
 IB.dSYM
 PhaseChange
 PhaseChange.dSYM
+RisingBubble
+RisingBubble.dSYM
 
 *.swp
 *.env

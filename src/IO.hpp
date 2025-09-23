@@ -199,9 +199,15 @@ save_state(const std::string& output_dir,
 // -------------------------------------------------------------------------------------------------
 template <typename Float>
 [[nodiscard]] constexpr auto should_save(Float t, Float dt, Float dt_write, Float t_end) -> bool {
-  constexpr Float DT_SAFE = 1e-6;
-  return std::fmod(t + DT_SAFE * dt, dt_write) < dt * (1.0 - DT_SAFE) ||
-         std::abs(t - t_end) < DT_SAFE;
+  constexpr Float DT_SAFE      = 1e-6;
+  static Float last_save_t     = -1.0;
+
+  const bool dt_write_complete = std::fmod(t + DT_SAFE * dt, dt_write) < dt * (1.0 - DT_SAFE);
+  const bool is_last           = std::abs(t - t_end) < DT_SAFE;
+  const bool res               = dt_write_complete || is_last;
+  if (res && is_last && std::abs(t - last_save_t) < DT_SAFE) { return false; }
+  if (res) { last_save_t = t; }
+  return res;
 }
 
 // -------------------------------------------------------------------------------------------------

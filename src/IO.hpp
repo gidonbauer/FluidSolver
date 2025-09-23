@@ -16,25 +16,15 @@ namespace detail {
 
 // -------------------------------------------------------------------------------------------------
 template <typename T>
-requires(std::is_fundamental_v<T> && sizeof(T) == 4)
+requires(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8))
 [[nodiscard]] constexpr auto interpret_as_big_endian_bytes(T value)
-    -> std::array<const char, sizeof(value)> {
+    -> std::array<const char, sizeof(T)> {
   if constexpr (std::endian::native == std::endian::big) {
-    return std::bit_cast<std::array<const char, sizeof(value)>>(value);
+    return std::bit_cast<std::array<const char, sizeof(T)>>(value);
   }
-  return std::bit_cast<std::array<const char, sizeof(value)>>(
-      std::byteswap(std::bit_cast<uint32_t>(value)));
-}
-
-template <typename T>
-requires(std::is_fundamental_v<T> && sizeof(T) == 8)
-[[nodiscard]] constexpr auto interpret_as_big_endian_bytes(T value)
-    -> std::array<const char, sizeof(value)> {
-  if constexpr (std::endian::native == std::endian::big) {
-    return std::bit_cast<std::array<const char, sizeof(value)>>(value);
-  }
-  return std::bit_cast<std::array<const char, sizeof(value)>>(
-      std::byteswap(std::bit_cast<uint64_t>(value)));
+  using U = std::conditional_t<sizeof(T) == 4, std::uint32_t, std::uint64_t>;
+  static_assert(sizeof(T) == sizeof(U));
+  return std::bit_cast<std::array<const char, sizeof(T)>>(std::byteswap(std::bit_cast<U>(value)));
 }
 
 // -------------------------------------------------------------------------------------------------

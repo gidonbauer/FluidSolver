@@ -12,7 +12,15 @@
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
+#ifdef USE_VTK
 #include "VTKWriter.hpp"
+template <typename Float, int NX, int NY, int NGHOST>
+using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
+#else
+#include "XDMFWriter.hpp"
+template <typename Float, int NX, int NY, int NGHOST>
+using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
+#endif  // USE_VTK
 
 // = Config ========================================================================================
 using Float                  = double;
@@ -110,7 +118,7 @@ auto main() -> int {
       .visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
   calc_rho_and_visc(fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
 
   Matrix<Float, NX, NY, NGHOST> Ui{};
   Matrix<Float, NX, NY, NGHOST> Vi{};
@@ -144,11 +152,11 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  vtk_writer.add_scalar("pressure", &fs.p);
-  vtk_writer.add_scalar("divergence", &div);
-  vtk_writer.add_vector("velocity", &Ui, &Vi);
-  vtk_writer.add_scalar("Immersed-wall", &ib);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  data_writer.add_scalar("pressure", &fs.p);
+  data_writer.add_scalar("divergence", &div);
+  data_writer.add_vector("velocity", &Ui, &Vi);
+  data_writer.add_scalar("Immersed-wall", &ib);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -198,7 +206,7 @@ auto main() -> int {
   V_max   = max(fs.curr.V);
   div_max = max(div);
   calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
-  if (!vtk_writer.write(t)) { return 1; }
+  if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -274,7 +282,7 @@ auto main() -> int {
     div_max = max(div);
     calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!vtk_writer.write(t)) { return 1; }
+      if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
   }

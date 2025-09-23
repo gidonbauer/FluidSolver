@@ -455,7 +455,7 @@ class PS {
         for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values(i, -NGHOST) = 0.0; });
         break;
       case PSDirichlet::TOP:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values(i, NX + NGHOST - 1) = 0.0; });
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values(i, NY + NGHOST - 1) = 0.0; });
         break;
       case PSDirichlet::NONE:
         const Float mean_rhs = std::reduce(rhs_values.get_data(),

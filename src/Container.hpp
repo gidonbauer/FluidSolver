@@ -222,7 +222,7 @@ template <typename CT>
   return std::transform_reduce(
       c.get_data(),
       c.get_data() + c.size(),
-      *c.get_data(),
+      std::abs(*c.get_data()),
       [](Float a, Float b) { return std::max(a, b); },
       [](Float x) { return std::abs(x); });
 }

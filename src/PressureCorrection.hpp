@@ -378,7 +378,7 @@ class PS {
         break;
       case PSDirichlet::TOP:
         for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values(i, NX + NGHOST - 1);
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(i, NY + NGHOST - 1);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;

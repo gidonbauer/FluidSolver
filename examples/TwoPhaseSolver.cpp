@@ -17,11 +17,11 @@
 
 #ifdef USE_VTK
 #include "VTKWriter.hpp"
-template <typename Float, int NX, int NY, int NGHOST>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
 #else
 #include "XDMFWriter.hpp"
-template <typename Float, int NX, int NY, int NGHOST>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
 #endif  // USE_VTK
 

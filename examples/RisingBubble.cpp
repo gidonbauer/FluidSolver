@@ -17,19 +17,19 @@
 
 #ifdef USE_VTK
 #include "VTKWriter.hpp"
-template <typename Float, int NX, int NY, int NGHOST>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
 #else
 #include "XDMFWriter.hpp"
-template <typename Float, int NX, int NY, int NGHOST>
+template <typename Float, Index NX, Index NY, Index NGHOST>
 using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
 #endif  // USE_VTK
 
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 128;
-constexpr Index NY              = 128;
+constexpr Index NX              = 256;
+constexpr Index NY              = 256;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = -2.0;
@@ -38,8 +38,8 @@ constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 4.0;
 
 constexpr Float T_END           = 5.0;
-constexpr Float DT_MAX          = 2e-3;
-constexpr Float CFL_MAX         = 0.9;
+constexpr Float DT_MAX          = 1e-3;
+constexpr Float CFL_MAX         = 0.25;
 constexpr Float DT_WRITE        = 1e-2;
 
 constexpr Float GRAVITY         = -1.0;
@@ -49,15 +49,12 @@ constexpr Float RHO_G           = 1.0;   // 1.0;
 constexpr Float VISC_L          = 1e-6;  // 1e-3;
 constexpr Float RHO_L           = 1e-3;  // 1e3;
 
-constexpr Float SURFACE_TENSION = 0.0;  // 1.0 / 20.0;
+constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 0.0;
 constexpr Float CY              = 0.5;
 constexpr Float R0              = 0.25;
-constexpr auto vof0             = [](Float x, Float y) {
-  return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
-};
 
-constexpr int PRESSURE_MAX_ITER = 50;
+constexpr int PRESSURE_MAX_ITER = 100;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
@@ -89,7 +86,7 @@ void calc_vof_stats(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto main() -> int {
+auto main(int argc, char** argv) -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
@@ -184,6 +181,46 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize VOF field ========================================================================
+  const int vof0_config = [argc, argv]() {
+    auto usage = [prog = argv[0]]() {
+      std::cerr << "Usage: " << prog << " [bubble config]\n";
+      std::cerr << "       bubble config:  0 - Single bubble (default)\n";
+      std::cerr << "                       1 - Two bubbles side by side\n";
+      std::cerr << "                       2 - Two bubbles above each other\n";
+    };
+
+    if (argc < 2) {
+      usage();
+      return 0;
+    }
+    switch (argv[1][0]) {
+      case '0': return 0;
+      case '1': return 1;
+      case '2': return 2;
+      default:  usage(); return 0;
+    }
+  }();
+
+  auto vof0 = [vof0_config](Float x, Float y) -> Float {
+    switch (vof0_config) {
+      // Single bubble
+      case 0: return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
+
+      // Two bubbles side by side
+      case 1:
+        return static_cast<Float>(Igor::sqr(x - (CX - 0.5)) + Igor::sqr(y - CY) <= Igor::sqr(R0) ||
+                                  Igor::sqr(x - (CX + 0.5)) + Igor::sqr(y - CY) <= Igor::sqr(R0));
+
+      // Two bubbles above each other
+      case 2:
+        return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0) ||
+                                  Igor::sqr(x - CX) + Igor::sqr(y - (CY + 0.75)) <= Igor::sqr(R0));
+
+      default: Igor::Panic("Unreachable: Invalid vof0_config = {}", vof0_config);
+    }
+    std::unreachable();
+  };
+
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
     vof.vf(i, j) = quadrature(vof0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
@@ -198,7 +235,7 @@ auto main() -> int {
   apply_velocity_bconds(fs, bconds);
 
   calc_rho_and_visc(vof.vf, fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::TOP);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);

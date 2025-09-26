@@ -32,7 +32,7 @@ else ifeq (${BASENAME_CXX}, nvc++)
 
 	CXX_FLAGS = -Wall -Wextra -pedantic -Wshadow -std=c++23
 	CXX_RELEASE_FLAGS = -O3 -fastsse -Mvect=simd:256,noassoc
-	CXX_FAST_FLAGS = -O3 -Mipa -fastsse -Mvect=simd:256
+	CXX_FAST_FLAGS = -O3 -fast -fastsse -Mvect=simd:256
 	CXX_DEBUG_FLAGS = -O0 -g
 	CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
 	CXX_OPENMP_FLAGS = -stdpar -Minfo=accel,par,stdpar -DFS_STDPAR -DIGOR_USE_CASSERT

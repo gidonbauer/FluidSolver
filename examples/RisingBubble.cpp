@@ -28,20 +28,22 @@ using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 256;
-constexpr Index NY              = 256;
+constexpr Index NX              = 64;
+constexpr Index NY              = 4 * 64;
 constexpr Index NGHOST          = 1;
 
-constexpr Float X_MIN           = -2.0;
-constexpr Float X_MAX           = 2.0;
+constexpr Float SCALE           = 2.0;  // 0.5;
+constexpr Float X_MIN           = -0.5 * SCALE;
+constexpr Float X_MAX           = 0.5 * SCALE;
 constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 4.0;
+constexpr Float Y_MAX           = 4.0 * SCALE;
 
 constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-3;
 constexpr Float CFL_MAX         = 0.25;
 constexpr Float DT_WRITE        = 1e-2;
 
+constexpr Float V_IN            = 0.0;
 constexpr Float GRAVITY         = -1.0;
 
 constexpr Float VISC_G          = 1e-3;  // 1e-6;
@@ -51,19 +53,29 @@ constexpr Float RHO_L           = 1e-3;  // 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 0.0;
-constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.25;
+constexpr Float CY              = 0.25 * SCALE;
+constexpr Float R0              = 0.125 * SCALE;
 
 constexpr int PRESSURE_MAX_ITER = 100;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
 
+// Weber number
+constexpr Float We = RHO_G * Igor::sqr(V_IN) * 2.0 * R0 / SURFACE_TENSION;
+// Eötvös number
+constexpr Float Eo = (RHO_G - RHO_L) * Igor::abs(GRAVITY) * Igor::sqr(2.0 * R0) / SURFACE_TENSION;
+// Morton number
+constexpr Float Mo = Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * (RHO_G - RHO_L) /
+                     (Igor::sqr(RHO_G) * Igor::sqr(SURFACE_TENSION) * SURFACE_TENSION);
+// See: Mechanism study of bubble dynamics under the buoyancy effects, Huang
+constexpr Float Bu = (RHO_G - RHO_L) / RHO_G;
+
 constexpr FlowBConds<Float> bconds{
     //        LEFT            RIGHT           BOTTOM            TOP
     .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::NEUMANN},
     .U     = {0.0, 0.0, 0.0, 0.0},
-    .V     = {0.0, 0.0, 0.0, 0.0},
+    .V     = {0.0, 0.0, V_IN, 0.0},
 };
 
 constexpr auto OUTPUT_DIR = "output/RisingBubble/";
@@ -86,7 +98,45 @@ void calc_vof_stats(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
+void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
+                         Float& inflow,
+                         Float& outflow,
+                         Float& mass_error) {
+  inflow  = 0.0;
+  outflow = 0.0;
+  for_each_a(fs.xm, [&](Index i) {
+    inflow  += fs.curr.rho_v_stag(i, -NGHOST) * fs.curr.V(i, -NGHOST);
+    outflow += fs.curr.rho_v_stag(i, NY + NGHOST) * fs.curr.V(i, NY + NGHOST);
+  });
+  mass_error = outflow - inflow;
+}
+
+// -------------------------------------------------------------------------------------------------
+auto calc_center_of_mass(Float dx,
+                         Float dy,
+                         const Vector<Float, NX, NGHOST>& xm,
+                         const Vector<Float, NY, NGHOST>& ym,
+                         const Matrix<Float, NX, NY, NGHOST>& vf) -> std::array<Float, 2> {
+  const auto vol   = integrate(dx, dy, vf);
+
+  Float weighted_x = 0.0;
+  Float weighted_y = 0.0;
+  for_each_i(vf, [&](Index i, Index j) {
+    weighted_x += xm(i) * vf(i, j);
+    weighted_y += ym(j) * vf(i, j);
+  });
+  weighted_x *= dx * dy;
+  weighted_y *= dx * dy;
+
+  return {weighted_x / vol, weighted_y / vol};
+}
+// -------------------------------------------------------------------------------------------------
 auto main(int argc, char** argv) -> int {
+  Igor::Info("We = {:.6e}", We);
+  Igor::Info("Eo = {:.6e}", Eo);
+  Igor::Info("Mo = {:.6e}", Mo);
+  Igor::Info("Bu = {:.6e}", Bu);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
@@ -140,6 +190,9 @@ auto main(int argc, char** argv) -> int {
   // Float p_max         = 0.0;
   Float p_res  = 0.0;
   Index p_iter = 0;
+
+  Float com_x  = 0.0;
+  Float com_y  = 0.0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -178,6 +231,14 @@ auto main(int argc, char** argv) -> int {
   // monitor.add_variable(&mass, "mass");
   // monitor.add_variable(&mom_x, "momentum (x)");
   // monitor.add_variable(&mom_y, "momentum (y)");
+
+  // monitor.add_variable(&We, "We");
+  // monitor.add_variable(&Eo, "Eo");
+  // monitor.add_variable(&Mo, "Mo");
+  // monitor.add_variable(&Bu, "Bu");
+
+  // monitor.add_variable(&com_x, "com_x");
+  monitor.add_variable(&com_y, "com_y");
   // = Output ======================================================================================
 
   // = Initialize VOF field ========================================================================
@@ -208,13 +269,15 @@ auto main(int argc, char** argv) -> int {
 
       // Two bubbles side by side
       case 1:
-        return static_cast<Float>(Igor::sqr(x - (CX - 0.5)) + Igor::sqr(y - CY) <= Igor::sqr(R0) ||
-                                  Igor::sqr(x - (CX + 0.5)) + Igor::sqr(y - CY) <= Igor::sqr(R0));
+        return static_cast<Float>(
+            Igor::sqr(x - (CX - 2.0 * R0)) + Igor::sqr(y - CY) <= Igor::sqr(R0) ||
+            Igor::sqr(x - (CX + 2.0 * R0)) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 
       // Two bubbles above each other
       case 2:
         return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0) ||
-                                  Igor::sqr(x - CX) + Igor::sqr(y - (CY + 0.75)) <= Igor::sqr(R0));
+                                  Igor::sqr(x - CX) + Igor::sqr(y - (CY + 3.0 * R0)) <=
+                                      Igor::sqr(R0));
 
       default: Igor::Panic("Unreachable: Invalid vof0_config = {}", vof0_config);
     }
@@ -250,6 +313,7 @@ auto main(int argc, char** argv) -> int {
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
+  std::tie(com_x, com_y) = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -304,6 +368,16 @@ auto main(int argc, char** argv) -> int {
       });
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
+
+      // Correct the outflow
+      Float inflow     = 0.0;
+      Float outflow    = 0.0;
+      Float mass_error = 0.0;
+      calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+        fs.curr.V(i, NY + NGHOST) -=
+            mass_error / (fs.curr.rho_v_stag(i, NY + NGHOST) * static_cast<Float>(NX + 2 * NGHOST));
+      });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
@@ -367,6 +441,7 @@ auto main(int argc, char** argv) -> int {
     // p_max = max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
+    std::tie(com_x, com_y) = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }

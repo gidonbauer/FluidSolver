@@ -17,8 +17,8 @@ template <size_t N = 16UZ, typename FUNC, typename Float>
   static_assert(gauss_points.size() == gauss_weights.size(),
                 "Weights and points must have the same size.");
   static_assert(gauss_points.size() == N, "Number of weights and points must be equal to N.");
-  static_assert(Igor::constexpr_abs(std::reduce(gauss_weights.cbegin(), gauss_weights.cend()) -
-                                    static_cast<Float>(2)) <= 1e-15,
+  static_assert(Igor::abs(std::reduce(gauss_weights.cbegin(), gauss_weights.cend()) -
+                          static_cast<Float>(2)) <= 1e-15,
                 "Weights must add up to 2.");
 
   auto integral = static_cast<Float>(0);
@@ -43,8 +43,8 @@ quadrature(FUNC f, Float x_min, Float x_max, Float y_min, Float y_max) noexcept 
   static_assert(gauss_points.size() == gauss_weights.size(),
                 "Weights and points must have the same size.");
   static_assert(gauss_points.size() == N, "Number of weights and points must be equal to N.");
-  static_assert(Igor::constexpr_abs(std::reduce(gauss_weights.cbegin(), gauss_weights.cend()) -
-                                    static_cast<Float>(2)) <= 1e-15,
+  static_assert(Igor::abs(std::reduce(gauss_weights.cbegin(), gauss_weights.cend()) -
+                          static_cast<Float>(2)) <= 1e-15,
                 "Weights must add up to 2.");
 
   auto integral = static_cast<Float>(0);

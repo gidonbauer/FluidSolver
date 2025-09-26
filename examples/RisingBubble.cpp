@@ -191,7 +191,7 @@ auto main(int argc, char** argv) -> int {
   Float p_res  = 0.0;
   Index p_iter = 0;
 
-  Float com_x  = 0.0;
+  [[maybe_unused]] Float com_x  = 0.0;
   Float com_y  = 0.0;
   // = Allocate memory =============================================================================
 
@@ -313,7 +313,9 @@ auto main(int argc, char** argv) -> int {
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
-  std::tie(com_x, com_y) = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
+  auto com = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf); 
+  com_x = com[0];
+  com_y = com[1];
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -441,7 +443,9 @@ auto main(int argc, char** argv) -> int {
     // p_max = max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
-    std::tie(com_x, com_y) = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
+    com = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf); 
+    com_x = com[0];
+    com_y = com[1];
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }

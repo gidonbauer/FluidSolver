@@ -32,7 +32,7 @@ constexpr Index NX              = 64;
 constexpr Index NY              = 4 * 64;
 constexpr Index NGHOST          = 1;
 
-constexpr Float SCALE           = 2.0;  // 0.5;
+constexpr Float SCALE           = 0.5;
 constexpr Float X_MIN           = -0.5 * SCALE;
 constexpr Float X_MAX           = 0.5 * SCALE;
 constexpr Float Y_MIN           = 0.0;
@@ -188,11 +188,11 @@ auto main(int argc, char** argv) -> int {
   Float vof_vol_error = 0.0;
 
   // Float p_max         = 0.0;
-  Float p_res  = 0.0;
-  Index p_iter = 0;
+  Float p_res                  = 0.0;
+  Index p_iter                 = 0;
 
-  [[maybe_unused]] Float com_x  = 0.0;
-  Float com_y  = 0.0;
+  [[maybe_unused]] Float com_x = 0.0;
+  Float com_y                  = 0.0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -313,9 +313,9 @@ auto main(int argc, char** argv) -> int {
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
-  auto com = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf); 
-  com_x = com[0];
-  com_y = com[1];
+  auto com = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
+  com_x    = com[0];
+  com_y    = com[1];
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -443,7 +443,7 @@ auto main(int argc, char** argv) -> int {
     // p_max = max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
-    com = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf); 
+    com   = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
     com_x = com[0];
     com_y = com[1];
     if (should_save(t, dt, DT_WRITE, T_END)) {

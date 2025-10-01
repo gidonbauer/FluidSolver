@@ -117,7 +117,8 @@ auto main() -> int {
   FS<Float, NX, NY, NGHOST> fs{
       .visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
-  calc_rho_and_visc(fs);
+  calc_rho(fs);
+  calc_visc(fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
 
   Matrix<Float, NX, NY, NGHOST> Ui{};

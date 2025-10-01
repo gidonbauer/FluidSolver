@@ -203,7 +203,8 @@ auto main() -> int {
   });
   apply_velocity_bconds(fs, bconds);
 
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(vof.vf, fs);
+  calc_visc(vof.vf, fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   interpolate_U(fs.curr.U, Ui);
@@ -233,12 +234,13 @@ auto main() -> int {
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);
     // TODO: Calculate viscosity from new VOF field
-    calc_rho_and_visc(vof.vf_old, fs);
+    calc_rho(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
+    calc_visc(vof.vf, fs);
 
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {

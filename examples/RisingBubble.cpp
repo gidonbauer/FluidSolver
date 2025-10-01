@@ -32,7 +32,7 @@ constexpr Index NX              = 64;
 constexpr Index NY              = 4 * 64;
 constexpr Index NGHOST          = 1;
 
-constexpr Float SCALE           = 0.5;
+constexpr Float SCALE           = 2.0;
 constexpr Float X_MIN           = -0.5 * SCALE;
 constexpr Float X_MAX           = 0.5 * SCALE;
 constexpr Float Y_MIN           = 0.0;
@@ -46,10 +46,10 @@ constexpr Float DT_WRITE        = 1e-2;
 constexpr Float V_IN            = 0.0;
 constexpr Float GRAVITY         = -1.0;
 
-constexpr Float VISC_G          = 1e-3;  // 1e-6;
-constexpr Float RHO_G           = 1.0;   // 1.0;
-constexpr Float VISC_L          = 1e-6;  // 1e-3;
-constexpr Float RHO_L           = 1e-3;  // 1e3;
+constexpr Float VISC_G          = 1e-4;
+constexpr Float RHO_G           = 8e-2;
+constexpr Float VISC_L          = 1e-7;
+constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 0.0;
@@ -141,10 +141,10 @@ auto main(int argc, char** argv) -> int {
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
-  FS<Float, NX, NY, NGHOST> fs{.visc_gas    = VISC_G,
-                               .visc_liquid = VISC_L,
-                               .rho_gas     = RHO_G,
-                               .rho_liquid  = RHO_L,
+  FS<Float, NX, NY, NGHOST> fs{.visc_gas    = VISC_L,
+                               .visc_liquid = VISC_G,
+                               .rho_gas     = RHO_L,
+                               .rho_liquid  = RHO_G,
                                .sigma       = SURFACE_TENSION};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
@@ -297,7 +297,8 @@ auto main(int argc, char** argv) -> int {
   for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(vof.vf, fs);
+  calc_visc(vof.vf, fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
 
   interpolate_U(fs.curr.U, Ui);
@@ -333,10 +334,11 @@ auto main(int argc, char** argv) -> int {
     reconstruct_interface(fs, vof.vf_old, vof.ir);
     // calc_surface_length(fs, ir, interface_length);
     // TODO: Calculate viscosity from new VOF field
-    calc_rho_and_visc(vof.vf_old, fs);
+    calc_rho(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
     advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
+    calc_visc(vof.vf, fs);
 
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {

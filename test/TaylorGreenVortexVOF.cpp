@@ -151,7 +151,8 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(fs);
+  calc_visc(fs);
   Float max_div = abs_max(div);
 
   if (!data_writer.write(0.0)) { return 1; }

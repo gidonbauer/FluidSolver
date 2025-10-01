@@ -74,7 +74,8 @@ auto main() -> int {
       vf(i, j) = quadrature(vf0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
     });
   }
-  calc_rho_and_visc(vf, fs);
+  calc_rho(vf, fs);
+  calc_visc(vf, fs);
 
   for_each_a<Exec::Parallel>(
       fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = u_analytical(fs.ym(j), fs.dy, DPDX); });

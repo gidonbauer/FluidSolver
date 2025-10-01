@@ -118,7 +118,8 @@ auto main() -> int {
   //     &fs.x,
   //     &fs.y);
   VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  calc_rho_and_visc(fs);
+  calc_rho(fs);
+  calc_visc(fs);
 
   data_writer.add_scalar("pressure", &fs.p);
   data_writer.add_scalar("divergence", &div);

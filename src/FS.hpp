@@ -9,6 +9,7 @@
 #include "BoundaryConditions.hpp"
 #include "Container.hpp"
 #include "ForEach.hpp"
+#include "IR.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
@@ -433,27 +434,33 @@ void calc_pressure_jump(const Matrix<Float, NX, NY, NGHOST>& vf,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void calc_rho_and_visc(FS<Float, NX, NY, NGHOST>& fs) noexcept {
+constexpr void calc_rho(FS<Float, NX, NY, NGHOST>& fs) noexcept {
   IGOR_ASSERT(std::abs(fs.rho_gas - fs.rho_liquid) < 1e-12,
               "Expected constant density but rho_gas = {:.6e} and rho_liquid = {:.6e}",
               fs.rho_gas,
               fs.rho_liquid);
-  IGOR_ASSERT(std::abs(fs.visc_gas - fs.visc_liquid) < 1e-12,
-              "Expected constant viscosity but visc_gas = {:.6e} and visc_liquid = {:.6e}",
-              fs.visc_gas,
-              fs.visc_liquid);
 
   fill(fs.old.rho_u_stag, fs.rho_gas);
   fill(fs.old.rho_v_stag, fs.rho_gas);
   fill(fs.curr.rho_u_stag, fs.rho_gas);
   fill(fs.curr.rho_v_stag, fs.rho_gas);
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+constexpr void calc_visc(FS<Float, NX, NY, NGHOST>& fs) noexcept {
+  IGOR_ASSERT(std::abs(fs.visc_gas - fs.visc_liquid) < 1e-12,
+              "Expected constant viscosity but visc_gas = {:.6e} and visc_liquid = {:.6e}",
+              fs.visc_gas,
+              fs.visc_liquid);
+
   fill(fs.visc, fs.visc_gas);
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY, NGHOST>& vf,
-                                 FS<Float, NX, NY, NGHOST>& fs) noexcept {
+constexpr void calc_rho(const Matrix<Float, NX, NY, NGHOST>& vf,
+                        FS<Float, NX, NY, NGHOST>& fs) noexcept {
   // = Density on U-staggered mesh =================================================================
   for_each_i<Exec::Parallel>(fs.curr.rho_u_stag, [&](Index i, Index j) {
     const auto rho_minus     = vf(i - 1, j) * fs.rho_liquid + (1.0 - vf(i - 1, j)) * fs.rho_gas;
@@ -469,11 +476,43 @@ constexpr void calc_rho_and_visc(const Matrix<Float, NX, NY, NGHOST>& vf,
     fs.curr.rho_v_stag(i, j) = (rho_minus + rho_plus) / 2.0;
   });
   apply_neumann_bconds(fs.curr.rho_v_stag);
+}
 
-  // = Viscosity on centered mesh ==================================================================
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+constexpr void calc_visc(const Matrix<Float, NX, NY, NGHOST>& vf,
+                         FS<Float, NX, NY, NGHOST>& fs) noexcept {
+#ifdef FS_ARITHMETIC_VISC
+  // = Arithmetic viscosity on centered mesh =======================================================
   for_each_i<Exec::Parallel>(fs.visc, [&](Index i, Index j) {
     fs.visc(i, j) = vf(i, j) * fs.visc_liquid + (1.0 - vf(i, j)) * fs.visc_gas;
   });
+#else
+  // = Harmonic viscosity on centered mesh =========================================================
+  for_each_i<Exec::Parallel>(fs.visc, [&](Index i, Index j) {
+    if (vf(i, j) < VF_LOW) {
+      fs.visc(i, j) = fs.visc_gas;
+    } else if (vf(i, j) > VF_HIGH) {
+      fs.visc(i, j) = fs.visc_liquid;
+    } else {
+      const auto vol_gas    = 1.0 - vf(i, j);
+      const auto vol_liquid = vf(i, j);
+      fs.visc(i, j) =
+          (fs.visc_liquid * fs.visc_gas) / (fs.visc_liquid * vol_gas + fs.visc_gas * vol_liquid);
+    }
+
+    // constexpr Float eps = 1e-8;
+    // const auto l        = vf(i, j) * fs.visc_liquid;
+    // const auto g        = (1.0 - vf(i, j)) * fs.visc_gas;
+    // if (std::abs(l) < eps) {
+    //   fs.visc(i, j) = g;
+    // } else if (std::abs(g) < eps) {
+    //   fs.visc(i, j) = l;
+    // } else {
+    //   fs.visc(i, j) = 1.0 / (1.0 / l + 1.0 / g);
+    // }
+  });
+#endif
   apply_neumann_bconds(fs.visc);
 }
 

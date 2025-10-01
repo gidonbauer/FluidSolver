@@ -37,7 +37,7 @@ constexpr Float DT_MAX          = 1e-1;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-1;
 
-constexpr Float VISC_G          = 1e-3;  // 1e-0;
+constexpr Float VISC_G          = 1e-0;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
@@ -216,7 +216,8 @@ auto main() -> int {
   reconstruct_interface(fs, vof.vf, vof.ir);
   // = Initialize VOF field ========================================================================
 
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(vof.vf, fs);
+  calc_visc(vof.vf, fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   interpolate_U(fs.curr.U, Ui);
@@ -250,12 +251,13 @@ auto main() -> int {
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);
     // TODO: Calculate viscosity from new VOF field
-    calc_rho_and_visc(vof.vf_old, fs);
+    calc_rho(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
     advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
+    calc_visc(vof.vf, fs);
     apply_neumann_bconds(vof.vf);
 #if 0
     IGOR_ASSERT(check_vf_ghost(fs, vof.vf), "Error in vf at time t={:.6e}", t);

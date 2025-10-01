@@ -205,7 +205,8 @@ auto main() -> int {
   for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(vof.vf, fs);
+  calc_visc(vof.vf, fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   interpolate_U(fs.curr.U, Ui);
@@ -238,11 +239,12 @@ auto main() -> int {
     reconstruct_interface(fs, vof.vf_old, vof.ir);
     // calc_surface_length(fs, ir, interface_length);
     // TODO: Calculate viscosity from new VOF field
-    calc_rho_and_visc(vof.vf_old, fs);
+    calc_rho(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
     advect_cells(fs, Ui, Vi, dt, vof, &vf_vol_error);
     apply_neumann_bconds(vof.vf);
+    calc_visc(vof.vf, fs);
 
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {

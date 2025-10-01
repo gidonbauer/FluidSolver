@@ -5,6 +5,7 @@
 
 // #define FS_HYPRE_VERBOSE
 #define FS_SILENCE_CONV_WARN
+// #define FS_ARITHMETIC_VISC
 
 #include "Curvature.hpp"
 #include "FS.hpp"
@@ -26,28 +27,28 @@ using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
 #endif  // USE_VTK
 
 // = Config ========================================================================================
-using Float              = double;
+using Float                     = double;
 
-constexpr Index NX       = 5 * 256;
-constexpr Index NY       = 256;
-constexpr Index NGHOST   = 1;
+constexpr Index NX              = 5 * 128;
+constexpr Index NY              = 128;
+constexpr Index NGHOST          = 1;
 
-constexpr Float X_MIN    = 0.0;
-constexpr Float X_MAX    = 5.0;
-constexpr Float Y_MIN    = 0.0;
-constexpr Float Y_MAX    = 1.0;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 5.0;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END    = 5.0;
-constexpr Float DT_MAX   = 1e-2;
-constexpr Float CFL_MAX  = 0.9;
-constexpr Float DT_WRITE = 5e-2;
+constexpr Float T_END           = 5.0;
+constexpr Float DT_MAX          = 1e-3;
+constexpr Float CFL_MAX         = 0.9;
+constexpr Float DT_WRITE        = 5e-2;
 
-constexpr Float U_BCOND  = 0.25;  // 1.0;
-// constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-6;
+constexpr Float U_BCOND         = 1.0;
+constexpr Float U_0             = 0.0;
 constexpr Float RHO_G           = 1.0;
-constexpr Float VISC_L          = 1e-3;
+constexpr Float VISC_G          = 1e-6;  // * RHO_G;  // Dynamic viscosity?
 constexpr Float RHO_L           = 1e3;
+constexpr Float VISC_L          = 1e-3;  // * RHO_L;  // Dynamic viscosity?
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 1.0;
@@ -57,27 +58,32 @@ constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
 
-constexpr Float WEBER_NUMBER    = RHO_L * Igor::sqr(U_BCOND) * 2.0 * R0 / SURFACE_TENSION;
-
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
 
-// Channel flow
-// constexpr FlowBConds<Float> bconds{
-//     //        LEFT              RIGHT           BOTTOM            TOP
-//     .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-//     .U     = {U_BCOND, 0.0, 0.0, 0.0},
-//     .V     = {0.0, 0.0, 0.0, 0.0},
-// };
+// Weber number
+constexpr Float We = RHO_L * Igor::sqr(U_BCOND) * 2.0 * R0 / SURFACE_TENSION;
+// Liquid Reynolds number
+constexpr Float Re_L = RHO_L * U_BCOND * (Y_MAX - Y_MIN) / VISC_L;
+// Gas Reynolds number
+constexpr Float Re_G = RHO_G * U_BCOND * (Y_MAX - Y_MIN) / VISC_G;
 
+// Channel flow
 constexpr FlowBConds<Float> bconds{
-    //        LEFT            RIGHT           BOTTOM            TOP
-    .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {0.0, 0.0, 0.0, 0.0},
+    //        LEFT              RIGHT           BOTTOM            TOP
+    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+    .U     = {U_BCOND, 0.0, 0.0, 0.0},
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
+
+// constexpr FlowBConds<Float> bconds{
+//     //        LEFT            RIGHT           BOTTOM            TOP
+//     .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+//     .U     = {0.0, 0.0, 0.0, 0.0},
+//     .V     = {0.0, 0.0, 0.0, 0.0},
+// };
 
 constexpr auto OUTPUT_DIR = "output/TwoPhaseSolver/";
 // = Config ========================================================================================
@@ -117,7 +123,12 @@ auto main() -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
-  Igor::Info("Weber number = {:.6e}", WEBER_NUMBER);
+  Igor::Info("Weber number             = {:.6e}", We);
+  Igor::Info("Reynolds number (liquid) = {:.6e}", Re_L);
+  Igor::Info("Reynolds number (gas)    = {:.6e}", Re_G);
+
+  Igor::Debug("VISC_G = {:.6e}", VISC_G);
+  Igor::Debug("VISC_L = {:.6e}", VISC_L);
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{.visc_gas    = VISC_G,
@@ -157,8 +168,10 @@ auto main() -> int {
   Float div_max = 0.0;
   // Float div_L1        = 0.0;
 
-  Float curv_min      = 0.0;
-  Float curv_max      = 0.0;
+  // Float curv_min      = 0.0;
+  // Float curv_max      = 0.0;
+  Float visc_min      = 0.0;
+  Float visc_max      = 0.0;
 
   Float vof_min       = 0.0;
   Float vof_max       = 0.0;
@@ -195,8 +208,11 @@ auto main() -> int {
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
-  monitor.add_variable(&curv_min, "min(curv)");
-  monitor.add_variable(&curv_max, "max(curv)");
+  // monitor.add_variable(&curv_min, "min(curv)");
+  // monitor.add_variable(&curv_max, "max(curv)");
+
+  monitor.add_variable(&visc_min, "min(visc)");
+  monitor.add_variable(&visc_max, "max(visc)");
 
   monitor.add_variable(&vof_min, "min(vof)");
   monitor.add_variable(&vof_max, "max(vof)");
@@ -219,25 +235,28 @@ auto main() -> int {
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
-  // for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-    fs.curr.U(i, j) = U_BCOND * (vof.vf(i - 1, j) + vof.vf(i, j)) / 2.0;
-  });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  // for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+  //   fs.curr.U(i, j) = U_BCOND * (vof.vf(i - 1, j) + vof.vf(i, j)) / 2.0;
+  // });
   for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(vof.vf, fs);
+  calc_visc(vof.vf, fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  U_max    = abs_max(fs.curr.U);
-  V_max    = abs_max(fs.curr.V);
-  div_max  = abs_max(div);
-  curv_min = min(vof.curv);
-  curv_max = max(vof.curv);
+  U_max   = abs_max(fs.curr.U);
+  V_max   = abs_max(fs.curr.V);
+  div_max = abs_max(div);
+  // curv_min = min(vof.curv);
+  // curv_max = max(vof.curv);
+  visc_min = min(fs.visc);
+  visc_max = max(fs.visc);
   // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
@@ -259,10 +278,11 @@ auto main() -> int {
     reconstruct_interface(fs, vof.vf_old, vof.ir);
     // calc_surface_length(fs, ir, interface_length);
     // TODO: Calculate viscosity from new VOF field
-    calc_rho_and_visc(vof.vf_old, fs);
+    calc_rho(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
     advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
+    calc_visc(vof.vf, fs);
 
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
@@ -356,11 +376,13 @@ auto main() -> int {
     interpolate_V(fs.curr.V, Vi);
     interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-    U_max    = max(fs.curr.U);
-    V_max    = max(fs.curr.V);
-    div_max  = max(div);
-    curv_min = min(vof.curv);
-    curv_max = max(vof.curv);
+    U_max   = max(fs.curr.U);
+    V_max   = max(fs.curr.V);
+    div_max = max(div);
+    // curv_min = min(vof.curv);
+    // curv_max = max(vof.curv);
+    visc_min = min(fs.visc);
+    visc_max = max(fs.visc);
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     // p_max = max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);

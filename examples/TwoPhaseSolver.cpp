@@ -16,7 +16,7 @@
 #include "Quadrature.hpp"
 #include "VOF.hpp"
 
-#ifdef USE_VTK
+#if defined(USE_VTK) || defined(FS_DISABLE_HDF)
 #include "VTKWriter.hpp"
 template <typename Float, Index NX, Index NY, Index NGHOST>
 using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;

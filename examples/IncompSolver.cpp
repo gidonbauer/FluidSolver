@@ -2,7 +2,6 @@
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
-#include <Igor/ProgressBar.hpp>
 #include <Igor/Timer.hpp>
 #include <Igor/TypeName.hpp>
 
@@ -21,8 +20,8 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 640 * 10;
-constexpr Index NY              = 640;
+constexpr Index NX              = 128 * 10;
+constexpr Index NY              = 128;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
@@ -158,7 +157,6 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
-  Igor::ProgressBar<Float> pbar(T_END, 67);
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
@@ -219,9 +217,7 @@ auto main() -> int {
       if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
-    pbar.update(dt);
   }
-  std::cout << '\n';
 
   Igor::Info("Solver finish successfully.");
 }

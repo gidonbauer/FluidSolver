@@ -4,7 +4,8 @@
 #include <Igor/Timer.hpp>
 
 // #define FS_HYPRE_VERBOSE
-#define FS_SILENCE_CONV_WARN
+// #define FS_SILENCE_CONV_WARN
+// #define FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
 
 #include "Curvature.hpp"
 #include "FS.hpp"
@@ -28,15 +29,15 @@ using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 64;
-constexpr Index NY              = 4 * 64;
+constexpr Index NX              = 256;
+constexpr Index NY              = 256;
 constexpr Index NGHOST          = 1;
 
 constexpr Float SCALE           = 0.25;
-constexpr Float X_MIN           = -0.5 * SCALE;
-constexpr Float X_MAX           = 0.5 * SCALE;
+constexpr Float X_MIN           = -1.0 * SCALE;
+constexpr Float X_MAX           = 1.0 * SCALE;
 constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 4.0 * SCALE;
+constexpr Float Y_MAX           = 2.0 * SCALE;
 
 constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-3;

@@ -88,6 +88,12 @@ class PS {
  private:
   // -----------------------------------------------------------------------------------------------
   constexpr void destroy() noexcept {
+    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
+      static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};
+      HYPRE_DescribeError(ierr, buffer.data());
+      Igor::Panic("A HYPRE error has occured before calling destroy: {}", buffer.data());
+    }
+
     switch (m_precond_type) {
       case PSPrecond::SMG:  HYPRE_StructSMGDestroy(m_precond); break;
       case PSPrecond::PFMG: HYPRE_StructPFMGDestroy(m_precond); break;
@@ -112,6 +118,12 @@ class PS {
  public:
   // -----------------------------------------------------------------------------------------------
   void setup(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
+    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
+      static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};
+      HYPRE_DescribeError(ierr, buffer.data());
+      Igor::Panic("A HYPRE error has occured before calling setup: {}", buffer.data());
+    }
+
     if (m_is_setup) { destroy(); }
 
     // = Create structured grid ====================================================================
@@ -296,6 +308,13 @@ class PS {
  private:
   // -----------------------------------------------------------------------------------------------
   void setup_system_matrix(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
+    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
+      static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};
+      HYPRE_DescribeError(ierr, buffer.data());
+      Igor::Panic("A HYPRE error has occured before calling setup_system_matrix: {}",
+                  buffer.data());
+    }
+
     static Matrix<std::array<Float, STENCIL_SIZE>, NX, NY, NGHOST, Layout::F> stencil_values{};
     enum : size_t { S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP };
     std::array<HYPRE_Int, STENCIL_SIZE> stencil_indices{S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP};
@@ -418,6 +437,12 @@ class PS {
              Matrix<Float, NX, NY, NGHOST>& resP,
              Float* pressure_residual = nullptr,
              Index* num_iter          = nullptr) -> bool {
+    static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};
+    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
+      HYPRE_DescribeError(ierr, buffer.data());
+      Igor::Panic("A HYPRE error has occured before calling solve: {}", buffer.data());
+    }
+
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
 
     int prev_num_threads = -1;
@@ -428,7 +453,6 @@ class PS {
       omp_set_num_threads(1);
     }
 
-    static std::array<char, 1024UZ> buffer{};
     bool res       = true;
 
     const auto vol = fs.dx * fs.dy;
@@ -467,6 +491,7 @@ class PS {
                                    [&](Index i, Index j) { rhs_values(i, j) -= mean_rhs; });
         break;
     }
+    IGOR_ASSERT(!has_nan_or_inf(rhs_values), "NaN or inf in rhs_values");
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Solve the system ==========================================================================
@@ -527,7 +552,13 @@ class PS {
         res = false;
       } else {
         HYPRE_DescribeError(error_flag, buffer.data());
+#if 1
         Igor::Panic("An error occured in HYPRE: {}", buffer.data());
+#else
+        IGOR_DEBUG_PRINT(error_flag);
+        Igor::Warn("An error occured in HYPRE: {}", buffer.data());
+        HYPRE_ClearAllErrors();
+#endif
       }
     }
 

@@ -240,6 +240,10 @@ void calc_curvature_quad_volume_matching(const FS<Float, NX, NY, NGHOST>& fs,
           }
         }
       }
+      if (interfaces.size() == 1) {
+        vof.curv(i, j) = 0.0;
+        return;
+      }
 
       rotate_interfaces(interfaces);
       // IGOR_ASSERT(std::abs(interfaces[0].normal[X]) < 1e-10 &&
@@ -250,7 +254,10 @@ void calc_curvature_quad_volume_matching(const FS<Float, NX, NY, NGHOST>& fs,
       //             interfaces[0].normal[Y]);
 
       sort_begin_end(interfaces);
-      vof.curv(i, j) = detail::calc_curv_quad_volume_matching_impl(interfaces);
+      const auto curv = detail::calc_curv_quad_volume_matching_impl(interfaces);
+      IGOR_ASSERT(
+          !(std::isnan(curv) || std::isinf(curv)), "Calculated curvature is NaN or inf: {}", curv);
+      vof.curv(i, j) = curv;
     } else {
       vof.curv(i, j) = 0.0;
     }

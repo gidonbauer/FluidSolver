@@ -1,6 +1,7 @@
 #ifndef FLUID_SOLVER_CONTAINER_HPP_
 #define FLUID_SOLVER_CONTAINER_HPP_
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <memory>
@@ -259,6 +260,27 @@ constexpr void fill(CT& c, Float value) noexcept {
 template <typename CT>
 constexpr void copy(const CT& src, CT& dst) noexcept {
   std::copy_n(src.get_data(), src.size(), dst.get_data());
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename CT, typename Pred>
+constexpr auto any(const CT& c, Pred&& pred) noexcept -> bool {
+  return std::any_of(c.get_data(), c.get_data() + c.size(), std::forward<Pred&&>(pred));
+}
+
+template <typename CT>
+constexpr auto has_nan(const CT& c) noexcept -> bool {
+  return any(c, [](auto val) { return std::isnan(val); });
+}
+
+template <typename CT>
+constexpr auto has_inf(const CT& c) noexcept -> bool {
+  return any(c, [](auto val) { return std::isinf(val); });
+}
+
+template <typename CT>
+constexpr auto has_nan_or_inf(const CT& c) noexcept -> bool {
+  return has_nan(c) || has_inf(c);
 }
 
 #endif  // FLUID_SOLVER_CONTAINER_HPP_

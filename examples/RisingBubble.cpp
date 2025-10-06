@@ -32,7 +32,7 @@ constexpr Index NX              = 64;
 constexpr Index NY              = 4 * 64;
 constexpr Index NGHOST          = 1;
 
-constexpr Float SCALE           = 2.0;
+constexpr Float SCALE           = 0.25;
 constexpr Float X_MIN           = -0.5 * SCALE;
 constexpr Float X_MAX           = 0.5 * SCALE;
 constexpr Float Y_MIN           = 0.0;
@@ -44,12 +44,12 @@ constexpr Float CFL_MAX         = 0.25;
 constexpr Float DT_WRITE        = 1e-2;
 
 constexpr Float V_IN            = 0.0;
-constexpr Float GRAVITY         = -1.0;
+constexpr Float GRAVITY         = -1e-1;
 
-constexpr Float VISC_G          = 1e-4;
-constexpr Float RHO_G           = 8e-2;
-constexpr Float VISC_L          = 1e-7;
-constexpr Float RHO_L           = 1e3;
+constexpr Float VISC_G          = 1e-6;  // 1e-4;
+constexpr Float RHO_G           = 1e0;   // 8e-2;
+constexpr Float VISC_L          = 1e-2;  // 1e-7;
+constexpr Float RHO_L           = 1e3;   // 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 0.0;
@@ -61,15 +61,24 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
 
+// Eötvös number
+constexpr Float Eo = RHO_L * Igor::abs(GRAVITY) * Igor::sqr(R0) / SURFACE_TENSION;
+// constexpr Float Eo = (RHO_L - RHO_G) * Igor::abs(GRAVITY) * Igor::sqr(2.0 * R0) /
+// SURFACE_TENSION;
+// Galilei number
+constexpr Float Ga = Igor::sqrt((RHO_L * Igor::abs(GRAVITY) * R0 * R0 * R0) / Igor::sqr(VISC_L));
+// Density ratio
+constexpr Float Rho_r = RHO_L / RHO_G;
+// Viscosity ratio
+constexpr Float Visc_r = VISC_L / VISC_G;
+
 // Weber number
 constexpr Float We = RHO_G * Igor::sqr(V_IN) * 2.0 * R0 / SURFACE_TENSION;
-// Eötvös number
-constexpr Float Eo = (RHO_G - RHO_L) * Igor::abs(GRAVITY) * Igor::sqr(2.0 * R0) / SURFACE_TENSION;
 // Morton number
-constexpr Float Mo = Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * (RHO_G - RHO_L) /
+constexpr Float Mo = Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * (RHO_L - RHO_G) /
                      (Igor::sqr(RHO_G) * Igor::sqr(SURFACE_TENSION) * SURFACE_TENSION);
 // See: Mechanism study of bubble dynamics under the buoyancy effects, Huang
-constexpr Float Bu = (RHO_G - RHO_L) / RHO_G;
+constexpr Float Bu = (RHO_L - RHO_G) / RHO_G;
 
 constexpr FlowBConds<Float> bconds{
     //        LEFT            RIGHT           BOTTOM            TOP
@@ -132,10 +141,14 @@ auto calc_center_of_mass(Float dx,
 }
 // -------------------------------------------------------------------------------------------------
 auto main(int argc, char** argv) -> int {
-  Igor::Info("We = {:.6e}", We);
   Igor::Info("Eo = {:.6e}", Eo);
+  Igor::Info("Ga = {:.6e}", Ga);
+  Igor::Info("rho ratio  = {:.6e}", Rho_r);
+  Igor::Info("visc ratio = {:.6e}", Visc_r);
+  std::cout << '\n';
   Igor::Info("Mo = {:.6e}", Mo);
   Igor::Info("Bu = {:.6e}", Bu);
+  Igor::Info("We = {:.6e}", We);
 
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }

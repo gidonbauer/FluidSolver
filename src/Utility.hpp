@@ -1,9 +1,18 @@
 #ifndef FLUID_SOLVER_UTILITY_HPP_
 #define FLUID_SOLVER_UTILITY_HPP_
 
+#include <atomic>
+
 #include <Igor/Logging.hpp>
 
 #include "Container.hpp"
+
+// -------------------------------------------------------------------------------------------------
+template <typename T>
+void update_maximum_atomic(std::atomic<T>& maximum_value, T const& value) noexcept {
+  T prev_value = maximum_value;
+  while(prev_value < value && !maximum_value.compare_exchange_weak(prev_value, value)) {}
+}
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index N>

@@ -10,6 +10,7 @@
 #include "IO.hpp"
 #include "IR.hpp"
 #include "Operators.hpp"
+#include "Utility.hpp"
 
 template <typename Float, Index NX, Index NY, Index NGHOST>
 requires(NGHOST > 0)
@@ -317,12 +318,10 @@ void advect_cells(const FS<Float, NX, NY, NGHOST>& fs,
                   Float dt,
                   VOF<Float, NX, NY, NGHOST>& vof,
                   Float* max_volume_error = nullptr) {
-  Float local_max_volume_error = 0.0;
+  std::atomic<Float> local_max_volume_error = 0.0;
   for_each_i<Exec::ParallelDynamic>(vof.vf, [&](Index i, Index j) {
     const auto local_volume_error = advect_single_cell(i, j, fs, Ui, Vi, dt, vof);
-    // TODO: Do something not OpenMP specific here
-    #pragma omp critical
-    { local_max_volume_error = std::max(local_max_volume_error, local_volume_error); }
+    update_maximum_atomic(local_max_volume_error, local_volume_error);
   });
   if (max_volume_error) { *max_volume_error = local_max_volume_error; }
 }

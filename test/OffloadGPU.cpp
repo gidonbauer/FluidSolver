@@ -9,6 +9,7 @@
 
 #include "Container.hpp"
 #include "ForEach.hpp"
+#include "Utility.hpp"
 
 using Float       = double;
 constexpr Index M = 1024;
@@ -19,6 +20,12 @@ constexpr Index N = 1024;
 auto rand_float() -> Float {
   static std::mt19937 rng(std::random_device{}());
   static std::normal_distribution<Float> dist(0.0, 10.0);
+  return dist(rng);
+}
+
+auto rand_index(Index lo, Index hi) -> Index {
+  static std::mt19937 rng(std::random_device{}());
+  std::uniform_int_distribution<Index> dist(lo, hi);
   return dist(rng);
 }
 
@@ -120,6 +127,37 @@ auto dotprod() -> bool {
 }
 
 // -------------------------------------------------------------------------------------------------
+auto max_reduce() -> bool {
+  Matrix<Float, M, N, 0> A{};
+  std::generate_n(A.get_data(), A.size(), rand_float);
+
+  constexpr Float MAX_VALUE = 4.2e12;
+  A(rand_index(0, M), rand_index(0, N)) = MAX_VALUE;
+
+  Float C_ref1 = 0.0;
+  IGOR_TIME_SCOPE("Max-reduce: CPU solution (OpenMP critical)") {
+    for_each_i<Exec::Parallel>(A, [&](Index i, Index j) {
+      #pragma omp critical
+      { C_ref1 = std::max(C_ref1, A(i,j)); }
+    });
+  }
+
+  std::atomic<Float> C_ref2 = 0.0;
+  IGOR_TIME_SCOPE("Max-reduce: CPU solution (C++ atomic)") {
+    for_each_i<Exec::Parallel>(A, [&](Index i, Index j) { update_maximum_atomic(C_ref2, A(i,j)); });
+  }
+
+  std::atomic<Float> C = 0.0;
+  IGOR_TIME_SCOPE("Max-reduce: GPU solution (C++ atomic)") {
+    for_each_i<Exec::ParallelGPU>(A, [&](Index i, Index j) { update_maximum_atomic(C, A(i,j)); });
+  }
+
+  return is_equal(static_cast<Float>(C), static_cast<Float>(C_ref1)) && 
+         is_equal(static_cast<Float>(C), static_cast<Float>(C_ref2)) && 
+         is_equal(static_cast<Float>(C), static_cast<Float>(MAX_VALUE));
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   const auto vecadd_correct = vecadd();
   if (!vecadd_correct) { Igor::Warn("Vector addition failed."); }
@@ -130,5 +168,8 @@ auto main() -> int {
   const auto dotprod_correct = dotprod();
   if (!dotprod_correct) { Igor::Warn("Dot-product failed."); }
 
-  return (vecadd_correct && matmul_correct && dotprod_correct) ? 0 : 1;
+  const auto max_reduce_correct = max_reduce();
+  if (!max_reduce_correct) { Igor::Warn("Max-reduce failed."); }
+
+  return (vecadd_correct && matmul_correct && dotprod_correct && max_reduce_correct) ? 0 : 1;
 }

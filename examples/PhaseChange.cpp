@@ -14,7 +14,15 @@
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
+#if defined(USE_VTK) || defined(FS_DISABLE_HDF)
+#include "VTKWriter.hpp"
+template <typename Float, int NX, int NY, int NGHOST>
+using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
+#else
 #include "XDMFWriter.hpp"
+template <typename Float, int NX, int NY, int NGHOST>
+using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
+#endif  // USE_VTK
 
 // TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
 //       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
@@ -44,7 +52,7 @@ constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
-constexpr auto vof0             = [](Float x, Float _) { return static_cast<Float>(x > 1.0); };
+constexpr auto vof0             = [](Float x, [[maybe_unused]] Float y) { return static_cast<Float>(x > 1.0); };
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -150,11 +158,7 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  XDMFWriter<Float, NX, NY, NGHOST> data_writer(
-      Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
-      Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
-      &fs.x,
-      &fs.y);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   data_writer.add_scalar("density", &rhoi);
   data_writer.add_scalar("viscosity", &fs.visc);
   data_writer.add_scalar("pressure", &fs.p);

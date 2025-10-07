@@ -62,7 +62,7 @@ ifeq (${SANITIZE}, 1)
 endif
 
 ifeq (${SCOREP}, 1)
-  CXX_FLAGS += -g
+  CXX_FLAGS += -g -fno-omit-frame-pointer
   CXX := scorep ${CXX}
 endif
 

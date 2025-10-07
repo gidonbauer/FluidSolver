@@ -131,45 +131,57 @@ auto max_reduce() -> bool {
   Matrix<Float, M, N, 0> A{};
   std::generate_n(A.get_data(), A.size(), rand_float);
 
-  constexpr Float MAX_VALUE = 4.2e12;
+  constexpr Float MAX_VALUE             = 4.2e12;
   A(rand_index(0, M), rand_index(0, N)) = MAX_VALUE;
 
-  Float C_ref1 = 0.0;
+  Float C_ref1                          = 0.0;
   IGOR_TIME_SCOPE("Max-reduce: CPU solution (OpenMP critical)") {
     for_each_i<Exec::Parallel>(A, [&](Index i, Index j) {
-      #pragma omp critical
-      { C_ref1 = std::max(C_ref1, A(i,j)); }
+#pragma omp critical
+      { C_ref1 = std::max(C_ref1, A(i, j)); }
     });
   }
 
   std::atomic<Float> C_ref2 = 0.0;
   IGOR_TIME_SCOPE("Max-reduce: CPU solution (C++ atomic)") {
-    for_each_i<Exec::Parallel>(A, [&](Index i, Index j) { update_maximum_atomic(C_ref2, A(i,j)); });
+    for_each_i<Exec::Parallel>(A,
+                               [&](Index i, Index j) { update_maximum_atomic(C_ref2, A(i, j)); });
   }
 
   std::atomic<Float> C = 0.0;
   IGOR_TIME_SCOPE("Max-reduce: GPU solution (C++ atomic)") {
-    for_each_i<Exec::ParallelGPU>(A, [&](Index i, Index j) { update_maximum_atomic(C, A(i,j)); });
+    for_each_i<Exec::ParallelGPU>(A, [&](Index i, Index j) { update_maximum_atomic(C, A(i, j)); });
   }
 
-  return is_equal(static_cast<Float>(C), static_cast<Float>(C_ref1)) && 
-         is_equal(static_cast<Float>(C), static_cast<Float>(C_ref2)) && 
-         is_equal(static_cast<Float>(C), static_cast<Float>(MAX_VALUE));
+  return is_equal(static_cast<Float>(C), C_ref1) &&
+         is_equal(static_cast<Float>(C), static_cast<Float>(C_ref2)) &&
+         is_equal(static_cast<Float>(C), MAX_VALUE);
 }
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
-  const auto vecadd_correct = vecadd();
-  if (!vecadd_correct) { Igor::Warn("Vector addition failed."); }
+  std::array funcs = {
+      &vecadd,
+      &matmul,
+      &dotprod,
+      &max_reduce,
+  };
+  std::array names = {
+      "Vector addition",
+      "Matrix multiplication",
+      "Dot-product",
+      "Max-reduce",
+  };
+  static_assert(funcs.size() == names.size());
 
-  const auto matmul_correct = matmul();
-  if (!matmul_correct) { Igor::Warn("Matrix multiplication failed."); }
+  bool any_failed = false;
+  for (size_t i = 0; i < funcs.size(); ++i) {
+    const bool correct = funcs[i]();
+    if (!correct) {
+      Igor::Warn("{} failed.", names[i]);
+      any_failed = true;
+    }
+  }
 
-  const auto dotprod_correct = dotprod();
-  if (!dotprod_correct) { Igor::Warn("Dot-product failed."); }
-
-  const auto max_reduce_correct = max_reduce();
-  if (!max_reduce_correct) { Igor::Warn("Max-reduce failed."); }
-
-  return (vecadd_correct && matmul_correct && dotprod_correct && max_reduce_correct) ? 0 : 1;
+  return any_failed ? 1 : 0;
 }

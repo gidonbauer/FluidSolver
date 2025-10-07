@@ -117,6 +117,7 @@ class PS {
 
  public:
   // -----------------------------------------------------------------------------------------------
+  // TODO: This might take a long time to complete; consider doing something more clever here.
   void setup(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
     if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
       static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};

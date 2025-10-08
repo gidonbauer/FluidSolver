@@ -37,7 +37,7 @@ constexpr Float DT_MAX          = 1e-1;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-1;
 
-constexpr Float VISC_G          = 1e-0;
+constexpr Float VISC_G          = 1e-3;
 constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;

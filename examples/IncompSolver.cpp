@@ -14,8 +14,16 @@
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
-// #include "XDMFWriter.hpp"
+
+#if defined(USE_VTK) || defined(FS_DISABLE_HDF)
 #include "VTKWriter.hpp"
+template <typename Float, Index NX, Index NY, Index NGHOST>
+using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
+#else
+#include "XDMFWriter.hpp"
+template <typename Float, Index NX, Index NY, Index NGHOST>
+using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
+#endif  // USE_VTK
 
 // = Config ========================================================================================
 using Float                     = double;
@@ -111,12 +119,7 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  // XDMFWriter<Float, NX, NY, NGHOST> data_writer(
-  //     Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
-  //     Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
-  //     &fs.x,
-  //     &fs.y);
-  VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   calc_rho(fs);
   calc_visc(fs);
 

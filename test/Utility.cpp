@@ -25,11 +25,119 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
       any_test_failed = true;
     }
   }
-  return any_test_failed;
+  return !any_test_failed;
 }
 
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto test_reduce_vec() -> bool {
+  Vector<double, 10, 2> vec{};
+  for_each_i(vec, [&](Index i) { vec(i) = i % 2 == 0 ? i : -i; });
+  vec(-2)                  = -100.0;
+  vec(-1)                  = -100.0;
+  vec(10)                  = -100.0;
+  vec(11)                  = -100.0;
+
+  const auto min_i_exp     = -9.0;
+  const auto min_a_exp     = -100.0;
+  const auto max_i_exp     = 8.0;
+  const auto max_a_exp     = 8.0;
+  const auto abs_max_i_exp = 9.0;
+  const auto abs_max_a_exp = 100.0;
+
+  const auto min_i         = min<false>(vec);
+  const auto min_a         = min<true>(vec);
+  const auto max_i         = max<false>(vec);
+  const auto max_a         = max<true>(vec);
+  const auto abs_max_i     = abs_max<false>(vec);
+  const auto abs_max_a     = abs_max<true>(vec);
+
+  if (std::abs(min_i - min_i_exp) > 1e-12) {
+    Igor::Warn("min on interior failed: Expected {} but got {}", min_i_exp, min_i);
+    return false;
+  }
+  if (std::abs(min_a - min_a_exp) > 1e-12) {
+    Igor::Warn("min on entire field failed: Expected {} but got {}", min_a_exp, min_a);
+    return false;
+  }
+
+  if (std::abs(max_i - max_i_exp) > 1e-12) {
+    Igor::Warn("max on interior failed: Expected {} but got {}", max_i_exp, max_i);
+    return false;
+  }
+  if (std::abs(max_a - max_a_exp) > 1e-12) {
+    Igor::Warn("max on entire field failed: Expected {} but got {}", max_a_exp, max_a);
+    return false;
+  }
+
+  if (std::abs(abs_max_i - abs_max_i_exp) > 1e-12) {
+    Igor::Warn("abs_max on interior failed: Expected {} but got {}", abs_max_i_exp, abs_max_i);
+    return false;
+  }
+  if (std::abs(abs_max_a - abs_max_a_exp) > 1e-12) {
+    Igor::Warn("abs_max on entire field failed: Expected {} but got {}", abs_max_a_exp, abs_max_a);
+    return false;
+  }
+
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto test_reduce_mat() -> bool {
+  Matrix<double, 10, 10, 2> mat{};
+  fill(mat, -100.0);
+  for_each_i(mat, [&](Index i, Index j) { mat(i, j) = i % 2 == 0 ? i : -i; });
+
+  const auto min_i_exp     = -9.0;
+  const auto min_a_exp     = -100.0;
+  const auto max_i_exp     = 8.0;
+  const auto max_a_exp     = 8.0;
+  const auto abs_max_i_exp = 9.0;
+  const auto abs_max_a_exp = 100.0;
+
+  const auto min_i         = min<false>(mat);
+  const auto min_a         = min<true>(mat);
+  const auto max_i         = max<false>(mat);
+  const auto max_a         = max<true>(mat);
+  const auto abs_max_i     = abs_max<false>(mat);
+  const auto abs_max_a     = abs_max<true>(mat);
+
+  if (std::abs(min_i - min_i_exp) > 1e-12) {
+    Igor::Warn("min on interior failed: Expected {} but got {}", min_i_exp, min_i);
+    return false;
+  }
+  if (std::abs(min_a - min_a_exp) > 1e-12) {
+    Igor::Warn("min on entire field failed: Expected {} but got {}", min_a_exp, min_a);
+    return false;
+  }
+
+  if (std::abs(max_i - max_i_exp) > 1e-12) {
+    Igor::Warn("max on interior failed: Expected {} but got {}", max_i_exp, max_i);
+    return false;
+  }
+  if (std::abs(max_a - max_a_exp) > 1e-12) {
+    Igor::Warn("max on entire field failed: Expected {} but got {}", max_a_exp, max_a);
+    return false;
+  }
+
+  if (std::abs(abs_max_i - abs_max_i_exp) > 1e-12) {
+    Igor::Warn("abs_max on interior failed: Expected {} but got {}", abs_max_i_exp, abs_max_i);
+    return false;
+  }
+  if (std::abs(abs_max_a - abs_max_a_exp) > 1e-12) {
+    Igor::Warn("abs_max on entire field failed: Expected {} but got {}", abs_max_a_exp, abs_max_a);
+    return false;
+  }
+
+  return true;
+}
+
+// =================================================================================================
 auto main() -> int {
   bool any_test_failed = false;
+
+  any_test_failed      = !test_reduce_vec() || any_test_failed;
+  any_test_failed      = !test_reduce_mat() || any_test_failed;
+
   {
     Matrix<double, 3, 3> A{};
     A(0, 0) = 0.814723686393179;
@@ -52,7 +160,7 @@ auto main() -> int {
     x_expected(1)   = 3.036546089513933;
     x_expected(2)   = 1.046174833646621;
 
-    any_test_failed = test_solve_linear_system(A, b, x_expected) && any_test_failed;
+    any_test_failed = !test_solve_linear_system(A, b, x_expected) || any_test_failed;
   }
 
   {
@@ -86,7 +194,7 @@ auto main() -> int {
     x_expected(1)   = 3.036546089513933;
     x_expected(2)   = 1.046174833646621;
 
-    any_test_failed = test_solve_linear_system(A, b, x_expected) && any_test_failed;
+    any_test_failed = !test_solve_linear_system(A, b, x_expected) || any_test_failed;
   }
 
   {
@@ -105,7 +213,7 @@ auto main() -> int {
     x_expected(1)   = 1.0;
     x_expected(2)   = 2.0;
 
-    any_test_failed = test_solve_linear_system(A, b, x_expected) && any_test_failed;
+    any_test_failed = !test_solve_linear_system(A, b, x_expected) || any_test_failed;
   }
 
   {
@@ -245,7 +353,7 @@ auto main() -> int {
     x_expected(8)   = -0.021486383366250;
     x_expected(9)   = -8.070793019014531;
 
-    any_test_failed = test_solve_linear_system(A, b, x_expected) && any_test_failed;
+    any_test_failed = !test_solve_linear_system(A, b, x_expected) || any_test_failed;
   }
 
   return any_test_failed ? 1 : 0;

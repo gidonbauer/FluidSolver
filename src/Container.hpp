@@ -217,39 +217,6 @@ class Matrix {
 };
 
 // -------------------------------------------------------------------------------------------------
-template <typename CT>
-[[nodiscard]] constexpr auto abs_max(const CT& c) noexcept {
-  using Float = std::remove_cvref_t<decltype(*c.get_data())>;
-  static_assert(std::is_floating_point_v<Float>, "Contained must be a floating point type.");
-  return std::transform_reduce(
-      c.get_data(),
-      c.get_data() + c.size(),
-      std::abs(*c.get_data()),
-      [](Float a, Float b) { return std::max(a, b); },
-      [](Float x) { return std::abs(x); });
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename CT>
-[[nodiscard]] constexpr auto max(const CT& c) noexcept {
-  using Float = std::remove_cvref_t<decltype(*c.get_data())>;
-  static_assert(std::is_floating_point_v<Float>, "Contained must be a floating point type.");
-  return std::reduce(c.get_data(), c.get_data() + c.size(), *c.get_data(), [](Float a, Float b) {
-    return std::max(a, b);
-  });
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename CT>
-[[nodiscard]] constexpr auto min(const CT& c) noexcept {
-  using Float = std::remove_cvref_t<decltype(*c.get_data())>;
-  static_assert(std::is_floating_point_v<Float>, "Contained must be a floating point type.");
-  return std::reduce(c.get_data(), c.get_data() + c.size(), *c.get_data(), [](Float a, Float b) {
-    return std::min(a, b);
-  });
-}
-
-// -------------------------------------------------------------------------------------------------
 template <typename CT, typename Float>
 constexpr void fill(CT& c, Float value) noexcept {
   static_assert(std::is_same_v<Float, std::remove_cvref_t<decltype(*c.get_data())>>,

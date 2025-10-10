@@ -12,6 +12,7 @@
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+#include "Utility.hpp"
 #include "VTKWriter.hpp"
 
 #include "Common.hpp"

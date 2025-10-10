@@ -12,6 +12,7 @@
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
+#include "Utility.hpp"
 #if defined(USE_VTK) || defined(FS_DISABLE_HDF)
 #include "VTKWriter.hpp"
 template <typename Float, int NX, int NY, int NGHOST>

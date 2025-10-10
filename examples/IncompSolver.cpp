@@ -14,6 +14,7 @@
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+#include "Utility.hpp"
 
 #if defined(USE_VTK) || defined(FS_DISABLE_HDF)
 #include "VTKWriter.hpp"

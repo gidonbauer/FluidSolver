@@ -22,6 +22,27 @@ static_assert(std::is_convertible_v<std::remove_cvref_t<decltype(PS_PARALLEL_THR
 constexpr Index PS_PARALLEL_GRID_SIZE_THRESHOLD = PS_PARALLEL_THRESHOLD;
 #endif
 
+// NOLINTNEXTLINE
+#define CHECK_ERROR(buffer)                                                                        \
+  do {                                                                                             \
+    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {                                       \
+      HYPRE_DescribeError(ierr, (buffer));                                                         \
+      Igor::Panic("A HYPRE error has occured before calling {}: {}", __func__, (buffer));          \
+    }                                                                                              \
+  } while (false)
+
+#define MAKE_SINGLE_THREADED_IF_NECESSARY                                                          \
+  int prev_num_threads = -1;                                                                       \
+  if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {         \
+    _Pragma("omp parallel") _Pragma("omp single") { prev_num_threads = omp_get_num_threads(); }    \
+    omp_set_num_threads(1);                                                                        \
+  }
+
+#define RESET_THREADING                                                                            \
+  if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {         \
+    omp_set_num_threads(prev_num_threads);                                                         \
+  }
+
 enum class PSSolver : std::uint8_t { GMRES, PCG, BiCGSTAB, SMG, PFMG };
 enum class PSPrecond : std::uint8_t { SMG, PFMG, NONE };
 enum class PSDirichlet : std::uint8_t { NONE, LEFT, RIGHT, BOTTOM, TOP };
@@ -49,6 +70,7 @@ class PS {
   Float m_tol;
   HYPRE_Int m_max_iter;
   bool m_is_setup = false;
+  std::array<char, HYPRE_MAX_MSG_LEN> msg_buffer{};
 
  public:
   constexpr PS(const FS<Float, NX, NY, NGHOST>& fs,
@@ -63,6 +85,7 @@ class PS {
         m_tol(tol),
         m_max_iter(max_iter) {
     HYPRE_Initialize();
+    initialize();
     setup(fs);
   }
 
@@ -70,6 +93,7 @@ class PS {
       : m_tol(tol),
         m_max_iter(max_iter) {
     HYPRE_Initialize();
+    initialize();
     setup(fs);
   }
 
@@ -82,23 +106,6 @@ class PS {
   // -----------------------------------------------------------------------------------------------
   constexpr ~PS() noexcept {
     destroy();
-    HYPRE_Finalize();
-  }
-
- private:
-  // -----------------------------------------------------------------------------------------------
-  constexpr void destroy() noexcept {
-    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
-      static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};
-      HYPRE_DescribeError(ierr, buffer.data());
-      Igor::Panic("A HYPRE error has occured before calling destroy: {}", buffer.data());
-    }
-
-    switch (m_precond_type) {
-      case PSPrecond::SMG:  HYPRE_StructSMGDestroy(m_precond); break;
-      case PSPrecond::PFMG: HYPRE_StructPFMGDestroy(m_precond); break;
-      case PSPrecond::NONE: break;
-    }
     switch (m_solver_type) {
       case PSSolver::GMRES:    HYPRE_StructGMRESDestroy(m_solver); break;
       case PSSolver::PCG:      HYPRE_StructPCGDestroy(m_solver); break;
@@ -111,21 +118,26 @@ class PS {
     HYPRE_StructMatrixDestroy(m_matrix);
     HYPRE_StructStencilDestroy(m_stencil);
     HYPRE_StructGridDestroy(m_grid);
+    HYPRE_Finalize();
+  }
+
+ private:
+  // -----------------------------------------------------------------------------------------------
+  constexpr void destroy() noexcept {
+    CHECK_ERROR(msg_buffer.data());
+
+    switch (m_precond_type) {
+      case PSPrecond::SMG:  HYPRE_StructSMGDestroy(m_precond); break;
+      case PSPrecond::PFMG: HYPRE_StructPFMGDestroy(m_precond); break;
+      case PSPrecond::NONE: break;
+    }
 
     m_is_setup = false;
   }
 
- public:
   // -----------------------------------------------------------------------------------------------
-  // TODO: This might take a long time to complete; consider doing something more clever here.
-  void setup(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
-    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
-      static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};
-      HYPRE_DescribeError(ierr, buffer.data());
-      Igor::Panic("A HYPRE error has occured before calling setup: {}", buffer.data());
-    }
-
-    if (m_is_setup) { destroy(); }
+  void initialize() noexcept {
+    CHECK_ERROR(msg_buffer.data());
 
     // = Create structured grid ====================================================================
     {
@@ -150,11 +162,9 @@ class PS {
           m_stencil, i, stencil_offsets[static_cast<size_t>(i)].data());  // NOLINT
     }
 
-    // = Setup struct matrix =======================================================================
+    // = Create struct matrix ======================================================================
     HYPRE_StructMatrixCreate(COMM, m_grid, m_stencil, &m_matrix);
     HYPRE_StructMatrixInitialize(m_matrix);
-    setup_system_matrix(fs);
-    HYPRE_StructMatrixAssemble(m_matrix);
 
     // = Create right-hand side ====================================================================
     HYPRE_StructVectorCreate(COMM, m_grid, &m_rhs);
@@ -216,6 +226,19 @@ class PS {
 #endif  // FS_HYPRE_VERBOSE
         break;
     }
+  }
+
+ public:
+  // -----------------------------------------------------------------------------------------------
+  void setup(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
+    CHECK_ERROR(msg_buffer.data());
+
+    MAKE_SINGLE_THREADED_IF_NECESSARY
+
+    if (m_is_setup) { destroy(); }
+
+    setup_system_matrix(fs);
+    HYPRE_StructMatrixAssemble(m_matrix);
 
     // = Create preconditioner =====================================================================
     HYPRE_PtrToStructSolverFcn precond_setup = nullptr;
@@ -304,17 +327,14 @@ class PS {
     if (error_flag != 0) { Igor::Panic("An error occured in HYPRE."); }
 
     m_is_setup = true;
+
+    RESET_THREADING
   }
 
  private:
   // -----------------------------------------------------------------------------------------------
   void setup_system_matrix(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
-    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
-      static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};
-      HYPRE_DescribeError(ierr, buffer.data());
-      Igor::Panic("A HYPRE error has occured before calling setup_system_matrix: {}",
-                  buffer.data());
-    }
+    CHECK_ERROR(msg_buffer.data());
 
     static Matrix<std::array<Float, STENCIL_SIZE>, NX, NY, NGHOST, Layout::F> stencil_values{};
     enum : size_t { S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP };
@@ -438,21 +458,11 @@ class PS {
              Matrix<Float, NX, NY, NGHOST>& resP,
              Float* pressure_residual = nullptr,
              Index* num_iter          = nullptr) -> bool {
-    static std::array<char, HYPRE_MAX_MSG_LEN> buffer{};
-    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {
-      HYPRE_DescribeError(ierr, buffer.data());
-      Igor::Panic("A HYPRE error has occured before calling solve: {}", buffer.data());
-    }
+    CHECK_ERROR(msg_buffer.data());
 
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
 
-    int prev_num_threads = -1;
-    if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {
-#pragma omp parallel
-#pragma omp single
-      { prev_num_threads = omp_get_num_threads(); }
-      omp_set_num_threads(1);
-    }
+    MAKE_SINGLE_THREADED_IF_NECESSARY
 
     bool res       = true;
 
@@ -552,23 +562,19 @@ class PS {
         HYPRE_ClearError(HYPRE_ERROR_CONV);
         res = false;
       } else {
-        HYPRE_DescribeError(error_flag, buffer.data());
-#if 1
-        Igor::Panic("An error occured in HYPRE: {}", buffer.data());
-#else
-        IGOR_DEBUG_PRINT(error_flag);
-        Igor::Warn("An error occured in HYPRE: {}", buffer.data());
-        HYPRE_ClearAllErrors();
-#endif
+        HYPRE_DescribeError(error_flag, msg_buffer.data());
+        Igor::Panic("An error occured in HYPRE: {}", msg_buffer.data());
       }
     }
 
-    if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {
-      omp_set_num_threads(prev_num_threads);
-    }
+    RESET_THREADING
 
     return res;
   }
 };
+
+#undef CHECK_ERROR
+#undef MAKE_SINGLE_THREADED_IF_NECESSARY
+#undef RESET_THREADING
 
 #endif  // FLUID_SOLVER_PRESSURE_CORRECTION_HPP_

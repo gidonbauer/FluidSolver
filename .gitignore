@@ -26,6 +26,7 @@ compile.out
 output*/
 notes/
 
+*.txt
 *.stdout
 *.stderr
 scorep-*

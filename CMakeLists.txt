@@ -6,7 +6,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # set(CMAKE_CXX_STANDARD 23)
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_DEFAULT_BUILD_TYPE "Release")
+# set(CMAKE_DEFAULT_BUILD_TYPE "Release")
 
 if (${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
   set(CMAKE_CXX_FLAGS         "-Wall -Wextra -pedantic -Wshadow -Wconversion -Winline -std=c++23")

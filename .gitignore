@@ -31,5 +31,5 @@ notes/
 *.stderr
 scorep-*
 
-build/
+build*/
 !CMakeLists.txt

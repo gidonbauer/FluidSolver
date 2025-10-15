@@ -1,6 +1,6 @@
 set(tests
-  # LaminarChannel_0
-  # LaminarChannel_1
+  LaminarChannel_0
+  LaminarChannel_1
   Couette
   TaylorGreenVortex
   ConstantVelocityVOF
@@ -14,33 +14,29 @@ set(tests
   OffloadGPU
 )
 
-enable_testing()
-
-foreach(exec ${tests})
+foreach(test ${tests})
     # - Define executables -------------
-    if (${exec} STREQUAL "LaminarChannel_0")
-      add_executable(${exec} LaminarChannel.cpp)
-      target_compile_definitions(${exec}, LC_U_INIT=0)
-    elseif (${exec} STREQUAL "LaminarChannel_1")
-      add_executable(${exec} LaminarChannel.cpp)
-      target_compile_definitions(${exec}, LC_U_INIT=1)
+    if (${test} STREQUAL "LaminarChannel_0")
+      add_executable(${test} LaminarChannel.cpp)
+      target_compile_definitions(${test} PRIVATE LC_U_INIT=0)
+    elseif (${test} STREQUAL "LaminarChannel_1")
+      add_executable(${test} LaminarChannel.cpp)
+      target_compile_definitions(${test} PRIVATE LC_U_INIT=1)
     else()
-      add_executable(${exec} ${exec}.cpp)
+      add_executable(${test} ${test}.cpp)
     endif()
 
     # - Define include path ------------
-    target_include_directories(${exec} PRIVATE ${CMAKE_SOURCE_DIR}/src/)
+    target_include_directories(${test} PRIVATE ${CMAKE_SOURCE_DIR}/src/)
 
     # - Link libraries -----------------
-    target_link_libraries(${exec} PRIVATE OpenMP::OpenMP_CXX)
-    target_link_libraries(${exec} PRIVATE Igor)
-    target_link_libraries(${exec} PRIVATE irl)
-    target_link_libraries(${exec} PRIVATE HYPRE::HYPRE)
+    target_link_libraries(${test} PRIVATE OpenMP::OpenMP_CXX)
+    target_link_libraries(${test} PRIVATE Igor)
+    target_link_libraries(${test} PRIVATE irl)
+    target_link_libraries(${test} PRIVATE HYPRE::HYPRE)
     if (HDF5_FOUND)
-      target_link_libraries(${exec} PRIVATE HDF5::HDF5 hdf5::hdf5_hl hdf5::hdf5_hl_cpp)
+      target_link_libraries(${test} PRIVATE HDF5::HDF5 hdf5::hdf5_hl hdf5::hdf5_hl_cpp)
     endif()
 
-    add_test(NAME ${exec} COMMAND ${exec})
+    add_test(NAME ${test} COMMAND ${test})
 endforeach()
-
-

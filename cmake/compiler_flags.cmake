@@ -1,4 +1,3 @@
-option(FS_FAST "Enable unsafe optimizations." OFF)
 if (${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
   set(CMAKE_CXX_FLAGS         "-Wall -Wextra -pedantic -Wshadow -Wconversion -Winline -std=c++23")
   if (FS_FAST)
@@ -37,4 +36,10 @@ elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "NVHPC")
   # CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
 else()
   message(FATAL_ERROR "Unknown C++ compiler `${CMAKE_CXX_COMPILER}` with ID `${CMAKE_CXX_COMPILER_ID}`")
+endif()
+
+if (FS_USE_SCOREP)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+  set(CMAKE_C_COMPILER_LAUNCHER   scorep)
+  set(CMAKE_CXX_COMPILER_LAUNCHER scorep)
 endif()

@@ -7,7 +7,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(cmake/compiler_flags.cmake)
 
 find_package(OpenMP REQUIRED)
-find_package(HDF5)
+
+find_package(HDF5 COMPONENTS C CXX HL)
 if (NOT HDF5_FOUND)
   add_compile_definitions(FS_DISABLE_HDF)
 endif()

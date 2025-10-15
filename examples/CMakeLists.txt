@@ -21,7 +21,7 @@ foreach(exec ${executables})
     target_link_libraries(${exec} PRIVATE irl)
     target_link_libraries(${exec} PRIVATE HYPRE::HYPRE)
     if (HDF5_FOUND)
-      target_link_libraries(${exec} PRIVATE HDF5)
+      target_link_libraries(${exec} PRIVATE HDF5::HDF5 hdf5::hdf5_hl hdf5::hdf5_hl_cpp)
     endif()
 endforeach()
 

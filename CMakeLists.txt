@@ -22,7 +22,6 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/Submodules/Igor)
 
 # = IRL ==========================================
 set(IRL_BUILD_FORTRAN OFF CACHE INTERNAL "")
-set(IRL_USE_ABSL      OFF CACHE INTERNAL "")
 add_subdirectory(${CMAKE_SOURCE_DIR}/Submodules/interface-reconstruction-library SYSTEM)
 
 # = Hypre ========================================

@@ -429,7 +429,6 @@ class PS {
       case PSDirichlet::NONE: break;
     }
 
-#if 1
     std::array<HYPRE_Int, NDIMS> ilower = {-NGHOST, -NGHOST};
     std::array<HYPRE_Int, NDIMS> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
     HYPRE_StructMatrixSetBoxValues(m_matrix,
@@ -438,16 +437,6 @@ class PS {
                                    STENCIL_SIZE,
                                    stencil_indices.data(),
                                    stencil_values.get_data()->data());
-#else
-    for_each_a(stencil_values, [&](Index i, Index j) {
-      std::array<HYPRE_Int, NDIMS> index{i, j};
-      HYPRE_StructMatrixSetValues(m_matrix,
-                                  index.data(),
-                                  STENCIL_SIZE,
-                                  stencil_indices.data(),
-                                  stencil_values(i, j).data());
-    });
-#endif
   }
 
  public:

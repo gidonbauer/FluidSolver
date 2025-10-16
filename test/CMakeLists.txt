@@ -30,7 +30,9 @@ foreach(test ${tests})
     target_include_directories(${test} PRIVATE ${CMAKE_SOURCE_DIR}/src/)
 
     # - Link libraries -----------------
-    target_link_libraries(${test} PRIVATE OpenMP::OpenMP_CXX)
+    if (NOT ${CMAKE_CXX_COMPILER_ID} STREQUAL "NVHPC")
+      target_link_libraries(${exec} PRIVATE OpenMP::OpenMP_CXX)
+    endif()
     target_link_libraries(${test} PRIVATE Igor)
     target_link_libraries(${test} PRIVATE irl)
     target_link_libraries(${test} PRIVATE HYPRE::HYPRE)

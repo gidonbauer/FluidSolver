@@ -16,7 +16,9 @@ foreach(exec ${executables})
     target_include_directories(${exec} PRIVATE ${CMAKE_SOURCE_DIR}/src/)
 
     # - Link libraries -----------------
-    target_link_libraries(${exec} PRIVATE OpenMP::OpenMP_CXX)
+    if (NOT ${CMAKE_CXX_COMPILER_ID} STREQUAL "NVHPC")
+      target_link_libraries(${exec} PRIVATE OpenMP::OpenMP_CXX)
+    endif()
     target_link_libraries(${exec} PRIVATE Igor)
     target_link_libraries(${exec} PRIVATE irl)
     target_link_libraries(${exec} PRIVATE HYPRE::HYPRE)

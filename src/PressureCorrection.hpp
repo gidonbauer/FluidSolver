@@ -541,16 +541,14 @@ class PS {
         break;
     }
 
-    // NOTE: This cannot be parallel for GPU offloading with nvc++ because
-    //       `HYPRE_StructVectorGetValues` is a library function.
-    for_each_a<Exec::Serial>(resP, [&](Index i, Index j) {
-      std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
-      HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP(i, j));
-    });
+    // = Get solution ==============================================================================
+    HYPRE_StructVectorGetBoxValues(m_sol, ilower.data(), iupper.data(), rhs_values.get_data());
+    for_each_a<Exec::Serial>(resP, [&](Index i, Index j) { resP(i, j) = rhs_values(i, j); });
 
     if (pressure_residual != nullptr) { *pressure_residual = final_residual; }
     if (num_iter != nullptr) { *num_iter = local_num_iter; }
 
+    // = Check for errors ==========================================================================
     const HYPRE_Int error_flag = HYPRE_GetError();
     if (error_flag != 0) {
       if (HYPRE_CheckError(error_flag, HYPRE_ERROR_CONV) != 0) {

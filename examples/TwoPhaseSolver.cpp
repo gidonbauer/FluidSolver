@@ -168,10 +168,8 @@ auto main() -> int {
   Float div_max = 0.0;
   // Float div_L1        = 0.0;
 
-  // Float curv_min      = 0.0;
-  // Float curv_max      = 0.0;
-  Float visc_min      = 0.0;
-  Float visc_max      = 0.0;
+  Float curv_min      = 0.0;
+  Float curv_max      = 0.0;
 
   Float vof_min       = 0.0;
   Float vof_max       = 0.0;
@@ -208,11 +206,8 @@ auto main() -> int {
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
-  // monitor.add_variable(&curv_min, "min(curv)");
-  // monitor.add_variable(&curv_max, "max(curv)");
-
-  monitor.add_variable(&visc_min, "min(visc)");
-  monitor.add_variable(&visc_max, "max(visc)");
+  monitor.add_variable(&curv_min, "min(curv)");
+  monitor.add_variable(&curv_max, "max(curv)");
 
   monitor.add_variable(&vof_min, "min(vof)");
   monitor.add_variable(&vof_max, "max(vof)");
@@ -250,13 +245,11 @@ auto main() -> int {
   interpolate_V(fs.curr.V, Vi);
   interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  U_max   = abs_max(fs.curr.U);
-  V_max   = abs_max(fs.curr.V);
-  div_max = abs_max(div);
-  // curv_min = min(vof.curv);
-  // curv_max = max(vof.curv);
-  visc_min = min(fs.visc);
-  visc_max = max(fs.visc);
+  U_max    = abs_max(fs.curr.U);
+  V_max    = abs_max(fs.curr.V);
+  div_max  = abs_max(div);
+  curv_min = min(vof.curv);
+  curv_max = max(vof.curv);
   // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
@@ -376,13 +369,11 @@ auto main() -> int {
     interpolate_V(fs.curr.V, Vi);
     interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-    U_max   = max(fs.curr.U);
-    V_max   = max(fs.curr.V);
-    div_max = max(div);
-    // curv_min = min(vof.curv);
-    // curv_max = max(vof.curv);
-    visc_min = min(fs.visc);
-    visc_max = max(fs.visc);
+    U_max    = max(fs.curr.U);
+    V_max    = max(fs.curr.V);
+    div_max  = max(div);
+    curv_min = min(vof.curv);
+    curv_max = max(vof.curv);
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     // p_max = max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);

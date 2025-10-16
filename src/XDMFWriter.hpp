@@ -58,18 +58,18 @@ class XDMFWriter {
   }
 
  public:
-  constexpr XDMFWriter(const std::string& output_path,
-                       const Vector<Float, NX + 1, NGHOST>* x,
-                       const Vector<Float, NY + 1, NGHOST>* y)
+  XDMFWriter(const std::string& output_path,
+             const Vector<Float, NX + 1, NGHOST>* x,
+             const Vector<Float, NY + 1, NGHOST>* y)
       : XDMFWriter(Igor::detail::format("{}/solution.xdmf2", output_path),
                    Igor::detail::format("{}/solution.h5", output_path),
                    x,
                    y) {}
 
-  constexpr XDMFWriter(std::string xdmf_path,
-                       std::string data_path,
-                       const Vector<Float, NX + 1, NGHOST>* x,
-                       const Vector<Float, NY + 1, NGHOST>* y)
+  XDMFWriter(std::string xdmf_path,
+             std::string data_path,
+             const Vector<Float, NX + 1, NGHOST>* x,
+             const Vector<Float, NY + 1, NGHOST>* y)
       : m_xdmf_path(std::move(xdmf_path)),
         m_data_path(std::move(data_path)),
         m_data_filename(Igor::detail::strip_path(m_data_path)),
@@ -106,11 +106,11 @@ class XDMFWriter {
     H5LTmake_dataset_double(m_data_file_id, "/ycoords", 1, &dim, y->get_data());
   }
 
-  constexpr XDMFWriter(const XDMFWriter& other) noexcept                    = delete;
-  constexpr XDMFWriter(XDMFWriter&& other) noexcept                         = delete;
-  constexpr auto operator=(const XDMFWriter& other) noexcept -> XDMFWriter& = delete;
-  constexpr auto operator=(XDMFWriter&& other) noexcept -> XDMFWriter&      = delete;
-  constexpr ~XDMFWriter() noexcept {
+  XDMFWriter(const XDMFWriter& other) noexcept                    = delete;
+  XDMFWriter(XDMFWriter&& other) noexcept                         = delete;
+  auto operator=(const XDMFWriter& other) noexcept -> XDMFWriter& = delete;
+  auto operator=(XDMFWriter&& other) noexcept -> XDMFWriter&      = delete;
+  ~XDMFWriter() noexcept {
     // - Finalize XDMF file ------------------------------------------------------------------------
     m_xdmf_out << R"(    </Grid>)" << '\n';
     m_xdmf_out << R"(  </Domain>)" << '\n';
@@ -121,16 +121,16 @@ class XDMFWriter {
   }
 
   // -----------------------------------------------------------------------------------------------
-  constexpr void add_scalar(std::string name, const Matrix<Float, NX, NY, NGHOST>* value) {
+  void add_scalar(std::string name, const Matrix<Float, NX, NY, NGHOST>* value) {
     IGOR_ASSERT(value != nullptr, "value cannot be a nullptr.");
     m_scalar_names.emplace_back(std::move(name));
     m_scalar_values.push_back(value);
   }
 
   // -----------------------------------------------------------------------------------------------
-  constexpr void add_vector(std::string name,
-                            const Matrix<Float, NX, NY, NGHOST>* x_value,
-                            const Matrix<Float, NX, NY, NGHOST>* y_value) {
+  void add_vector(std::string name,
+                  const Matrix<Float, NX, NY, NGHOST>* x_value,
+                  const Matrix<Float, NX, NY, NGHOST>* y_value) {
     IGOR_ASSERT(x_value != nullptr, "x_value cannot be a nullptr.");
     IGOR_ASSERT(y_value != nullptr, "y_value cannot be a nullptr.");
     m_vector_names.emplace_back(std::move(name));
@@ -138,7 +138,7 @@ class XDMFWriter {
   }
 
   // -----------------------------------------------------------------------------------------------
-  constexpr auto write(Float t) -> bool {
+  auto write(Float t) -> bool {
     static Index write_counter = 0;
 
     m_xdmf_out << Igor::detail::format(R"(      <Grid Name="State {}" GridType="Uniform">)",

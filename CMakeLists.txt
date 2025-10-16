@@ -5,6 +5,7 @@ project(FluidSolver LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(FS_BUILD_TEST "Build tests" ON)
+option(FS_BUILD_BENCH "Build benchmarks" OFF)
 option(FS_FAST "Enable unsafe optimizations." OFF)
 option(FS_USE_SCOREP "Enable profiling using Score-P." OFF)
 
@@ -36,4 +37,8 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/examples/)
 if (FS_BUILD_TEST)
   enable_testing()
   add_subdirectory(${CMAKE_SOURCE_DIR}/test/)
+endif()
+
+if (FS_BUILD_BENCH)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/bench/)
 endif()

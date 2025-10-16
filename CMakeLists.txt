@@ -27,7 +27,7 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/Submodules/interface-reconstruction-library
 # = Hypre ========================================
 set(HYPRE_ENABLE_MPI          OFF CACHE INTERNAL "")
 set(HYPRE_ENABLE_OPENMP       ON  CACHE INTERNAL "")
-set(HYPRE_ENABLE_PRINT_ERRORS ON  CACHE INTERNAL "")
+# set(HYPRE_ENABLE_PRINT_ERRORS ON  CACHE INTERNAL "")
 add_subdirectory(${CMAKE_SOURCE_DIR}/Submodules/hypre/src SYSTEM)
 # = Add dependencies ===============================================================================
 

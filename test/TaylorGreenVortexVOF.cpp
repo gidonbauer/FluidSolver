@@ -1,5 +1,7 @@
 #include <numbers>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
@@ -108,6 +110,8 @@ void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 

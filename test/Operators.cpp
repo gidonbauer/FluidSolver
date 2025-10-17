@@ -1,6 +1,8 @@
 #include <atomic>
 #include <random>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -299,6 +301,8 @@ auto test_atomics() -> bool {
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   bool success      = true;
   bool test_success = true;
 

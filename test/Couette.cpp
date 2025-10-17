@@ -1,6 +1,8 @@
 #include <cstddef>
 #include <filesystem>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -70,6 +72,8 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 

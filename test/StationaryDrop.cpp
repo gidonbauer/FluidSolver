@@ -1,5 +1,7 @@
 #include <cstddef>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -117,6 +119,8 @@ auto check_vf_ghost(const FS<Float, NX, NY, NGHOST>& fs, const Matrix<Float, NX,
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 

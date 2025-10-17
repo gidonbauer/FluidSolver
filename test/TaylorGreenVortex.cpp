@@ -1,6 +1,8 @@
 #include <cstddef>
 #include <numbers>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -55,6 +57,8 @@ auto v_analytical(Float x, Float y, Float t) -> Float { return -std::cos(x) * st
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 

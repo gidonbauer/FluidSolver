@@ -2,6 +2,8 @@
 #include <atomic>
 #include <random>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -160,6 +162,8 @@ auto max_reduce() -> bool {
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   std::array funcs = {
       &vecadd,
       &matmul,

@@ -1,5 +1,7 @@
 #include <cmath>
 
+#include <omp.h>
+
 #include "Utility.hpp"
 
 template <Index N>
@@ -133,6 +135,8 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
 
 // =================================================================================================
 auto main() -> int {
+  omp_set_num_threads(4);
+
   bool any_test_failed = false;
 
   any_test_failed      = !test_reduce_vec() || any_test_failed;

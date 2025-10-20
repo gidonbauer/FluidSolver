@@ -41,7 +41,10 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 2;
 
-constexpr auto OUTPUT_DIR       = "test/output/TaylorGreenVortex/";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/TaylorGreenVortex/";
 
 constexpr FlowBConds<Float> bconds{
     //        LEFT             RIGHT            BOTTOM           TOP

@@ -8,6 +8,7 @@ option(FS_FAST "Enable unsafe optimizations." OFF)
 option(FS_USE_SCOREP "Enable profiling using Score-P." OFF)
 
 include(cmake/compiler_flags.cmake)
+add_compile_definitions(FS_BASE_DIR="${CMAKE_SOURCE_DIR}")
 
 find_package(OpenMP REQUIRED)
 find_package(HDF5 COMPONENTS C CXX HL)

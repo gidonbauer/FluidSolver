@@ -31,7 +31,10 @@ constexpr Float DY            = (Y_MAX - Y_MIN) / static_cast<Float>(N);
 
 constexpr Index NUM_TEST_ITER = 50'000;
 
-constexpr auto OUTPUT_DIR     = "output/Curvature";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/Curvature";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------

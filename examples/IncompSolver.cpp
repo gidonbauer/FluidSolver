@@ -69,7 +69,10 @@ constexpr FlowBConds<Float> bconds{
 //     .V     = {0.0, 0.0, 0.0, 0.0},
 // };
 
-constexpr auto OUTPUT_DIR = "output/IncompSolver/";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/IncompSolver/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------

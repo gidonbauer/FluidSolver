@@ -16,30 +16,33 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float               = double;
+using Float              = double;
 
-constexpr Index NX        = 128;
-constexpr Index NY        = 128;
-constexpr Index NGHOST    = 1;
+constexpr Index NX       = 128;
+constexpr Index NY       = 128;
+constexpr Index NGHOST   = 1;
 
-constexpr Float X_MIN     = 0.0;
-constexpr Float X_MAX     = 2.0 * std::numbers::pi_v<Float>;
-constexpr Float Y_MIN     = 0.0;
-constexpr Float Y_MAX     = 2.0 * std::numbers::pi_v<Float>;
-constexpr auto DX         = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY         = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+constexpr Float X_MIN    = 0.0;
+constexpr Float X_MAX    = 2.0 * std::numbers::pi_v<Float>;
+constexpr Float Y_MIN    = 0.0;
+constexpr Float Y_MAX    = 2.0 * std::numbers::pi_v<Float>;
+constexpr auto DX        = (X_MAX - X_MIN) / static_cast<Float>(NX);
+constexpr auto DY        = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-constexpr Float VISC      = 1e-1;
-constexpr Float RHO       = 0.9;
+constexpr Float VISC     = 1e-1;
+constexpr Float RHO      = 0.9;
 
-Float INIT_VF_INT         = 0.0;  // NOLINT
+Float INIT_VF_INT        = 0.0;  // NOLINT
 
-constexpr Float DT_MAX    = 1e-2;
-constexpr Float CFL_MAX   = 0.5;
-constexpr Float T_END     = 5.0;
-constexpr Float DT_WRITE  = 5e-2;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.5;
+constexpr Float T_END    = 5.0;
+constexpr Float DT_WRITE = 5e-2;
 
-constexpr auto OUTPUT_DIR = "test/output/TaylorGreenVortexVOF";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/TaylorGreenVortexVOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------

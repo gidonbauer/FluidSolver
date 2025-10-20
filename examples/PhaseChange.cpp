@@ -52,7 +52,7 @@ constexpr Float VISC_L          = 1e-3;
 constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
-constexpr auto vof0             = [](Float x, [[maybe_unused]] Float y) { return static_cast<Float>(x > 1.0); };
+constexpr auto vof0 = [](Float x, [[maybe_unused]] Float y) { return static_cast<Float>(x > 1.0); };
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -67,7 +67,10 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
-constexpr auto OUTPUT_DIR = "output/PhaseChange/";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/PhaseChange/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------

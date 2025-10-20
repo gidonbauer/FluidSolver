@@ -61,10 +61,14 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
 #ifndef LC_U_INIT
-constexpr auto OUTPUT_DIR = "test/output/LaminarChannel/";
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/LaminarChannel/";
 #else
-constexpr auto OUTPUT_DIR = "test/output/LaminarChannel_" IGOR_STRINGIFY(LC_U_INIT) "/";
+constexpr auto OUTPUT_DIR =
+    FS_BASE_DIR "/test/output/LaminarChannel_" IGOR_STRINGIFY(LC_U_INIT) "/";
 #endif
 // = Config ========================================================================================
 

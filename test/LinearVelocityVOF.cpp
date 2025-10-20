@@ -15,24 +15,27 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float               = double;
-constexpr Index NX        = 128;
-constexpr Index NY        = 128;
-constexpr Index NGHOST    = 1;
+using Float            = double;
+constexpr Index NX     = 128;
+constexpr Index NY     = 128;
+constexpr Index NGHOST = 1;
 
-constexpr Float X_MIN     = 0.0;
-constexpr Float X_MAX     = 1.0;
-constexpr Float Y_MIN     = 0.0;
-constexpr Float Y_MAX     = 1.0;
-constexpr auto DX         = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY         = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+constexpr Float X_MIN  = 0.0;
+constexpr Float X_MAX  = 1.0;
+constexpr Float Y_MIN  = 0.0;
+constexpr Float Y_MAX  = 1.0;
+constexpr auto DX      = (X_MAX - X_MIN) / static_cast<Float>(NX);
+constexpr auto DY      = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-Float INIT_VF_INT         = 0.0;  // NOLINT
+Float INIT_VF_INT      = 0.0;  // NOLINT
 
-constexpr Float DT        = 5e-3;
-constexpr Index NITER     = 120;
+constexpr Float DT     = 5e-3;
+constexpr Index NITER  = 120;
 
-constexpr auto OUTPUT_DIR = "test/output/LinearVelocityVOF";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/LinearVelocityVOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------

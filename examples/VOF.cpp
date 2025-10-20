@@ -41,14 +41,17 @@ constexpr auto is_in(Float x, Float y) -> Float {
       Igor::sqr(x - 1.75 * std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
           Igor::sqr(0.25));
 };
-Float INIT_VF_INT         = 0.0;  // NOLINT
+Float INIT_VF_INT        = 0.0;  // NOLINT
 
-constexpr Float DT_MAX    = 1e-2;
-constexpr Float CFL_MAX   = 0.5;
-constexpr Float T_END     = 30.0;
-constexpr Float DT_WRITE  = 5e-2;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.5;
+constexpr Float T_END    = 30.0;
+constexpr Float DT_WRITE = 5e-2;
 
-constexpr auto OUTPUT_DIR = "output/VOF";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/VOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------

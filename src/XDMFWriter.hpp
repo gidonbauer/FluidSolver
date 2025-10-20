@@ -201,10 +201,10 @@ class XDMFWriter {
     // - Finalize meta-data ------------------------------------------------------------------------
 
     m_xdmf_out << std::endl;  // NOLINT
-    H5Fflush(m_data_file_id, H5F_SCOPE_GLOBAL);
-    write_counter += 1;
+    const auto ierr  = H5Fflush(m_data_file_id, H5F_SCOPE_GLOBAL);
+    write_counter   += 1;
 
-    return true;
+    return m_xdmf_out.good() && ierr == 0;
   }
 };
 

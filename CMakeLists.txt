@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.26)
 
 project(FluidSolver LANGUAGES CXX)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
 option(FS_BUILD_TEST "Build tests" ON)
 option(FS_BUILD_BENCH "Build benchmarks" OFF)
 option(FS_FAST "Enable unsafe optimizations." OFF)
@@ -31,6 +29,8 @@ set(HYPRE_ENABLE_OPENMP       ON  CACHE INTERNAL "")
 # set(HYPRE_ENABLE_PRINT_ERRORS ON  CACHE INTERNAL "")
 add_subdirectory(${CMAKE_SOURCE_DIR}/Submodules/hypre/src SYSTEM)
 # = Add dependencies ===============================================================================
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/examples/)
 

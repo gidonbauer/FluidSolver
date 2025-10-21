@@ -5,6 +5,7 @@
 
 // #define FS_HYPRE_VERBOSE
 #define FS_SILENCE_CONV_WARN
+// #define FS_ARITHMETIC_VISC
 
 #include "Curvature.hpp"
 #include "FS.hpp"
@@ -14,12 +15,16 @@
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
-// #include "VTKWriter.hpp"
-#include "XDMFWriter.hpp"
 
-// TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
-//       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
-//       conditions.
+#if defined(USE_VTK) || defined(FS_DISABLE_HDF)
+#include "VTKWriter.hpp"
+template <typename Float, Index NX, Index NY, Index NGHOST>
+using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
+#else
+#include "XDMFWriter.hpp"
+template <typename Float, Index NX, Index NY, Index NGHOST>
+using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
+#endif  // USE_VTK
 
 // = Config ========================================================================================
 using Float                     = double;
@@ -33,17 +38,17 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 3.0;
+constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.9;
 constexpr Float DT_WRITE        = 5e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
-constexpr Float VISC_G          = 1e-3;
 constexpr Float RHO_G           = 1.0;
-constexpr Float VISC_L          = 1e-3;
+constexpr Float VISC_G          = 1e-6;  // * RHO_G;  // Dynamic viscosity?
 constexpr Float RHO_L           = 1e3;
+constexpr Float VISC_L          = 1e-3;  // * RHO_L;  // Dynamic viscosity?
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 1.0;
@@ -53,12 +58,17 @@ constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
 
-constexpr Float WEBER_NUMBER    = RHO_L * Igor::sqr(U_BCOND) * 2.0 * R0 / SURFACE_TENSION;
-
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
+
+// Weber number
+constexpr Float We = RHO_L * Igor::sqr(U_BCOND) * 2.0 * R0 / SURFACE_TENSION;
+// Liquid Reynolds number
+constexpr Float Re_L = RHO_L * U_BCOND * (Y_MAX - Y_MIN) / VISC_L;
+// Gas Reynolds number
+constexpr Float Re_G = RHO_G * U_BCOND * (Y_MAX - Y_MIN) / VISC_G;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -68,7 +78,17 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
-constexpr auto OUTPUT_DIR = "output/TwoPhaseSolver/";
+// constexpr FlowBConds<Float> bconds{
+//     //        LEFT            RIGHT           BOTTOM            TOP
+//     .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
+//     .U     = {0.0, 0.0, 0.0, 0.0},
+//     .V     = {0.0, 0.0, 0.0, 0.0},
+// };
+
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/TwoPhaseSolver/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -95,8 +115,8 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
   inflow  = 0.0;
   outflow = 0.0;
   for_each_a(fs.ym, [&](Index j) {
-    inflow  += fs.curr.rho_u_stag[-NGHOST, j] * fs.curr.U[-NGHOST, j];
-    outflow += fs.curr.rho_u_stag[NX + NGHOST, j] * fs.curr.U[NX + NGHOST, j];
+    inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j);
+    outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j);
   });
   mass_error = outflow - inflow;
 }
@@ -106,7 +126,12 @@ auto main() -> int {
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
-  Igor::Info("Weber number = {:.6e}", WEBER_NUMBER);
+  Igor::Info("Weber number             = {:.6e}", We);
+  Igor::Info("Reynolds number (liquid) = {:.6e}", Re_L);
+  Igor::Info("Reynolds number (gas)    = {:.6e}", Re_G);
+
+  Igor::Debug("VISC_G = {:.6e}", VISC_G);
+  Igor::Debug("VISC_L = {:.6e}", VISC_L);
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{.visc_gas    = VISC_G,
@@ -161,12 +186,7 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  // VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  XDMFWriter<Float, NX, NY, NGHOST> data_writer(
-      Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
-      Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
-      &fs.x,
-      &fs.y);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   data_writer.add_scalar("density", &rhoi);
   data_writer.add_scalar("viscosity", &fs.visc);
   data_writer.add_scalar("pressure", &fs.p);
@@ -205,7 +225,7 @@ auto main() -> int {
 
   // = Initialize VOF field ========================================================================
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
-    vof.vf[i, j] = quadrature(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    vof.vf(i, j) = quadrature(vof0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
   const Float init_vf_integral = integrate<true>(fs.dx, fs.dy, vof.vf);
   localize_cells(fs.x, fs.y, vof.ir);
@@ -213,11 +233,15 @@ auto main() -> int {
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_0; });
-  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  // for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+  //   fs.curr.U(i, j) = U_BCOND * (vof.vf(i - 1, j) + vof.vf(i, j)) / 2.0;
+  // });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(vof.vf, fs);
+  calc_visc(vof.vf, fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   interpolate_U(fs.curr.U, Ui);
@@ -250,10 +274,11 @@ auto main() -> int {
     reconstruct_interface(fs, vof.vf_old, vof.ir);
     // calc_surface_length(fs, ir, interface_length);
     // TODO: Calculate viscosity from new VOF field
-    calc_rho_and_visc(vof.vf_old, fs);
+    calc_rho(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
     advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
+    calc_visc(vof.vf, fs);
 
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
@@ -263,10 +288,10 @@ auto main() -> int {
       // = Update the density field to make the update consistent ==================================
       calc_drhodt(fs, drho_u_stagdt, drho_v_stagdt);
       for_each_i<Exec::Parallel>(fs.curr.rho_u_stag, [&](Index i, Index j) {
-        fs.curr.rho_u_stag[i, j] = fs.old.rho_u_stag[i, j] + dt * drho_u_stagdt[i, j];
+        fs.curr.rho_u_stag(i, j) = fs.old.rho_u_stag(i, j) + dt * drho_u_stagdt(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.rho_v_stag, [&](Index i, Index j) {
-        fs.curr.rho_v_stag[i, j] = fs.old.rho_v_stag[i, j] + dt * drho_v_stagdt[i, j];
+        fs.curr.rho_v_stag(i, j) = fs.old.rho_v_stag(i, j) + dt * drho_v_stagdt(i, j);
       });
       apply_neumann_bconds(fs.curr.rho_u_stag);
       apply_neumann_bconds(fs.curr.rho_v_stag);
@@ -274,12 +299,12 @@ auto main() -> int {
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                          fs.curr.rho_u_stag[i, j];
+        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
+                          fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                          fs.curr.rho_v_stag[i, j];
+        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
+                          fs.curr.rho_v_stag(i, j);
       });
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
@@ -290,8 +315,8 @@ auto main() -> int {
       Float mass_error = 0.0;
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
       for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-        fs.curr.U[NX + NGHOST, j] -=
-            mass_error / (fs.curr.rho_u_stag[NX + NGHOST, j] * static_cast<Float>(NY + 2 * NGHOST));
+        fs.curr.U(NX + NGHOST, j) -=
+            mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
       });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -302,20 +327,21 @@ auto main() -> int {
       // NOTE: Save old pressure jump in delta_p_jump_[uv]_stag
       copy(fs.p_jump_u_stag, delta_p_jump_u_stag);
       copy(fs.p_jump_v_stag, delta_p_jump_v_stag);
-      calc_pressure_jump(vof.vf_old, vof.curv, fs);
+      calc_interface_length(fs, vof);
+      calc_pressure_jump(vof.vf_old, vof.curv, vof.interface_length, fs);
       for_each_a<Exec::Parallel>(delta_p_jump_u_stag, [&](Index i, Index j) {
-        delta_p_jump_u_stag[i, j] = fs.p_jump_u_stag[i, j] - delta_p_jump_u_stag[i, j];
+        delta_p_jump_u_stag(i, j) = fs.p_jump_u_stag(i, j) - delta_p_jump_u_stag(i, j);
       });
       for_each_a<Exec::Parallel>(delta_p_jump_v_stag, [&](Index i, Index j) {
-        delta_p_jump_v_stag[i, j] = fs.p_jump_v_stag[i, j] - delta_p_jump_v_stag[i, j];
+        delta_p_jump_v_stag(i, j) = fs.p_jump_v_stag(i, j) - delta_p_jump_v_stag(i, j);
       });
 
       for_each_i<Exec::Parallel>(div, [&](Index i, Index j) {
-        div[i, j] += dt * ((delta_p_jump_u_stag[i + 1, j] / fs.curr.rho_u_stag[i + 1, j] -
-                            delta_p_jump_u_stag[i, j] / fs.curr.rho_u_stag[i, j]) /
+        div(i, j) += dt * ((delta_p_jump_u_stag(i + 1, j) / fs.curr.rho_u_stag(i + 1, j) -
+                            delta_p_jump_u_stag(i, j) / fs.curr.rho_u_stag(i, j)) /
                                fs.dx +
-                           (delta_p_jump_v_stag[i, j + 1] / fs.curr.rho_v_stag[i, j + 1] -
-                            delta_p_jump_v_stag[i, j] / fs.curr.rho_v_stag[i, j]) /
+                           (delta_p_jump_v_stag(i, j + 1) / fs.curr.rho_v_stag(i, j + 1) -
+                            delta_p_jump_v_stag(i, j) / fs.curr.rho_v_stag(i, j)) /
                                fs.dy);
       });
       // ===== Add capillary forces ================================================================
@@ -326,18 +352,18 @@ auto main() -> int {
       p_iter += local_p_iter;
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       // Correct pressure
-      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p(i, j) += delta_p(i, j); });
 
       // Correct velocity
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        const auto dpdx  = (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx;
-        const auto rho   = fs.curr.rho_u_stag[i, j];
-        fs.curr.U[i, j] -= dpdx * dt / rho;
+        const auto dpdx  = (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx;
+        const auto rho   = fs.curr.rho_u_stag(i, j);
+        fs.curr.U(i, j) -= dpdx * dt / rho;
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        const auto dpdy  = (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy;
-        const auto rho   = fs.curr.rho_v_stag[i, j];
-        fs.curr.V[i, j] -= dpdy * dt / rho;
+        const auto dpdy  = (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy;
+        const auto rho   = fs.curr.rho_v_stag(i, j);
+        fs.curr.V(i, j) -= dpdy * dt / rho;
       });
     }
 

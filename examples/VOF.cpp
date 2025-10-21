@@ -41,14 +41,17 @@ constexpr auto is_in(Float x, Float y) -> Float {
       Igor::sqr(x - 1.75 * std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
           Igor::sqr(0.25));
 };
-Float INIT_VF_INT         = 0.0;  // NOLINT
+Float INIT_VF_INT        = 0.0;  // NOLINT
 
-constexpr Float DT_MAX    = 1e-2;
-constexpr Float CFL_MAX   = 0.5;
-constexpr Float T_END     = 30.0;
-constexpr Float DT_WRITE  = 5e-2;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.5;
+constexpr Float T_END    = 30.0;
+constexpr Float DT_WRITE = 5e-2;
 
-constexpr auto OUTPUT_DIR = "output/VOF";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/VOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -83,8 +86,8 @@ void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
                             Float t,
                             Matrix<Float, NX + 1, NY, NGHOST>& U,
                             Matrix<Float, NX, NY + 1, NGHOST>& V) {
-  for_each_a<Exec::Parallel>(U, [&](Index i, Index j) { U[i, j] = u_analytical(x[i], ym[j], t); });
-  for_each_a<Exec::Parallel>(V, [&](Index i, Index j) { V[i, j] = v_analytical(xm[i], y[j], t); });
+  for_each_a<Exec::Parallel>(U, [&](Index i, Index j) { U(i, j) = u_analytical(x(i), ym(j), t); });
+  for_each_a<Exec::Parallel>(V, [&](Index i, Index j) { V(i, j) = v_analytical(xm(i), y(j), t); });
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -106,7 +109,7 @@ auto main() -> int {
 
   // = Setup velocity and vof field ================================================================
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
-    vof.vf[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    vof.vf(i, j) = quadrature(is_in, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
   localize_cells(fs.x, fs.y, vof.ir);
   reconstruct_interface(fs, vof.vf, vof.ir);
@@ -115,7 +118,8 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(vof.vf, fs);
+  calc_visc(vof.vf, fs);
   Float max_div = std::transform_reduce(
       div.get_data(),
       div.get_data() + div.size(),

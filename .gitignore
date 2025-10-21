@@ -15,13 +15,21 @@ IB
 IB.dSYM
 PhaseChange
 PhaseChange.dSYM
+RisingBubble
+RisingBubble.dSYM
 
+*.swp
 *.env
-run.slurm
+compile.out
+*.slurm
 
 output*/
 notes/
 
+*.txt
 *.stdout
 *.stderr
 scorep-*
+
+build*/
+!CMakeLists.txt

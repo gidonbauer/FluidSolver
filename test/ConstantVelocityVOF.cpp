@@ -1,5 +1,7 @@
 #include <numeric>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
@@ -13,27 +15,30 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float               = double;
-constexpr Index NX        = 128;
-constexpr Index NY        = 128;
-constexpr Index NGHOST    = 1;
+using Float            = double;
+constexpr Index NX     = 128;
+constexpr Index NY     = 128;
+constexpr Index NGHOST = 1;
 
-constexpr Float X_MIN     = 0.0;
-constexpr Float X_MAX     = 1.0;
-constexpr Float Y_MIN     = 0.0;
-constexpr Float Y_MAX     = 1.0;
-constexpr auto DX         = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY         = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+constexpr Float X_MIN  = 0.0;
+constexpr Float X_MAX  = 1.0;
+constexpr Float Y_MIN  = 0.0;
+constexpr Float Y_MAX  = 1.0;
+constexpr auto DX      = (X_MAX - X_MIN) / static_cast<Float>(NX);
+constexpr auto DY      = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-constexpr Float U0        = 1.0;
-constexpr Float V0        = 0.5;
+constexpr Float U0     = 1.0;
+constexpr Float V0     = 0.5;
 
-Float INIT_VF_INT         = 0.0;  // NOLINT
+Float INIT_VF_INT      = 0.0;  // NOLINT
 
-constexpr Float DT        = 5e-3;
-constexpr Index NITER     = 120;
+constexpr Float DT     = 5e-3;
+constexpr Index NITER  = 120;
 
-constexpr auto OUTPUT_DIR = "test/output/ConstantVelocityVOF";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/ConstantVelocityVOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -72,8 +77,8 @@ auto calc_center_of_mass(const Vector<Float, NX, NGHOST>& xm,
   Float weighted_x = 0.0;
   Float weighted_y = 0.0;
   for_each_i(vf, [&](Index i, Index j) {
-    weighted_x += xm[i] * vf[i, j];
-    weighted_y += ym[j] * vf[i, j];
+    weighted_x += xm(i) * vf(i, j);
+    weighted_y += ym(j) * vf(i, j);
   });
   weighted_x *= DX * DY;
   weighted_y *= DX * DY;
@@ -83,6 +88,8 @@ auto calc_center_of_mass(const Vector<Float, NX, NGHOST>& xm,
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
@@ -113,7 +120,7 @@ auto main() -> int {
       return Igor::sqr(x - 0.25) + Igor::sqr(y - 0.25) <= Igor::sqr(0.125);
     };
 
-    vof.vf[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    vof.vf(i, j) = quadrature(is_in, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
 
   fill(fs.curr.U, U0);

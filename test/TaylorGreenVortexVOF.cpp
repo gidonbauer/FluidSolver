@@ -1,5 +1,7 @@
 #include <numbers>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
@@ -14,30 +16,33 @@
 #include "VTKWriter.hpp"
 
 // = Config ========================================================================================
-using Float               = double;
+using Float              = double;
 
-constexpr Index NX        = 128;
-constexpr Index NY        = 128;
-constexpr Index NGHOST    = 1;
+constexpr Index NX       = 128;
+constexpr Index NY       = 128;
+constexpr Index NGHOST   = 1;
 
-constexpr Float X_MIN     = 0.0;
-constexpr Float X_MAX     = 2.0 * std::numbers::pi_v<Float>;
-constexpr Float Y_MIN     = 0.0;
-constexpr Float Y_MAX     = 2.0 * std::numbers::pi_v<Float>;
-constexpr auto DX         = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY         = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
+constexpr Float X_MIN    = 0.0;
+constexpr Float X_MAX    = 2.0 * std::numbers::pi_v<Float>;
+constexpr Float Y_MIN    = 0.0;
+constexpr Float Y_MAX    = 2.0 * std::numbers::pi_v<Float>;
+constexpr auto DX        = (X_MAX - X_MIN) / static_cast<Float>(NX);
+constexpr auto DY        = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
-constexpr Float VISC      = 1e-1;
-constexpr Float RHO       = 0.9;
+constexpr Float VISC     = 1e-1;
+constexpr Float RHO      = 0.9;
 
-Float INIT_VF_INT         = 0.0;  // NOLINT
+Float INIT_VF_INT        = 0.0;  // NOLINT
 
-constexpr Float DT_MAX    = 1e-2;
-constexpr Float CFL_MAX   = 0.5;
-constexpr Float T_END     = 5.0;
-constexpr Float DT_WRITE  = 5e-2;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.5;
+constexpr Float T_END    = 5.0;
+constexpr Float DT_WRITE = 5e-2;
 
-constexpr auto OUTPUT_DIR = "test/output/TaylorGreenVortexVOF";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/TaylorGreenVortexVOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -102,12 +107,14 @@ void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
                             Float t,
                             Matrix<Float, NX + 1, NY, NGHOST>& U,
                             Matrix<Float, NX, NY + 1, NGHOST>& V) {
-  for_each_a<Exec::Parallel>(U, [&](Index i, Index j) { U[i, j] = u_analytical(x[i], ym[j], t); });
-  for_each_a<Exec::Parallel>(V, [&](Index i, Index j) { V[i, j] = v_analytical(xm[i], y[j], t); });
+  for_each_a<Exec::Parallel>(U, [&](Index i, Index j) { U(i, j) = u_analytical(x(i), ym(j), t); });
+  for_each_a<Exec::Parallel>(V, [&](Index i, Index j) { V(i, j) = v_analytical(xm(i), y(j), t); });
 }
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
@@ -143,7 +150,7 @@ auto main() -> int {
              Igor::sqr(0.5);
     };
 
-    vof.vf[i, j] = quadrature(is_in, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
+    vof.vf(i, j) = quadrature(is_in, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
   reconstruct_interface(fs, vof.vf, vof.ir);
 
@@ -151,7 +158,8 @@ auto main() -> int {
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-  calc_rho_and_visc(vof.vf, fs);
+  calc_rho(fs);
+  calc_visc(fs);
   Float max_div = abs_max(div);
 
   if (!data_writer.write(0.0)) { return 1; }

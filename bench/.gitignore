@@ -1,7 +1,7 @@
 *
 
 !.gitignore
-!test.mk
+!bench.mk
 !CMakeLists.txt
 !*.hpp
 !*.cpp

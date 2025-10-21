@@ -31,7 +31,10 @@ constexpr Float DY            = (Y_MAX - Y_MIN) / static_cast<Float>(N);
 
 constexpr Index NUM_TEST_ITER = 50'000;
 
-constexpr auto OUTPUT_DIR     = "output/Curvature";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/Curvature";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -65,9 +68,9 @@ void test_curvature(CURV_FUNC calc_curv,
   };
 
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
-    vof.vf_old[i, j] =
-        quadrature<64>(vof0, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]) / (fs.dx * fs.dy);
-    vof.vf[i, j] = vof.vf_old[i, j];
+    vof.vf_old(i, j) =
+        quadrature<64>(vof0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
+    vof.vf(i, j) = vof.vf_old(i, j);
   });
   std::fill_n(vof.ir.interface.get_data(), vof.ir.interface.size(), IRL::PlanarSeparator{});
   reconstruct_interface(fs, vof.vf, vof.ir);
@@ -95,12 +98,12 @@ void test_curvature(CURV_FUNC calc_curv,
   Index count           = 0;
   for_each_i(curv, [&](Index i, Index j) {
     if (has_interface(vof.vf, i, j)) {
-      metrics.min_curv   = std::min(curv[i, j], metrics.min_curv);
-      metrics.max_curv   = std::max(curv[i, j], metrics.max_curv);
-      metrics.mean_curv += curv[i, j];
-      metrics.mse_curv  += Igor::sqr(curv[i, j] - metrics.expected_curv);
+      metrics.min_curv   = std::min(curv(i, j), metrics.min_curv);
+      metrics.max_curv   = std::max(curv(i, j), metrics.max_curv);
+      metrics.mean_curv += curv(i, j);
+      metrics.mse_curv  += Igor::sqr(curv(i, j) - metrics.expected_curv);
       metrics.mrse_curv +=
-          Igor::sqr(curv[i, j] - metrics.expected_curv) / Igor::sqr(metrics.expected_curv);
+          Igor::sqr(curv(i, j) - metrics.expected_curv) / Igor::sqr(metrics.expected_curv);
       count += 1;
     }
   });

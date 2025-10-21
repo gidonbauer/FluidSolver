@@ -2,25 +2,35 @@
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
-#include <Igor/ProgressBar.hpp>
 #include <Igor/Timer.hpp>
 #include <Igor/TypeName.hpp>
 
 // #define FS_HYPRE_VERBOSE
 #define FS_SILENCE_CONV_WARN
+#define FS_PARALLEL_THRESHOLD 50000
 
 #include "FS.hpp"
 #include "IO.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+#include "Utility.hpp"
+
+#if defined(USE_VTK) || defined(FS_DISABLE_HDF)
+#include "VTKWriter.hpp"
+template <typename Float, Index NX, Index NY, Index NGHOST>
+using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
+#else
 #include "XDMFWriter.hpp"
+template <typename Float, Index NX, Index NY, Index NGHOST>
+using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
+#endif  // USE_VTK
 
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 64 * 10;
-constexpr Index NY              = 64;
+constexpr Index NX              = 128 * 10;
+constexpr Index NY              = 128;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
@@ -29,9 +39,9 @@ constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
 constexpr Float T_END           = 1.0;
-constexpr Float DT_MAX          = 1e-1;
+constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 1e-1;
+constexpr Float DT_WRITE        = 1e-2;
 
 constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
@@ -59,7 +69,10 @@ constexpr FlowBConds<Float> bconds{
 //     .V     = {0.0, 0.0, 0.0, 0.0},
 // };
 
-constexpr auto OUTPUT_DIR = "output/IncompSolver/";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/IncompSolver/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -70,8 +83,8 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
   inflow  = 0.0;
   outflow = 0.0;
   for_each_a(fs.ym, [&](Index j) {
-    inflow  += fs.curr.rho_u_stag[-NGHOST, j] * fs.curr.U[-NGHOST, j];
-    outflow += fs.curr.rho_u_stag[NX + NGHOST, j] * fs.curr.U[NX + NGHOST, j];
+    inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j);
+    outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j);
   });
   mass_error = outflow - inflow;
 }
@@ -110,12 +123,9 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  XDMFWriter<Float, NX, NY, NGHOST> data_writer(
-      Igor::detail::format("{}/solution.xdmf2", OUTPUT_DIR),
-      Igor::detail::format("{}/solution.h5", OUTPUT_DIR),
-      &fs.x,
-      &fs.y);
-  calc_rho_and_visc(fs);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  calc_rho(fs);
+  calc_visc(fs);
 
   data_writer.add_scalar("pressure", &fs.p);
   data_writer.add_scalar("divergence", &div);
@@ -138,8 +148,8 @@ auto main() -> int {
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_0; });
-  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
   calc_inflow_outflow(fs, inflow, outflow, mass_error);
 
@@ -154,7 +164,6 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
-  Igor::ProgressBar<Float> pbar(T_END, 67);
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
@@ -170,12 +179,12 @@ auto main() -> int {
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                          fs.curr.rho_u_stag[i, j];
+        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
+                          fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                          fs.curr.rho_v_stag[i, j];
+        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
+                          fs.curr.rho_v_stag(i, j);
       });
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
@@ -183,8 +192,8 @@ auto main() -> int {
       // Correct the outflow
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
       for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-        fs.curr.U[NX + NGHOST, j] -=
-            mass_error / (fs.curr.rho_u_stag[NX + NGHOST, j] * static_cast<Float>(NY + 2 * NGHOST));
+        fs.curr.U(NX + NGHOST, j) -=
+            mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
       });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -193,13 +202,13 @@ auto main() -> int {
       pressure_iter += local_pressure_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p(i, j) += delta_p(i, j); });
 
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / RHO;
+        fs.curr.U(i, j) -= (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx * dt / RHO;
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / RHO;
+        fs.curr.V(i, j) -= (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy * dt / RHO;
       });
     }
     calc_inflow_outflow(fs, inflow, outflow, mass_error);
@@ -215,9 +224,7 @@ auto main() -> int {
       if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
-    pbar.update(dt);
   }
-  std::cout << '\n';
 
   Igor::Info("Solver finish successfully.");
 }

@@ -16,25 +16,15 @@ namespace detail {
 
 // -------------------------------------------------------------------------------------------------
 template <typename T>
-requires(std::is_fundamental_v<T> && sizeof(T) == 4)
+requires(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8))
 [[nodiscard]] constexpr auto interpret_as_big_endian_bytes(T value)
-    -> std::array<const char, sizeof(value)> {
+    -> std::array<const char, sizeof(T)> {
   if constexpr (std::endian::native == std::endian::big) {
-    return std::bit_cast<std::array<const char, sizeof(value)>>(value);
+    return std::bit_cast<std::array<const char, sizeof(T)>>(value);
   }
-  return std::bit_cast<std::array<const char, sizeof(value)>>(
-      std::byteswap(std::bit_cast<uint32_t>(value)));
-}
-
-template <typename T>
-requires(std::is_fundamental_v<T> && sizeof(T) == 8)
-[[nodiscard]] constexpr auto interpret_as_big_endian_bytes(T value)
-    -> std::array<const char, sizeof(value)> {
-  if constexpr (std::endian::native == std::endian::big) {
-    return std::bit_cast<std::array<const char, sizeof(value)>>(value);
-  }
-  return std::bit_cast<std::array<const char, sizeof(value)>>(
-      std::byteswap(std::bit_cast<uint64_t>(value)));
+  using U = std::conditional_t<sizeof(T) == 4, std::uint32_t, std::uint64_t>;
+  static_assert(sizeof(T) == sizeof(U));
+  return std::bit_cast<std::array<const char, sizeof(T)>>(std::byteswap(std::bit_cast<U>(value)));
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -209,9 +199,15 @@ save_state(const std::string& output_dir,
 // -------------------------------------------------------------------------------------------------
 template <typename Float>
 [[nodiscard]] constexpr auto should_save(Float t, Float dt, Float dt_write, Float t_end) -> bool {
-  constexpr Float DT_SAFE = 1e-6;
-  return std::fmod(t + DT_SAFE * dt, dt_write) < dt * (1.0 - DT_SAFE) ||
-         std::abs(t - t_end) < DT_SAFE;
+  constexpr Float DT_SAFE      = 1e-6;
+  static Float last_save_t     = -1.0;
+
+  const bool dt_write_complete = std::fmod(t + DT_SAFE * dt, dt_write) < dt * (1.0 - DT_SAFE);
+  const bool is_last           = std::abs(t - t_end) < DT_SAFE;
+  const bool res               = dt_write_complete || is_last;
+  if (res && is_last && std::abs(t - last_save_t) < DT_SAFE) { return false; }
+  if (res) { last_save_t = t; }
+  return res;
 }
 
 // -------------------------------------------------------------------------------------------------

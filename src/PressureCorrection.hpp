@@ -22,6 +22,27 @@ static_assert(std::is_convertible_v<std::remove_cvref_t<decltype(PS_PARALLEL_THR
 constexpr Index PS_PARALLEL_GRID_SIZE_THRESHOLD = PS_PARALLEL_THRESHOLD;
 #endif
 
+// NOLINTNEXTLINE
+#define CHECK_ERROR(buffer)                                                                        \
+  do {                                                                                             \
+    if (const HYPRE_Int ierr = HYPRE_GetError(); ierr > 0) {                                       \
+      HYPRE_DescribeError(ierr, (buffer));                                                         \
+      Igor::Panic("A HYPRE error has occured before calling {}: {}", __func__, (buffer));          \
+    }                                                                                              \
+  } while (false)
+
+#define MAKE_SINGLE_THREADED_IF_NECESSARY                                                          \
+  int prev_num_threads = -1;                                                                       \
+  if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {         \
+    _Pragma("omp parallel") _Pragma("omp single") { prev_num_threads = omp_get_num_threads(); }    \
+    omp_set_num_threads(1);                                                                        \
+  }
+
+#define RESET_THREADING                                                                            \
+  if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {         \
+    omp_set_num_threads(prev_num_threads);                                                         \
+  }
+
 enum class PSSolver : std::uint8_t { GMRES, PCG, BiCGSTAB, SMG, PFMG };
 enum class PSPrecond : std::uint8_t { SMG, PFMG, NONE };
 enum class PSDirichlet : std::uint8_t { NONE, LEFT, RIGHT, BOTTOM, TOP };
@@ -49,6 +70,7 @@ class PS {
   Float m_tol;
   HYPRE_Int m_max_iter;
   bool m_is_setup = false;
+  std::array<char, HYPRE_MAX_MSG_LEN> msg_buffer{};
 
  public:
   constexpr PS(const FS<Float, NX, NY, NGHOST>& fs,
@@ -63,6 +85,7 @@ class PS {
         m_tol(tol),
         m_max_iter(max_iter) {
     HYPRE_Initialize();
+    initialize();
     setup(fs);
   }
 
@@ -70,6 +93,7 @@ class PS {
       : m_tol(tol),
         m_max_iter(max_iter) {
     HYPRE_Initialize();
+    initialize();
     setup(fs);
   }
 
@@ -82,17 +106,6 @@ class PS {
   // -----------------------------------------------------------------------------------------------
   constexpr ~PS() noexcept {
     destroy();
-    HYPRE_Finalize();
-  }
-
- private:
-  // -----------------------------------------------------------------------------------------------
-  constexpr void destroy() noexcept {
-    switch (m_precond_type) {
-      case PSPrecond::SMG:  HYPRE_StructSMGDestroy(m_precond); break;
-      case PSPrecond::PFMG: HYPRE_StructPFMGDestroy(m_precond); break;
-      case PSPrecond::NONE: break;
-    }
     switch (m_solver_type) {
       case PSSolver::GMRES:    HYPRE_StructGMRESDestroy(m_solver); break;
       case PSSolver::PCG:      HYPRE_StructPCGDestroy(m_solver); break;
@@ -105,14 +118,26 @@ class PS {
     HYPRE_StructMatrixDestroy(m_matrix);
     HYPRE_StructStencilDestroy(m_stencil);
     HYPRE_StructGridDestroy(m_grid);
+    HYPRE_Finalize();
+  }
+
+ private:
+  // -----------------------------------------------------------------------------------------------
+  constexpr void destroy() noexcept {
+    CHECK_ERROR(msg_buffer.data());
+
+    switch (m_precond_type) {
+      case PSPrecond::SMG:  HYPRE_StructSMGDestroy(m_precond); break;
+      case PSPrecond::PFMG: HYPRE_StructPFMGDestroy(m_precond); break;
+      case PSPrecond::NONE: break;
+    }
 
     m_is_setup = false;
   }
 
- public:
   // -----------------------------------------------------------------------------------------------
-  void setup(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
-    if (m_is_setup) { destroy(); }
+  void initialize() noexcept {
+    CHECK_ERROR(msg_buffer.data());
 
     // = Create structured grid ====================================================================
     {
@@ -137,11 +162,9 @@ class PS {
           m_stencil, i, stencil_offsets[static_cast<size_t>(i)].data());  // NOLINT
     }
 
-    // = Setup struct matrix =======================================================================
+    // = Create struct matrix ======================================================================
     HYPRE_StructMatrixCreate(COMM, m_grid, m_stencil, &m_matrix);
     HYPRE_StructMatrixInitialize(m_matrix);
-    setup_system_matrix(fs);
-    HYPRE_StructMatrixAssemble(m_matrix);
 
     // = Create right-hand side ====================================================================
     HYPRE_StructVectorCreate(COMM, m_grid, &m_rhs);
@@ -203,6 +226,19 @@ class PS {
 #endif  // FS_HYPRE_VERBOSE
         break;
     }
+  }
+
+ public:
+  // -----------------------------------------------------------------------------------------------
+  void setup(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
+    CHECK_ERROR(msg_buffer.data());
+
+    MAKE_SINGLE_THREADED_IF_NECESSARY
+
+    if (m_is_setup) { destroy(); }
+
+    setup_system_matrix(fs);
+    HYPRE_StructMatrixAssemble(m_matrix);
 
     // = Create preconditioner =====================================================================
     HYPRE_PtrToStructSolverFcn precond_setup = nullptr;
@@ -221,14 +257,26 @@ class PS {
         break;
 
       case PSPrecond::PFMG:
-        HYPRE_StructPFMGCreate(COMM, &m_precond);
-        HYPRE_StructPFMGSetMaxIter(m_precond, 1);
-        HYPRE_StructPFMGSetTol(m_precond, 0.0);
-        HYPRE_StructPFMGSetZeroGuess(m_precond);
-        HYPRE_StructPFMGSetNumPreRelax(m_precond, 1);
-        HYPRE_StructPFMGSetNumPostRelax(m_precond, 1);
-        precond_setup = HYPRE_StructPFMGSetup;
-        precond_solve = HYPRE_StructPFMGSolve;
+        {
+          HYPRE_StructPFMGCreate(COMM, &m_precond);
+          HYPRE_StructPFMGSetMaxIter(m_precond, 1);
+#ifndef PS_PFMG_MAX_LEVELS
+          constexpr HYPRE_Int MAX_LEVELS = 16;
+#else
+          static_assert(
+              std::is_convertible_v<std::remove_cvref_t<decltype(PS_PFMG_MAX_LEVELS)>, HYPRE_Int>,
+              "PS_PFMG_MAX_LEVELS must have a value that must be convertible to HYPRE_Int.");
+          constexpr HYPRE_Int MAX_LEVELS = PS_PFMG_MAX_LEVELS;
+#endif
+          HYPRE_StructPFMGSetMaxLevels(m_precond, MAX_LEVELS);
+          HYPRE_StructPFMGSetRAPType(m_precond, 1);
+          HYPRE_StructPFMGSetTol(m_precond, 0.0);
+          HYPRE_StructPFMGSetZeroGuess(m_precond);
+          HYPRE_StructPFMGSetNumPreRelax(m_precond, 1);
+          HYPRE_StructPFMGSetNumPostRelax(m_precond, 1);
+          precond_setup = HYPRE_StructPFMGSetup;
+          precond_solve = HYPRE_StructPFMGSolve;
+        }
         break;
 
       case PSPrecond::NONE: break;
@@ -279,11 +327,15 @@ class PS {
     if (error_flag != 0) { Igor::Panic("An error occured in HYPRE."); }
 
     m_is_setup = true;
+
+    RESET_THREADING
   }
 
  private:
   // -----------------------------------------------------------------------------------------------
   void setup_system_matrix(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
+    CHECK_ERROR(msg_buffer.data());
+
     static Matrix<std::array<Float, STENCIL_SIZE>, NX, NY, NGHOST, Layout::F> stencil_values{};
     enum : size_t { S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP };
     std::array<HYPRE_Int, STENCIL_SIZE> stencil_indices{S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP};
@@ -291,52 +343,52 @@ class PS {
     const Float vol = fs.dx * fs.dy;
 
     for_each_a<Exec::Parallel>(stencil_values, [&](Index i, Index j) {
-      std::array<Float, STENCIL_SIZE>& s = stencil_values[i, j];
+      std::array<Float, STENCIL_SIZE>& s = stencil_values(i, j);
       std::fill(s.begin(), s.end(), 0.0);
 
       // = x-components ==========================================================================
       if (i == -NGHOST) {
         // On left
-        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i + 1, j));
         s[S_LEFT]   += 0.0;
-        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
+        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i + 1, j));
       } else if (i == NX + NGHOST - 1) {
         // On right
-        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
-        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i, j));
+        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i, j));
         s[S_RIGHT]  += 0.0;
       } else {
         // In interior (x)
-        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]) +
-                               -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]));
-        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i, j]);
-        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag[i + 1, j]);
+        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i, j)) +
+                               -1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i + 1, j)));
+        s[S_LEFT]   += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i, j));
+        s[S_RIGHT]  += -vol * 1.0 / (Igor::sqr(fs.dx) * fs.curr.rho_u_stag(i + 1, j));
       }
 
       // = y-components ==========================================================================
       if (j == -NGHOST) {
         // On bottom
-        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1));
         s[S_BOTTOM] += 0.0;
-        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
+        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1));
       } else if (j == NY + NGHOST - 1) {
         // On top
-        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
-        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
+        s[S_CENTER] += -vol * -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j));
+        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j));
         s[S_TOP]    += 0.0;
       } else {
         // In interior (y)
-        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]) +
-                               -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]));
-        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j]);
-        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag[i, j + 1]);
+        s[S_CENTER] += -vol * (-1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j)) +
+                               -1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1)));
+        s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j));
+        s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1));
       }
     });
 
     switch (m_dirichlet_bc) {
       case PSDirichlet::LEFT:
         for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values[-NGHOST, j];
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(-NGHOST, j);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
@@ -346,7 +398,7 @@ class PS {
         break;
       case PSDirichlet::RIGHT:
         for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values[NX + NGHOST - 1, j];
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(NX + NGHOST - 1, j);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
@@ -356,7 +408,7 @@ class PS {
         break;
       case PSDirichlet::BOTTOM:
         for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values[i, -NGHOST];
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(i, -NGHOST);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
@@ -366,7 +418,7 @@ class PS {
         break;
       case PSDirichlet::TOP:
         for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
-          std::array<Float, STENCIL_SIZE>& s = stencil_values[i, NX + NGHOST - 1];
+          std::array<Float, STENCIL_SIZE>& s = stencil_values(i, NY + NGHOST - 1);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
@@ -374,10 +426,9 @@ class PS {
           s[S_TOP]                           = 0.0;
         });
         break;
-      case PSDirichlet::NONE:
+      case PSDirichlet::NONE: break;
     }
 
-#if 1
     std::array<HYPRE_Int, NDIMS> ilower = {-NGHOST, -NGHOST};
     std::array<HYPRE_Int, NDIMS> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
     HYPRE_StructMatrixSetBoxValues(m_matrix,
@@ -386,16 +437,6 @@ class PS {
                                    STENCIL_SIZE,
                                    stencil_indices.data(),
                                    stencil_values.get_data()->data());
-#else
-    for_each_a(stencil_values, [&](Index i, Index j) {
-      std::array<HYPRE_Int, NDIMS> index{i, j};
-      HYPRE_StructMatrixSetValues(m_matrix,
-                                  index.data(),
-                                  STENCIL_SIZE,
-                                  stencil_indices.data(),
-                                  stencil_values[i, j].data());
-    });
-#endif
   }
 
  public:
@@ -406,17 +447,12 @@ class PS {
              Matrix<Float, NX, NY, NGHOST>& resP,
              Float* pressure_residual = nullptr,
              Index* num_iter          = nullptr) -> bool {
+    CHECK_ERROR(msg_buffer.data());
+
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
 
-    int prev_num_threads = -1;
-    if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {
-#pragma omp parallel
-#pragma omp single
-      { prev_num_threads = omp_get_num_threads(); }
-      omp_set_num_threads(1);
-    }
+    MAKE_SINGLE_THREADED_IF_NECESSARY
 
-    static std::array<char, 1024UZ> buffer{};
     bool res       = true;
 
     const auto vol = fs.dx * fs.dy;
@@ -430,20 +466,20 @@ class PS {
     HYPRE_StructVectorSetBoxValues(m_sol, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Set right-hand side =======================================================================
-    for_each_a(rhs_values, [&](Index i, Index j) { rhs_values[i, j] = -vol * div[i, j] / dt; });
+    for_each_a(rhs_values, [&](Index i, Index j) { rhs_values(i, j) = -vol * div(i, j) / dt; });
 
     switch (m_dirichlet_bc) {
       case PSDirichlet::LEFT:
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values[-NGHOST, j] = 0.0; });
+        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values(-NGHOST, j) = 0.0; });
         break;
       case PSDirichlet::RIGHT:
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values[NX + NGHOST - 1, j] = 0.0; });
+        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs_values(NX + NGHOST - 1, j) = 0.0; });
         break;
       case PSDirichlet::BOTTOM:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values[i, -NGHOST] = 0.0; });
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values(i, -NGHOST) = 0.0; });
         break;
       case PSDirichlet::TOP:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values[i, NX + NGHOST - 1] = 0.0; });
+        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs_values(i, NY + NGHOST - 1) = 0.0; });
         break;
       case PSDirichlet::NONE:
         const Float mean_rhs = std::reduce(rhs_values.get_data(),
@@ -452,9 +488,10 @@ class PS {
                                            std::plus<>{}) /
                                static_cast<Float>(rhs_values.size());
         for_each_a<Exec::Parallel>(rhs_values,
-                                   [&](Index i, Index j) { rhs_values[i, j] -= mean_rhs; });
+                                   [&](Index i, Index j) { rhs_values(i, j) -= mean_rhs; });
         break;
     }
+    IGOR_ASSERT(!has_nan_or_inf(rhs_values), "NaN or inf in rhs_values");
     HYPRE_StructVectorSetBoxValues(m_rhs, ilower.data(), iupper.data(), rhs_values.get_data());
 
     // = Solve the system ==========================================================================
@@ -493,14 +530,14 @@ class PS {
         break;
     }
 
-    for_each_a<Exec::Parallel>(resP, [&](Index i, Index j) {
-      std::array<HYPRE_Int, NDIMS> idx = {static_cast<HYPRE_Int>(i), static_cast<HYPRE_Int>(j)};
-      HYPRE_StructVectorGetValues(m_sol, idx.data(), &resP[i, j]);
-    });
+    // = Get solution ==============================================================================
+    HYPRE_StructVectorGetBoxValues(m_sol, ilower.data(), iupper.data(), rhs_values.get_data());
+    for_each_a<Exec::Serial>(resP, [&](Index i, Index j) { resP(i, j) = rhs_values(i, j); });
 
     if (pressure_residual != nullptr) { *pressure_residual = final_residual; }
     if (num_iter != nullptr) { *num_iter = local_num_iter; }
 
+    // = Check for errors ==========================================================================
     const HYPRE_Int error_flag = HYPRE_GetError();
     if (error_flag != 0) {
       if (HYPRE_CheckError(error_flag, HYPRE_ERROR_CONV) != 0) {
@@ -512,17 +549,19 @@ class PS {
         HYPRE_ClearError(HYPRE_ERROR_CONV);
         res = false;
       } else {
-        HYPRE_DescribeError(error_flag, buffer.data());
-        Igor::Panic("An error occured in HYPRE: {}", buffer.data());
+        HYPRE_DescribeError(error_flag, msg_buffer.data());
+        Igor::Panic("An error occured in HYPRE: {}", msg_buffer.data());
       }
     }
 
-    if constexpr ((NX + 2 * NGHOST) * (NY + 2 * NGHOST) < PS_PARALLEL_GRID_SIZE_THRESHOLD) {
-      omp_set_num_threads(prev_num_threads);
-    }
+    RESET_THREADING
 
     return res;
   }
 };
+
+#undef CHECK_ERROR
+#undef MAKE_SINGLE_THREADED_IF_NECESSARY
+#undef RESET_THREADING
 
 #endif  // FLUID_SOLVER_PRESSURE_CORRECTION_HPP_

@@ -1,8 +1,15 @@
 #ifndef FLUID_SOLVER_FOR_EACH_HPP_
 #define FLUID_SOLVER_FOR_EACH_HPP_
 
+#include <algorithm>
+#ifdef FS_STDPAR
+#include <execution>
+#endif  // FS_STDPAR
+
 #include "Container.hpp"
+#include "IotaIter.hpp"
 #include "Macros.hpp"
+#include "StdparOpenMP.hpp"
 
 #ifndef FS_PARALLEL_THRESHOLD
 constexpr Index FS_PARALLEL_THRESHOLD_COUNT = 1000;
@@ -13,7 +20,7 @@ constexpr Index FS_PARALLEL_THRESHOLD_COUNT = FS_PARALLEL_THRESHOLD;
 #endif  // FS_PARALLEL_THRESHOLD
 
 // -------------------------------------------------------------------------------------------------
-enum class Exec : uint8_t { Serial, Parallel, ParallelDynamic };
+enum class Exec : uint8_t { Serial, Parallel, ParallelDynamic, ParallelGPU };
 
 // -------------------------------------------------------------------------------------------------
 template <typename FUNC>
@@ -21,42 +28,46 @@ concept ForEachFunc1D = requires(FUNC f) {
   { f(std::declval<Index>()) } -> std::same_as<void>;
 };
 
+template <Exec EXEC, Index NITER>
+consteval auto get_exec_policy() noexcept {
+  if constexpr (EXEC == Exec::Serial || NITER < FS_PARALLEL_THRESHOLD_COUNT) {
+    return StdparOpenMP::Serial;
+  } else if constexpr (EXEC == Exec::Parallel) {
+    return StdparOpenMP::Parallel;
+  } else if constexpr (EXEC == Exec::ParallelDynamic) {
+    return StdparOpenMP::ParallelDynamic;
+  } else if constexpr (EXEC == Exec::ParallelGPU) {
+#ifdef FS_STDPAR
+    return std::execution::par_unseq;
+#else
+    return StdparOpenMP::Parallel;
+#endif  // FS_STDPAR
+  }
+
+  Igor::Panic("Unreachable");
+  std::unreachable();
+}
+
 // -------------------------------------------------------------------------------------------------
 template <Index I_MIN, Index I_MAX, Exec EXEC = Exec::Serial, ForEachFunc1D FUNC>
 FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
-  if constexpr (EXEC == Exec::Serial) {
-
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      f(i);
-    }
-
-  } else if constexpr (EXEC == Exec::Parallel) {
-
-#pragma omp parallel for if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      f(i);
-    }
-
-  } else if constexpr (EXEC == Exec::ParallelDynamic) {
-
-#pragma omp parallel for schedule(dynamic) if ((I_MAX - I_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      f(i);
-    }
-
-  } else {
-    Igor::Panic("Unreachable: EXEC={}", static_cast<int>(EXEC));
-    std::unreachable();
-  }
+  std::for_each(get_exec_policy<EXEC, I_MAX - I_MIN>(),
+                IotaIter<Index>(I_MIN),
+                IotaIter<Index>(I_MAX),
+                std::forward<FUNC&&>(f));
 }
 
+// -------------------------------------------------------------------------------------------------
 template <Exec EXEC = Exec::Serial, typename Float, Index N, Index NGHOST, ForEachFunc1D FUNC>
-FS_ALWAYS_INLINE void for_each_i(const Vector<Float, N, NGHOST>& _, FUNC&& f) noexcept {
+FS_ALWAYS_INLINE void for_each_i([[maybe_unused]] const Vector<Float, N, NGHOST>& _,
+                                 FUNC&& f) noexcept {
   for_each<0, N, EXEC>(std::forward<FUNC&&>(f));
 }
 
+// -------------------------------------------------------------------------------------------------
 template <Exec EXEC = Exec::Serial, typename Float, Index N, Index NGHOST, ForEachFunc1D FUNC>
-FS_ALWAYS_INLINE void for_each_a(const Vector<Float, N, NGHOST>& _, FUNC&& f) noexcept {
+FS_ALWAYS_INLINE void for_each_a([[maybe_unused]] const Vector<Float, N, NGHOST>& _,
+                                 FUNC&& f) noexcept {
   for_each<-NGHOST, N + NGHOST, EXEC>(std::forward<FUNC&&>(f));
 }
 
@@ -66,6 +77,7 @@ concept ForEachFunc2D = requires(FUNC f) {
   { f(std::declval<Index>(), std::declval<Index>()) } -> std::same_as<void>;
 };
 
+// -------------------------------------------------------------------------------------------------
 template <Index I_MIN,
           Index I_MAX,
           Index J_MIN,
@@ -74,69 +86,30 @@ template <Index I_MIN,
           Layout LAYOUT = Layout::C,
           ForEachFunc2D FUNC>
 FS_ALWAYS_INLINE void for_each(FUNC&& f) noexcept {
-  if constexpr (EXEC == Exec::Serial && LAYOUT == Layout::C) {
-
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      for (Index j = J_MIN; j < J_MAX; ++j) {
-        f(i, j);
-      }
+  constexpr auto from_linear_index = [](Index idx) noexcept -> std::pair<Index, Index> {
+    if constexpr (LAYOUT == Layout::C) {
+      return {
+          idx / (J_MAX - J_MIN) + I_MIN,
+          idx % (J_MAX - J_MIN) + J_MIN,
+      };
+    } else {
+      return {
+          idx % (I_MAX - I_MIN) + I_MIN,
+          idx / (I_MAX - I_MIN) + J_MIN,
+      };
     }
+  };
 
-  } else if constexpr (EXEC == Exec::Parallel && LAYOUT == Layout::C) {
-
-#pragma omp parallel for collapse(2) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) >                       \
-                                             FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      for (Index j = J_MIN; j < J_MAX; ++j) {
-        f(i, j);
-      }
-    }
-
-  } else if constexpr (EXEC == Exec::ParallelDynamic && LAYOUT == Layout::C) {
-
-#pragma omp parallel for collapse(2)                                                               \
-    schedule(dynamic) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index i = I_MIN; i < I_MAX; ++i) {
-      for (Index j = J_MIN; j < J_MAX; ++j) {
-        f(i, j);
-      }
-    }
-
-  } else if constexpr (EXEC == Exec::Serial && LAYOUT == Layout::F) {
-
-    for (Index j = J_MIN; j < J_MAX; ++j) {
-      for (Index i = I_MIN; i < I_MAX; ++i) {
-        f(i, j);
-      }
-    }
-
-  } else if constexpr (EXEC == Exec::Parallel && LAYOUT == Layout::F) {
-
-#pragma omp parallel for collapse(2) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) >                       \
-                                             FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index j = J_MIN; j < J_MAX; ++j) {
-      for (Index i = I_MIN; i < I_MAX; ++i) {
-        f(i, j);
-      }
-    }
-
-  } else if constexpr (EXEC == Exec::ParallelDynamic && LAYOUT == Layout::F) {
-
-#pragma omp parallel for collapse(2)                                                               \
-    schedule(dynamic) if ((I_MAX - I_MIN) * (J_MAX - J_MIN) > FS_PARALLEL_THRESHOLD_COUNT)
-    for (Index j = J_MIN; j < J_MAX; ++j) {
-      for (Index i = I_MIN; i < I_MAX; ++i) {
-        f(i, j);
-      }
-    }
-
-  } else {
-    Igor::Panic(
-        "Unreachable: EXEC={}, LAYOUT={}", static_cast<int>(EXEC), static_cast<int>(LAYOUT));
-    std::unreachable();
-  }
+  std::for_each(get_exec_policy<EXEC, (I_MAX - I_MIN) * (J_MAX - J_MIN)>(),
+                IotaIter<Index>(0),
+                IotaIter<Index>((I_MAX - I_MIN) * (J_MAX - J_MIN)),
+                [&](Index idx) {
+                  const auto [i, j] = from_linear_index(idx);
+                  f(i, j);
+                });
 }
 
+// -------------------------------------------------------------------------------------------------
 template <Exec EXEC = Exec::Serial,
           typename Float,
           Index NX,
@@ -144,11 +117,12 @@ template <Exec EXEC = Exec::Serial,
           Index NGHOST,
           Layout LAYOUT,
           ForEachFunc2D FUNC>
-FS_ALWAYS_INLINE void for_each_i(const Matrix<Float, NX, NY, NGHOST, LAYOUT>& _,
+FS_ALWAYS_INLINE void for_each_i([[maybe_unused]] const Matrix<Float, NX, NY, NGHOST, LAYOUT>& _,
                                  FUNC&& f) noexcept {
   for_each<0, NX, 0, NY, EXEC, LAYOUT>(std::forward<FUNC&&>(f));
 }
 
+// -------------------------------------------------------------------------------------------------
 template <Exec EXEC = Exec::Serial,
           typename Float,
           Index NX,
@@ -156,7 +130,7 @@ template <Exec EXEC = Exec::Serial,
           Index NGHOST,
           Layout LAYOUT,
           ForEachFunc2D FUNC>
-FS_ALWAYS_INLINE void for_each_a(const Matrix<Float, NX, NY, NGHOST, LAYOUT>& _,
+FS_ALWAYS_INLINE void for_each_a([[maybe_unused]] const Matrix<Float, NX, NY, NGHOST, LAYOUT>& _,
                                  FUNC&& f) noexcept {
   for_each<-NGHOST, NX + NGHOST, -NGHOST, NY + NGHOST, EXEC, LAYOUT>(std::forward<FUNC&&>(f));
 }

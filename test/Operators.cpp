@@ -1,6 +1,8 @@
 #include <atomic>
 #include <random>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -40,12 +42,12 @@ auto test_eval_grid_at() noexcept -> bool {
 
   for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
     for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      fs.curr.U[i, j] = u(fs.x[i], fs.ym[j]);
+      fs.curr.U(i, j) = u(fs.x(i), fs.ym(j));
     }
   }
   for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
     for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-      fs.curr.V[i, j] = v(fs.xm[i], fs.y[j]);
+      fs.curr.V(i, j) = v(fs.xm(i), fs.y(j));
     }
   }
 
@@ -56,9 +58,9 @@ auto test_eval_grid_at() noexcept -> bool {
   for (Index i = 0; i < N; ++i) {
     for (Index j = 0; j < N; ++j) {
       const auto x =
-          (fs.xm[NX - 1] - fs.xm[0]) / static_cast<Float>(N - 1) * static_cast<Float>(i) + fs.xm[0];
+          (fs.xm(NX - 1) - fs.xm(0)) / static_cast<Float>(N - 1) * static_cast<Float>(i) + fs.xm(0);
       const auto y =
-          (fs.ym[NY - 1] - fs.ym[0]) / static_cast<Float>(N - 1) * static_cast<Float>(j) + fs.ym[0];
+          (fs.ym(NY - 1) - fs.ym(0)) / static_cast<Float>(N - 1) * static_cast<Float>(j) + fs.ym(0);
       const auto [U, V]  = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, x, y);
 
       constexpr auto EPS = 100.0 * std::numeric_limits<Float>::epsilon();
@@ -104,9 +106,9 @@ auto test_gradient_centered_points() noexcept -> bool {
   Matrix<Float, NX, NY, NGHOST + 4> dfdyx{};
 
   for_each_a<Exec::Parallel>(f, [&](Index i, Index j) {
-    const Float x = fs.xm[i] - 0.5;
-    const Float y = fs.ym[j] - 0.5;
-    f[i, j]       = x * x + x * y + y * y;
+    const Float x = fs.xm(i) - 0.5;
+    const Float y = fs.ym(j) - 0.5;
+    f(i, j)       = x * x + x * y + y * y;
   });
 
   calc_grad_of_centered_points(f, fs.dx, fs.dy, dfdx, dfdy);
@@ -115,8 +117,8 @@ auto test_gradient_centered_points() noexcept -> bool {
 
   bool all_success = true;
   for_each_a(f, [&](Index i, Index j) {
-    const Float x              = fs.xm[i] - 0.5;
-    const Float y              = fs.ym[j] - 0.5;
+    const Float x              = fs.xm(i) - 0.5;
+    const Float y              = fs.ym(j) - 0.5;
     const Float dfdx_expected  = 2.0 * x + y;
     const Float dfdy_expected  = x + 2.0 * y;
     const Float dfdxx_expected = 2.0;
@@ -126,81 +128,81 @@ auto test_gradient_centered_points() noexcept -> bool {
 
     constexpr Float EPS        = 2e-10;
 
-    if (std::abs(dfdx[i, j] - dfdx_expected) > EPS) {
+    if (std::abs(dfdx(i, j) - dfdx_expected) > EPS) {
       Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdx={:.6e} but is {:.6e}: "
                  "error={:.6e}",
                  i,
                  j,
-                 fs.xm[i],
-                 fs.ym[j],
+                 fs.xm(i),
+                 fs.ym(j),
                  dfdx_expected,
-                 dfdx[i, j],
-                 std::abs(dfdx_expected - dfdx[i, j]));
+                 dfdx(i, j),
+                 std::abs(dfdx_expected - dfdx(i, j)));
       all_success = false;
     }
 
-    if (std::abs(dfdy[i, j] - dfdy_expected) > EPS) {
+    if (std::abs(dfdy(i, j) - dfdy_expected) > EPS) {
       Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdy={:.6e} but is {:.6e}: "
                  "error={:.6e}",
                  i,
                  j,
-                 fs.xm[i],
-                 fs.ym[j],
+                 fs.xm(i),
+                 fs.ym(j),
                  dfdy_expected,
-                 dfdy[i, j],
-                 std::abs(dfdy_expected - dfdy[i, j]));
+                 dfdy(i, j),
+                 std::abs(dfdy_expected - dfdy(i, j)));
       all_success = false;
     }
 
-    if (std::abs(dfdxx[i, j] - dfdxx_expected) > EPS) {
+    if (std::abs(dfdxx(i, j) - dfdxx_expected) > EPS) {
       Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdxx={:.6e} but is {:.6e}: "
                  "error={:.6e}",
                  i,
                  j,
-                 fs.xm[i],
-                 fs.ym[j],
+                 fs.xm(i),
+                 fs.ym(j),
                  dfdxx_expected,
-                 dfdxx[i, j],
-                 std::abs(dfdxx_expected - dfdxx[i, j]));
+                 dfdxx(i, j),
+                 std::abs(dfdxx_expected - dfdxx(i, j)));
       all_success = false;
     }
 
-    if (std::abs(dfdyy[i, j] - dfdyy_expected) > EPS) {
+    if (std::abs(dfdyy(i, j) - dfdyy_expected) > EPS) {
       Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdyy={:.6e} but is {:.6e}: "
                  "error={:.6e}",
                  i,
                  j,
-                 fs.xm[i],
-                 fs.ym[j],
+                 fs.xm(i),
+                 fs.ym(j),
                  dfdyy_expected,
-                 dfdyy[i, j],
-                 std::abs(dfdyy_expected - dfdyy[i, j]));
+                 dfdyy(i, j),
+                 std::abs(dfdyy_expected - dfdyy(i, j)));
       all_success = false;
     }
 
-    if (std::abs(dfdxy[i, j] - dfdxy_expected) > EPS) {
+    if (std::abs(dfdxy(i, j) - dfdxy_expected) > EPS) {
       Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdxy={:.6e} but is {:.6e}: "
                  "error={:.6e}",
                  i,
                  j,
-                 fs.xm[i],
-                 fs.ym[j],
+                 fs.xm(i),
+                 fs.ym(j),
                  dfdxy_expected,
-                 dfdxy[i, j],
-                 std::abs(dfdxy_expected - dfdxy[i, j]));
+                 dfdxy(i, j),
+                 std::abs(dfdxy_expected - dfdxy(i, j)));
       all_success = false;
     }
 
-    if (std::abs(dfdyx[i, j] - dfdyx_expected) > EPS) {
+    if (std::abs(dfdyx(i, j) - dfdyx_expected) > EPS) {
       Igor::Warn("{}, {}: Incorrect derivative at ({}, {}), expected dfdyx={:.6e} but is {:.6e}: "
                  "error={:.6e}",
                  i,
                  j,
-                 fs.xm[i],
-                 fs.ym[j],
+                 fs.xm(i),
+                 fs.ym(j),
                  dfdyx_expected,
-                 dfdyx[i, j],
-                 std::abs(dfdyx_expected - dfdyx[i, j]));
+                 dfdyx(i, j),
+                 std::abs(dfdyx_expected - dfdyx(i, j)));
       all_success = false;
     }
   });
@@ -222,14 +224,14 @@ auto test_staggered_integral() -> bool {
 
   for (Index i = 0; i < fs.curr.U.extent(0); ++i) {
     for (Index j = 0; j < fs.curr.U.extent(1); ++j) {
-      fs.curr.rho_u_stag[i, j] = rho(fs.x[i], fs.ym[j]);
-      fs.curr.U[i, j]          = rhoU(fs.x[i], fs.ym[j]) / rho(fs.x[i], fs.ym[j]);
+      fs.curr.rho_u_stag(i, j) = rho(fs.x(i), fs.ym(j));
+      fs.curr.U(i, j)          = rhoU(fs.x(i), fs.ym(j)) / rho(fs.x(i), fs.ym(j));
     }
   }
   for (Index i = 0; i < fs.curr.V.extent(0); ++i) {
     for (Index j = 0; j < fs.curr.V.extent(1); ++j) {
-      fs.curr.rho_v_stag[i, j] = rho(fs.xm[i], fs.y[j]);
-      fs.curr.V[i, j]          = rhoV(fs.xm[i], fs.y[j]) / rho(fs.xm[i], fs.y[j]);
+      fs.curr.rho_v_stag(i, j) = rho(fs.xm(i), fs.y(j));
+      fs.curr.V(i, j)          = rhoV(fs.xm(i), fs.y(j)) / rho(fs.xm(i), fs.y(j));
     }
   }
 
@@ -238,9 +240,9 @@ auto test_staggered_integral() -> bool {
   Float momentum_y_expected = 0.0;
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
-      mass_expected       += quadrature<64>(rho, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]);
-      momentum_x_expected += quadrature<64>(rhoU, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]);
-      momentum_y_expected += quadrature<64>(rhoV, fs.x[i], fs.x[i + 1], fs.y[j], fs.y[j + 1]);
+      mass_expected       += quadrature<64>(rho, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1));
+      momentum_x_expected += quadrature<64>(rhoU, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1));
+      momentum_y_expected += quadrature<64>(rhoV, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1));
     }
   }
 
@@ -292,13 +294,15 @@ auto test_atomics() -> bool {
   const auto expected_int         = integrate(1.0, 1.0, field);
 
   std::atomic<Float> parallel_int = 0.0;
-  for_each_i<Exec::Parallel>(field, [&](Index i, Index j) { parallel_int += field[i, j]; });
+  for_each_i<Exec::Parallel>(field, [&](Index i, Index j) { parallel_int += field(i, j); });
 
   return std::abs(expected_int - parallel_int) < 1e-8;
 }
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   bool success      = true;
   bool test_success = true;
 

@@ -1,6 +1,8 @@
 #include <cstddef>
 #include <filesystem>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -11,6 +13,7 @@
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+#include "Utility.hpp"
 #include "VTKWriter.hpp"
 
 #include "Common.hpp"
@@ -50,7 +53,10 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
-constexpr auto OUTPUT_DIR = "test/output/Couette/";
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/Couette/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -61,14 +67,16 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
   inflow  = 0;
   outflow = 0;
   for_each_a(fs.ym, [&](Index j) {
-    inflow  += fs.curr.rho_u_stag[0, j] * fs.curr.U[0, j];
-    outflow += fs.curr.rho_u_stag[NX, j] * fs.curr.U[NX, j];
+    inflow  += fs.curr.rho_u_stag(0, j) * fs.curr.U(0, j);
+    outflow += fs.curr.rho_u_stag(NX, j) * fs.curr.U(NX, j);
   });
   mass_error = outflow - inflow;
 }
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
@@ -76,7 +84,8 @@ auto main() -> int {
   FS<Float, NX, NY, NGHOST> fs{
       .visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
-  calc_rho_and_visc(fs);
+  calc_rho(fs);
+  calc_visc(fs);
 
   Matrix<Float, NX, NY, NGHOST> Ui{};
   Matrix<Float, NX, NY, NGHOST> Vi{};
@@ -123,8 +132,8 @@ auto main() -> int {
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_INIT; });
-  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_INIT; });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.curr.U, Ui);
@@ -155,12 +164,12 @@ auto main() -> int {
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                          fs.curr.rho_u_stag[i, j];
+        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
+                          fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                          fs.curr.rho_v_stag[i, j];
+        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
+                          fs.curr.rho_v_stag(i, j);
       });
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
@@ -174,13 +183,13 @@ auto main() -> int {
       p_iter += local_p_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p(i, j) += delta_p(i, j); });
 
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] -= (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / RHO;
+        fs.curr.U(i, j) -= (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx * dt / RHO;
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] -= (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / RHO;
+        fs.curr.V(i, j) -= (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy * dt / RHO;
       });
     }
 
@@ -237,7 +246,7 @@ auto main() -> int {
     size_t counter = 0;
     for (size_t i : i_check) {
       for (Index j = -NGHOST; j < fs.curr.U.extent(1) + NGHOST; ++j) {
-        diff[j + NGHOST] = std::abs(fs.curr.U[static_cast<Index>(i), j] - u_analytical(fs.ym[j]));
+        diff(j + NGHOST) = std::abs(fs.curr.U(static_cast<Index>(i), j) - u_analytical(fs.ym(j)));
       }
       L1_errors[counter++] = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
     }
@@ -249,7 +258,7 @@ auto main() -> int {
       if (err > TOL) {
         Igor::Warn("U-velocity profile at x={} does not align with analytical solution: L1-error "
                    "is {:.6e}",
-                   fs.x[static_cast<Index>(i)],
+                   fs.x(static_cast<Index>(i)),
                    err);
         any_test_failed = true;
       }

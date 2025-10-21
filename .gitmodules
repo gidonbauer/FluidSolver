@@ -1,0 +1,9 @@
+[submodule "Submodules/Igor"]
+	path = Submodules/Igor
+	url = https://github.com/gidonbauer/Igor
+[submodule "Submodules/interface-reconstruction-library"]
+	path = Submodules/interface-reconstruction-library
+	url = https://github.com/robert-chiodi/interface-reconstruction-library
+[submodule "Submodules/hypre"]
+	path = Submodules/hypre
+	url = https://github.com/hypre-space/hypre

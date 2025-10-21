@@ -1,6 +1,9 @@
 #ifndef FLUID_SOLVER_CONTAINER_HPP_
 #define FLUID_SOLVER_CONTAINER_HPP_
 
+#include <algorithm>
+#include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <numeric>
@@ -8,16 +11,24 @@
 
 #include <Igor/Logging.hpp>
 
+#ifndef FS_INDEX_TYPE
 using Index = int;
+#else
+static_assert(std::is_integral_v<FS_INDEX_TYPE> && std::is_signed_v<FS_INDEX_TYPE>,
+              "FS_INDEX_TYPE must be a signed integer type.");
+using Index = FS_INDEX_TYPE;
+#endif  // FS_INDEX_TYPE
+
+enum class Layout : uint8_t { C, F };
 
 // =================================================================================================
 template <typename Contained, Index N, Index NGHOST = 0>
-requires(N >= 0 && NGHOST >= 0)
+requires(N > 0 && NGHOST >= 0)
 class Vector {
   static constexpr auto ARRAY_SIZE = static_cast<size_t>(N + 2 * NGHOST);
 
  public:
-  static constexpr bool is_small = ARRAY_SIZE * sizeof(Contained) < 1024UZ;
+  static constexpr bool is_small = N <= 5 && ARRAY_SIZE * sizeof(Contained) < 1024UZ;
 
  private:
   using StorageType = std::conditional_t<is_small,
@@ -51,7 +62,7 @@ class Vector {
   constexpr auto operator=(Vector&& other) noexcept -> Vector&      = delete;
   ~Vector() noexcept                                                = default;
 
-  [[nodiscard]] constexpr auto operator[](Index idx) noexcept -> Contained& {
+  [[nodiscard]] constexpr auto operator()(Index idx) noexcept -> Contained& {
     IGOR_ASSERT(idx >= -NGHOST && idx < N + NGHOST,
                 "Index {} is out of bounds for Vector with dimension {}:{}",
                 idx,
@@ -60,7 +71,7 @@ class Vector {
     return *(get_data() + get_idx(idx));
   }
 
-  [[nodiscard]] constexpr auto operator[](Index idx) const noexcept -> const Contained& {
+  [[nodiscard]] constexpr auto operator()(Index idx) const noexcept -> const Contained& {
     IGOR_ASSERT(idx >= -NGHOST && idx < N + NGHOST,
                 "Index {} is out of bounds for Vector with dimension {}:{}",
                 idx,
@@ -106,14 +117,13 @@ class Vector {
 };
 
 // =================================================================================================
-enum class Layout : uint8_t { C, F };
 template <typename Contained, Index M, Index N, Index NGHOST = 0, Layout LAYOUT = Layout::C>
 requires(M > 0 && N > 0 && NGHOST >= 0)
 class Matrix {
   static constexpr auto ARRAY_SIZE = (M + 2 * NGHOST) * (N + 2 * NGHOST);
 
  public:
-  static constexpr bool is_small = ARRAY_SIZE * sizeof(Contained) < 1024UZ;
+  static constexpr bool is_small = M <= 5 && N <= 5 && ARRAY_SIZE * sizeof(Contained) < 1024UZ;
 
  private:
   using StorageType = std::conditional_t<is_small,
@@ -151,7 +161,7 @@ class Matrix {
   constexpr auto operator=(Matrix&& other) noexcept -> Matrix&      = delete;
   ~Matrix() noexcept                                                = default;
 
-  constexpr auto operator[](Index i, Index j) noexcept -> Contained& {
+  constexpr auto operator()(Index i, Index j) noexcept -> Contained& {
     IGOR_ASSERT(i >= -NGHOST && i < M + NGHOST && j >= -NGHOST && j < N + NGHOST,
                 "Index ({}, {}) is out of bounds for Matrix of size {}:{}x{}:{}",
                 i,
@@ -163,7 +173,7 @@ class Matrix {
     return *(get_data() + get_idx(i, j));
   }
 
-  constexpr auto operator[](Index i, Index j) const noexcept -> const Contained& {
+  constexpr auto operator()(Index i, Index j) const noexcept -> const Contained& {
     IGOR_ASSERT(i >= -NGHOST && i < M + NGHOST && j >= -NGHOST && j < N + NGHOST,
                 "Index ({}, {}) is out of bounds for Matrix of size {}:{}x{}:{}",
                 i,
@@ -207,39 +217,6 @@ class Matrix {
 };
 
 // -------------------------------------------------------------------------------------------------
-template <typename CT>
-[[nodiscard]] constexpr auto abs_max(const CT& c) noexcept {
-  using Float = std::remove_cvref_t<decltype(*c.get_data())>;
-  static_assert(std::is_floating_point_v<Float>, "Contained must be a floating point type.");
-  return std::transform_reduce(
-      c.get_data(),
-      c.get_data() + c.size(),
-      *c.get_data(),
-      [](Float a, Float b) { return std::max(a, b); },
-      [](Float x) { return std::abs(x); });
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename CT>
-[[nodiscard]] constexpr auto max(const CT& c) noexcept {
-  using Float = std::remove_cvref_t<decltype(*c.get_data())>;
-  static_assert(std::is_floating_point_v<Float>, "Contained must be a floating point type.");
-  return std::reduce(c.get_data(), c.get_data() + c.size(), *c.get_data(), [](Float a, Float b) {
-    return std::max(a, b);
-  });
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename CT>
-[[nodiscard]] constexpr auto min(const CT& c) noexcept {
-  using Float = std::remove_cvref_t<decltype(*c.get_data())>;
-  static_assert(std::is_floating_point_v<Float>, "Contained must be a floating point type.");
-  return std::reduce(c.get_data(), c.get_data() + c.size(), *c.get_data(), [](Float a, Float b) {
-    return std::min(a, b);
-  });
-}
-
-// -------------------------------------------------------------------------------------------------
 template <typename CT, typename Float>
 constexpr void fill(CT& c, Float value) noexcept {
   static_assert(std::is_same_v<Float, std::remove_cvref_t<decltype(*c.get_data())>>,
@@ -251,6 +228,27 @@ constexpr void fill(CT& c, Float value) noexcept {
 template <typename CT>
 constexpr void copy(const CT& src, CT& dst) noexcept {
   std::copy_n(src.get_data(), src.size(), dst.get_data());
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename CT, typename Pred>
+constexpr auto any(const CT& c, Pred&& pred) noexcept -> bool {
+  return std::any_of(c.get_data(), c.get_data() + c.size(), std::forward<Pred&&>(pred));
+}
+
+template <typename CT>
+constexpr auto has_nan(const CT& c) noexcept -> bool {
+  return any(c, [](auto val) { return std::isnan(val); });
+}
+
+template <typename CT>
+constexpr auto has_inf(const CT& c) noexcept -> bool {
+  return any(c, [](auto val) { return std::isinf(val); });
+}
+
+template <typename CT>
+constexpr auto has_nan_or_inf(const CT& c) noexcept -> bool {
+  return has_nan(c) || has_inf(c);
 }
 
 #endif  // FLUID_SOLVER_CONTAINER_HPP_

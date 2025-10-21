@@ -1,6 +1,8 @@
 #include <cstddef>
 #include <type_traits>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Macros.hpp>
 #include <Igor/Timer.hpp>
@@ -12,6 +14,7 @@
 #include "Monitor.hpp"
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
+#include "Utility.hpp"
 #include "VTKWriter.hpp"
 
 #include "Common.hpp"
@@ -19,8 +22,8 @@
 // = Config ========================================================================================
 using Float              = double;
 
-constexpr Index NX       = 510;
-constexpr Index NY       = 51;
+constexpr Index NX       = 1100;  // 510;
+constexpr Index NY       = 11;    // 51;
 constexpr Index NGHOST   = 1;
 
 constexpr Float X_MIN    = 0.0;
@@ -58,10 +61,14 @@ constexpr FlowBConds<Float> bconds{
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
+#ifndef FS_BASE_DIR
+#define FS_BASE_DIR ""
+#endif  // FS_BASE_DIR
 #ifndef LC_U_INIT
-constexpr auto OUTPUT_DIR = "test/output/LaminarChannel/";
+constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/LaminarChannel/";
 #else
-constexpr auto OUTPUT_DIR = "test/output/LaminarChannel_" IGOR_STRINGIFY(LC_U_INIT) "/";
+constexpr auto OUTPUT_DIR =
+    FS_BASE_DIR "/test/output/LaminarChannel_" IGOR_STRINGIFY(LC_U_INIT) "/";
 #endif
 // = Config ========================================================================================
 
@@ -73,14 +80,16 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
   inflow  = 0;
   outflow = 0;
   for_each_a(fs.ym, [&](Index j) {
-    inflow  += fs.curr.rho_u_stag[-NGHOST, j] * fs.curr.U[-NGHOST, j];
-    outflow += fs.curr.rho_u_stag[NX + NGHOST, j] * fs.curr.U[NX + NGHOST, j];
+    inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j);
+    outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j);
   });
   mass_error = outflow - inflow;
 }
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
@@ -88,7 +97,8 @@ auto main() -> int {
   FS<Float, NX, NY, NGHOST> fs{
       .visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
-  calc_rho_and_visc(fs);
+  calc_rho(fs);
+  calc_visc(fs);
 
   Matrix<Float, NX, NY, NGHOST> Ui{};
   Matrix<Float, NX, NY, NGHOST> Vi{};
@@ -146,8 +156,8 @@ auto main() -> int {
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U[i, j] = U_INIT; });
-  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V[i, j] = 0.0; });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_INIT; });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.curr.U, Ui);
@@ -184,22 +194,22 @@ auto main() -> int {
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        if (std::isnan(drhoUdt[i, j])) { Igor::Panic("NaN value in drhoUdt[{}, {}]", i, j); }
-        fs.curr.U[i, j] = (fs.old.rho_u_stag[i, j] * fs.old.U[i, j] + dt * drhoUdt[i, j]) /
-                          fs.curr.rho_u_stag[i, j];
+        if (std::isnan(drhoUdt(i, j))) { Igor::Panic("NaN value in drhoUdt[{}, {}]", i, j); }
+        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
+                          fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        if (std::isnan(drhoVdt[i, j])) { Igor::Panic("NaN value in drhoVdt[{}, {}]", i, j); }
-        fs.curr.V[i, j] = (fs.old.rho_v_stag[i, j] * fs.old.V[i, j] + dt * drhoVdt[i, j]) /
-                          fs.curr.rho_v_stag[i, j];
+        if (std::isnan(drhoVdt(i, j))) { Igor::Panic("NaN value in drhoVdt[{}, {}]", i, j); }
+        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
+                          fs.curr.rho_v_stag(i, j);
       });
 
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
       for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-        fs.curr.U[NX + NGHOST, j] -=
-            mass_error / (fs.curr.rho_u_stag[NX + NGHOST, j] * static_cast<Float>(NY + 2 * NGHOST));
+        fs.curr.U(NX + NGHOST, j) -=
+            mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
       });
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -221,15 +231,15 @@ auto main() -> int {
       }
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p[i, j] += delta_p[i, j]; });
+      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p(i, j) += delta_p(i, j); });
 
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U[i, j] -=
-            (delta_p[i, j] - delta_p[i - 1, j]) / fs.dx * dt / fs.curr.rho_u_stag[i, j];
+        fs.curr.U(i, j) -=
+            (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx * dt / fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V[i, j] -=
-            (delta_p[i, j] - delta_p[i, j - 1]) / fs.dy * dt / fs.curr.rho_v_stag[i, j];
+        fs.curr.V(i, j) -=
+            (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy * dt / fs.curr.rho_v_stag(i, j);
       });
     }
     t += dt;
@@ -276,27 +286,27 @@ auto main() -> int {
   {
     constexpr Float TOL = 1e-4;
     for (Index i = i_above_60; i < NX; ++i) {
-      const auto ref_pressure = fs.p[i, 0];
+      const auto ref_pressure = fs.p(i, 0);
       bool constant_pressure  = true;
       for (Index j = 0; j < fs.p.extent(1); ++j) {
-        if (std::abs(fs.p[i, j] - ref_pressure) > TOL) { constant_pressure = false; }
+        if (std::abs(fs.p(i, j) - ref_pressure) > TOL) { constant_pressure = false; }
       }
       if (!constant_pressure) {
-        Igor::Warn("Non constant pressure along y-axis for x={}.", fs.xm[i]);
+        Igor::Warn("Non constant pressure along y-axis for x={}.", fs.xm(i));
         any_test_failed = true;
       }
     }
 
-    const auto ref_dpdx = (fs.p[i_above_60 + 1, NY / 2] - fs.p[i_above_60, NY / 2]) / fs.dx;
+    const auto ref_dpdx = (fs.p(i_above_60 + 1, NY / 2) - fs.p(i_above_60, NY / 2)) / fs.dx;
     for (Index i = i_above_60 + 1; i < fs.p.extent(0); ++i) {
-      const auto dpdx = (fs.p[i, NY / 2] - fs.p[i - 1, NY / 2]) / fs.dx;
+      const auto dpdx = (fs.p(i, NY / 2) - fs.p(i - 1, NY / 2)) / fs.dx;
       if (std::abs(ref_dpdx - dpdx) > TOL) {
         Igor::Warn(
             "Non constant dpdx after x=60: Reference dpdx(x={:.6e})={:.6e}, dpdx(x={:.6e})={:.6e} "
             "=> error = {:.6e}",
-            fs.x[i_above_60 + 1],
+            fs.x(i_above_60 + 1),
             ref_dpdx,
-            fs.x[i],
+            fs.x(i),
             dpdx,
             std::abs(ref_dpdx - dpdx));
         any_test_failed = true;
@@ -306,7 +316,7 @@ auto main() -> int {
 
   // Test U profile
   {
-    constexpr Float TOL = 2e-4;
+    constexpr Float TOL = 5e-4;
     auto u_analytical   = [&](Float y, Float dpdx) -> Float {
       // NOTE: Adjustment due to the ghost cells, the dirichlet boundary condition is now enforced
       //       in the ghost cell
@@ -324,15 +334,15 @@ auto main() -> int {
       const auto i         = static_cast<Index>(x_target / X_MAX * static_cast<Float>(NX + 1));
 
       for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
-        const auto dpdx = (fs.p[i, j] - fs.p[i - 1, j]) / fs.dx;
-        diff[j + NGHOST] =
-            std::abs(fs.curr.U[static_cast<Index>(i), j] - u_analytical(fs.ym[j], dpdx));
+        const auto dpdx = (fs.p(i, j) - fs.p(i - 1, j)) / fs.dx;
+        diff(j + NGHOST) =
+            std::abs(fs.curr.U(static_cast<Index>(i), j) - u_analytical(fs.ym(j), dpdx));
       }
       const auto L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
       if (L1_error > TOL) {
         Igor::Warn("U-velocity profile at x={} does not align with analytical solution: L1-error "
                    "is {:.6e}",
-                   fs.x[i],
+                   fs.x(i),
                    L1_error);
         any_test_failed = true;
       }

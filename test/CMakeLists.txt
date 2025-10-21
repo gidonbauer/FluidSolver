@@ -1,6 +1,7 @@
 set(executables
   LaminarChannel_0
   LaminarChannel_1
+  PeriodicChannel
   Couette
   TaylorGreenVortex
   ConstantVelocityVOF

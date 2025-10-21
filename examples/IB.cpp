@@ -24,33 +24,65 @@ using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
 #endif  // USE_VTK
 
 // = Config ========================================================================================
-using Float                  = double;
+using Float              = double;
 
-constexpr Index NX           = 5 * 64;
-constexpr Index NY           = 64;
-constexpr Index NGHOST       = 1;
+constexpr Index NX       = 5 * 128;
+constexpr Index NY       = 128;
+constexpr Index NGHOST   = 1;
 
-constexpr Float X_MIN        = 0.0;
-constexpr Float X_MAX        = 5.0;
-constexpr Float Y_MIN        = 0.0;
-constexpr Float Y_MAX        = 1.0;
+constexpr Float X_MIN    = 0.0;
+constexpr Float X_MAX    = 5.0;
+constexpr Float Y_MIN    = 0.0;
+constexpr Float Y_MAX    = 1.0;
 
-constexpr Float T_END        = 4.0;
-constexpr Float DT_MAX       = 1e-2;
-constexpr Float CFL_MAX      = 0.5;
-constexpr Float DT_WRITE     = 1e-2;
+constexpr Float T_END    = 4.0;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.5;
+constexpr Float DT_WRITE = 1e-2;
 
-constexpr Float U_BCOND      = 5.0;
-constexpr Float U_0          = 0.0;
-constexpr Float VISC         = 1e-3;
-constexpr Float RHO          = 1.0;
+constexpr Float U_BCOND  = 5.0;
+constexpr Float U_0      = 0.0;
+constexpr Float VISC     = 1e-3;
+constexpr Float RHO      = 1.0;
 
+#define IB_POLYGON
+#ifndef IB_POLYGON
 constexpr Float CX           = 1.0;
 constexpr Float CY           = 0.5;
 constexpr Float R0           = 0.1;
-constexpr auto immersed_wall = [](Float x, Float y) {
+constexpr auto immersed_wall = [](Float x, Float y) -> Float {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
+#else
+struct Point {
+  Float x, y;
+};
+[[nodiscard]] constexpr auto polygon_contains_point(const auto& polygon, const Point& p) noexcept
+    -> bool {
+  if (polygon.size() < 2) { return false; }
+
+  for (size_t i = 0; i < polygon.size(); ++i) {
+    const auto& p1 = polygon[i];
+    const auto& p2 = polygon[(i + 1) % polygon.size()];
+    const auto n   = Point{
+          .x = p1.y - p2.y,
+          .y = -(p1.x - p2.x),
+    };
+    const auto v = n.x * (p.x - p1.x) + n.y * (p.y - p1.y);
+    if (v < 0.0) { return false; }
+  }
+  return true;
+}
+constexpr auto immersed_wall = [](Float x, Float y) -> Float {
+  constexpr Igor::StaticVector<Point, 8> polygon = {
+      Point{.x = 0.9, .y = 0.5},
+      Point{.x = 1.1, .y = 0.3},
+      Point{.x = 2.0, .y = 0.6},
+      Point{.x = 1.1, .y = 0.7},
+  };
+  return static_cast<Float>(polygon_contains_point(polygon, {.x = x, .y = y}));
+};
+#endif
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;

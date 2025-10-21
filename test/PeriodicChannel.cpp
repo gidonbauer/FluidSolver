@@ -1,5 +1,7 @@
 #include <cstddef>
 
+#include <omp.h>
+
 #include <Igor/Logging.hpp>
 #include <Igor/Macros.hpp>
 #include <Igor/Timer.hpp>
@@ -14,27 +16,29 @@
 #include "Utility.hpp"
 #include "VTKWriter.hpp"
 
+#include "Common.hpp"
+
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 320;
-constexpr Index NY              = 32;
+constexpr Index NX              = 5 * 43;
+constexpr Index NY              = 43;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 10.0;
+constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 10.0;
+constexpr Float T_END           = 60.0;
 constexpr Float DT_MAX          = 1e-1;
 constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 1e-1;  // 1.0;
+constexpr Float DT_WRITE        = 1.0;
 
-constexpr Float U_IN            = 1.0;
-constexpr Float U_INIT          = 0.0;
+constexpr Float U_INIT          = 1.0;
 constexpr Float VISC            = 1e-3;
 constexpr Float RHO             = 0.5;
+constexpr Float TOTAL_FLOW      = (Y_MAX - Y_MIN) * U_INIT * RHO;
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -43,9 +47,9 @@ constexpr Index NUM_SUBITER     = 2;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    //        LEFT              RIGHT           BOTTOM           TOP
-    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::PERIODIC, BCond::PERIODIC},
-    .U     = {U_IN, 0.0, 0.0, 0.0},
+    //        LEFT             RIGHT            BOTTOM            TOP
+    .types = {BCond::PERIODIC, BCond::PERIODIC, BCond::DIRICHLET, BCond::DIRICHLET},
+    .U     = {0.0, 0.0, 0.0, 0.0},
     .V     = {0.0, 0.0, 0.0, 0.0},
 };
 
@@ -63,14 +67,16 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
   inflow  = 0;
   outflow = 0;
   for_each_a(fs.ym, [&](Index j) {
-    inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j);
-    outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j);
+    inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j) * fs.dy;
+    outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j) * fs.dy;
   });
   mass_error = outflow - inflow;
 }
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  omp_set_num_threads(4);
+
   // = Create output directory =====================================================================
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
@@ -182,11 +188,18 @@ auto main() -> int {
 
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
+
+      // = Force total flow ========================================================================
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      const Float inflow_error  = TOTAL_FLOW - inflow;
+      const Float outflow_error = TOTAL_FLOW - outflow;
       for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-        fs.curr.U(NX + NGHOST, j) -=
-            mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
+        fs.curr.U(-NGHOST, j)     += inflow_error / (fs.curr.rho_u_stag(-NGHOST, j) * fs.dy *
+                                                 static_cast<Float>(NY + 2 * NGHOST));
+        fs.curr.U(NX + NGHOST, j) += outflow_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * fs.dy *
+                                                      static_cast<Float>(NY + 2 * NGHOST));
       });
+      // = Force total flow ========================================================================
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
@@ -221,6 +234,16 @@ auto main() -> int {
 
     {
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      if (std::abs(inflow - TOTAL_FLOW) > 1e-8) {
+        Igor::Warn(
+            "Inflow is not equal to TOTAL_FLOW at t={:.6e}: inflow={:.6e}, TOTAL_FLOW={:.6e}, "
+            "error={:.6e}",
+            t,
+            inflow,
+            TOTAL_FLOW,
+            std::abs(inflow - TOTAL_FLOW));
+        any_test_failed = true;
+      }
       if (std::abs(mass_error) > 1e-8) {
         Igor::Warn("Outflow is not equal to inflow at t={:.6e}: inflow={:.6e}, outflow={:.6e}, "
                    "error={:.6e}",
@@ -247,35 +270,79 @@ auto main() -> int {
   }
 
   // = Perform tests ===============================================================================
-  constexpr Float tol = 2e-3;
-
-  // Check U velocity field
-  for_each_i(fs.curr.U, [&](Index i, Index j) {
-    if (std::abs(fs.curr.U(i, j) - U_IN) > tol) {
-      Igor::Warn("Incorrect U-velocity at ({:.6e}, {:.6e}), expected {:.6e} but got {:.6e}: error "
-                 "= {:.6e}",
-                 fs.x(i),
-                 fs.ym(j),
-                 U_IN,
-                 fs.curr.U(i, j),
-                 std::abs(fs.curr.U(i, j) - U_IN));
-      any_test_failed = true;
+  // - Test pressure ---------
+  {
+    constexpr Float TOL = 1e-4;
+    for (Index i = 0; i < NX; ++i) {
+      const auto ref_pressure = fs.p(i, 0);
+      bool constant_pressure  = true;
+      for (Index j = 0; j < fs.p.extent(1); ++j) {
+        if (std::abs(fs.p(i, j) - ref_pressure) > TOL) { constant_pressure = false; }
+      }
+      if (!constant_pressure) {
+        Igor::Warn("Non constant pressure along y-axis for x={}.", fs.xm(i));
+        any_test_failed = true;
+      }
     }
-  });
 
-  // Check V velocity field
-  for_each_i(fs.curr.V, [&](Index i, Index j) {
-    if (std::abs(fs.curr.V(i, j)) > tol) {
-      Igor::Warn("Incorrect V-velocity at ({:.6e}, {:.6e}), expected {:.6e} but got {:.6e}: error "
-                 "= {:.6e}",
-                 fs.xm(i),
-                 fs.y(j),
-                 0.0,
-                 fs.curr.V(i, j),
-                 std::abs(fs.curr.V(i, j)));
-      any_test_failed = true;
+    const auto ref_dpdx = (fs.p(NX / 2 + 1, NY / 2) - fs.p(NX / 2, NY / 2)) / fs.dx;
+    for (Index i = 1; i < fs.p.extent(0); ++i) {
+      const auto dpdx = (fs.p(i, NY / 2) - fs.p(i - 1, NY / 2)) / fs.dx;
+      if (std::abs(ref_dpdx - dpdx) > TOL) {
+        Igor::Warn(
+            "Non constant dpdx after x=60: Reference dpdx(x={:.6e})={:.6e}, dpdx(x={:.6e})={:.6e} "
+            "=> error = {:.6e}",
+            fs.x(NX / 2 + 1),
+            ref_dpdx,
+            fs.x(i),
+            dpdx,
+            std::abs(ref_dpdx - dpdx));
+        any_test_failed = true;
+      }
     }
-  });
+  }
+
+  // - Test U profile --------
+  {
+    constexpr Float TOL = 1e-4;
+    auto u_analytical   = [&](Float y, Float dpdx) -> Float {
+      // NOTE: Adjustment due to the ghost cells, the dirichlet boundary condition is now enforced
+      //       in the ghost cell
+      return dpdx / (2 * VISC) * (y * y - y - (fs.dy / 2.0 + Igor::sqr(fs.dy / 2.0)));
+      // return dpdx / (2 * VISC) * (y * y - y);
+    };
+    Vector<Float, NY + 2 * NGHOST, 0> diff{};
+
+    static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
+    for_each_i(fs.x, [&](Index i) {
+      for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
+        const auto dpdx  = (fs.p(i, j) - fs.p(i - 1, j)) / fs.dx;
+        diff(j + NGHOST) = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j), dpdx));
+      }
+      const auto L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
+      if (L1_error > TOL) {
+        Igor::Warn("U-velocity profile at x={} does not align with analytical solution: L1-error "
+                   "is {:.6e}",
+                   fs.x(i),
+                   L1_error);
+        any_test_failed = true;
+      }
+    });
+  }
+
+  // - Test U profile --------
+  {
+    constexpr Float TOL = 1e-7;
+    for_each_i(fs.curr.V, [&](Index i, Index j) {
+      if (std::abs(fs.curr.V(i, j)) > TOL) {
+        Igor::Warn("V-velocity at ({:.6e}, {:.6e}) is not zero: {:.6e}",
+                   fs.xm(i),
+                   fs.y(j),
+                   fs.curr.V(i, j));
+        any_test_failed = true;
+      }
+    });
+  }
 
   return any_test_failed ? 1 : 0;
 }

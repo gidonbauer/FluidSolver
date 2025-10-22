@@ -272,8 +272,6 @@ auto main() -> int {
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);
-    // calc_surface_length(fs, ir, interface_length);
-    // TODO: Calculate viscosity from new VOF field
     calc_rho(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 

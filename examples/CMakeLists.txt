@@ -6,6 +6,7 @@ set(executables
   IB
   PhaseChange
   RisingBubble
+  DivFreeExtrapolation
 )
 
 foreach(exec ${executables})

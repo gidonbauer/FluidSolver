@@ -62,6 +62,7 @@ auto main() -> int {
   Matrix<Float, NX, NY, NGHOST> Ui{};
   Matrix<Float, NX, NY, NGHOST> Vi{};
   Matrix<Float, NX, NY, NGHOST> div{};
+  Matrix<Float, NX, NY, NGHOST> ext{};
 
   for_each<NX / 4, 3 * NX / 4 + 1, NY / 4, 3 * NY / 4>(
       [&](Index i, Index j) { fs.curr.U(i, j) = u_analytical(fs.x(i), fs.ym(j), 0.0); });
@@ -71,10 +72,13 @@ auto main() -> int {
   DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   data_writer.add_vector("velocity", &Ui, &Vi);
   data_writer.add_scalar("div", &div);
+  data_writer.add_scalar("ext", &ext);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+  for_each_i(ext,
+             [&](Index i, Index j) { ext(i, j) = static_cast<Float>(std::abs(div(i, j)) > 1e-8); });
 
   if (!to_npy(Igor::detail::format("{}/x.npy", OUTPUT_DIR), fs.x)) { return 1; }
   if (!to_npy(Igor::detail::format("{}/xm.npy", OUTPUT_DIR), fs.xm)) { return 1; }
@@ -83,6 +87,7 @@ auto main() -> int {
   if (!to_npy(Igor::detail::format("{}/U.npy", OUTPUT_DIR), fs.curr.U)) { return 1; }
   if (!to_npy(Igor::detail::format("{}/V.npy", OUTPUT_DIR), fs.curr.V)) { return 1; }
   if (!to_npy(Igor::detail::format("{}/div.npy", OUTPUT_DIR), div)) { return 1; }
+  if (!to_npy(Igor::detail::format("{}/ext.npy", OUTPUT_DIR), ext)) { return 1; }
   if (!data_writer.write(0.0)) { return 1; }
 
   Igor::Info("TODO: Implement the divergence-free extrapolation of the velocity field.");

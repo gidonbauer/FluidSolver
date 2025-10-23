@@ -4,3 +4,6 @@
 [submodule "Submodules/hypre"]
 	path = Submodules/hypre
 	url = https://github.com/hypre-space/hypre
+[submodule "Submodules/interface-reconstruction-library"]
+	path = Submodules/interface-reconstruction-library
+	url = https://github.com/gidonbauer/interface-reconstruction-library.git

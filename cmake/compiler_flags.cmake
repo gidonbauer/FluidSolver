@@ -38,7 +38,7 @@ elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "NVHPC")
 
   set(CMAKE_CXX_FLAGS "-Wall -Wextra -pedantic -Wshadow -std=c++23")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdpar -Minfo=accel,par,stdpar")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DFS_STDPAR -DIGOR_USE_CASSERT -DFS_FUSE_MOM_ALL")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DFS_STDPAR -DIGOR_USE_CASSERT")
   if (FS_FAST)
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fast -fastsse -Mvect=simd:256")
   else()

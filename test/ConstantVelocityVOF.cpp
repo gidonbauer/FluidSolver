@@ -36,7 +36,7 @@ constexpr Float DT     = 5e-3;
 constexpr Index NITER  = 120;
 
 #ifndef FS_BASE_DIR
-#define FS_BASE_DIR ""
+#define FS_BASE_DIR "."
 #endif  // FS_BASE_DIR
 constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/ConstantVelocityVOF";
 // = Config ========================================================================================

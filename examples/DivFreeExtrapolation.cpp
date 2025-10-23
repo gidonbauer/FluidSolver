@@ -33,7 +33,7 @@ constexpr Float VISC   = 1.0;
 constexpr Float RHO    = 1.0;
 
 #ifndef FS_BASE_DIR
-#define FS_BASE_DIR ""
+#define FS_BASE_DIR "."
 #endif  // FS_BASE_DIR
 constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/DivFreeExtrapolation/";
 // = Setup =========================================================================================

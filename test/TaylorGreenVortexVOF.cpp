@@ -40,7 +40,7 @@ constexpr Float T_END    = 5.0;
 constexpr Float DT_WRITE = 5e-2;
 
 #ifndef FS_BASE_DIR
-#define FS_BASE_DIR ""
+#define FS_BASE_DIR "."
 #endif  // FS_BASE_DIR
 constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/TaylorGreenVortexVOF";
 // = Config ========================================================================================

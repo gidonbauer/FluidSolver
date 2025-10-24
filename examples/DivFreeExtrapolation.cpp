@@ -64,10 +64,25 @@ auto main() -> int {
   Matrix<Float, NX, NY, NGHOST> div{};
   Matrix<Float, NX, NY, NGHOST> ext{};
 
-  for_each<NX / 4, 3 * NX / 4 + 1, NY / 4, 3 * NY / 4>(
-      [&](Index i, Index j) { fs.curr.U(i, j) = u_analytical(fs.x(i), fs.ym(j), 0.0); });
-  for_each<NX / 4, 3 * NX / 4, NY / 4, 3 * NY / 4 + 1>(
-      [&](Index i, Index j) { fs.curr.V(i, j) = v_analytical(fs.xm(i), fs.y(j), 0.0); });
+  // for_each<NX / 4, 3 * NX / 4 + 1, NY / 4, 3 * NY / 4>(
+  //     [&](Index i, Index j) { fs.curr.U(i, j) = u_analytical(fs.x(i), fs.ym(j), 0.0); });
+  // for_each<NX / 4, 3 * NX / 4, NY / 4, 3 * NY / 4 + 1>(
+  //     [&](Index i, Index j) { fs.curr.V(i, j) = v_analytical(fs.xm(i), fs.y(j), 0.0); });
+
+  for_each_i(fs.curr.U, [&](Index i, Index j) {
+    const auto x = fs.x(i);
+    const auto y = fs.ym(j);
+    if (Igor::sqr(x - 0.5) + Igor::sqr(y - 0.5) <= Igor::sqr(0.25)) {
+      fs.curr.U(i, j) = u_analytical(x, y, 0.0);
+    }
+  });
+  for_each_i(fs.curr.V, [&](Index i, Index j) {
+    const auto x = fs.xm(i);
+    const auto y = fs.y(j);
+    if (Igor::sqr(x - 0.5) + Igor::sqr(y - 0.5) <= Igor::sqr(0.25)) {
+      fs.curr.V(i, j) = v_analytical(x, y, 0.0);
+    }
+  });
 
   DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   data_writer.add_vector("velocity", &Ui, &Vi);
@@ -90,5 +105,5 @@ auto main() -> int {
   if (!to_npy(Igor::detail::format("{}/ext.npy", OUTPUT_DIR), ext)) { return 1; }
   if (!data_writer.write(0.0)) { return 1; }
 
-  Igor::Info("TODO: Implement the divergence-free extrapolation of the velocity field.");
+  Igor::Warn("TODO: Implement the divergence-free extrapolation of the velocity field.");
 }

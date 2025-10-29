@@ -7,6 +7,7 @@ set(executables
   PhaseChange
   RisingBubble
   DivFreeExtrapolation
+  Wave
 )
 
 foreach(exec ${executables})

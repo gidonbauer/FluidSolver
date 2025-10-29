@@ -3,21 +3,6 @@
 .vscode/
 compile_commands.json
 
-IncompSolver
-IncompSolver.dSYM
-VOF
-VOF.dSYM
-Curvature
-Curvature.dSYM
-TwoPhaseSolver
-TwoPhaseSolver.dSYM
-IB
-IB.dSYM
-PhaseChange
-PhaseChange.dSYM
-RisingBubble
-RisingBubble.dSYM
-
 *.swp
 *.env
 compile.out
@@ -33,3 +18,20 @@ scorep-*
 
 build*/
 !CMakeLists.txt
+
+IncompSolver
+IncompSolver.dSYM
+VOF
+VOF.dSYM
+Curvature
+Curvature.dSYM
+TwoPhaseSolver
+TwoPhaseSolver.dSYM
+IB
+IB.dSYM
+PhaseChange
+PhaseChange.dSYM
+RisingBubble
+RisingBubble.dSYM
+Wave
+Wave.dSYM

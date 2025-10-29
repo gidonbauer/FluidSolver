@@ -18,7 +18,7 @@ HEADERS = src/BoundaryConditions.hpp \
           src/VTKWriter.hpp          \
           src/XDMFWriter.hpp
 
-TARGETS = IncompSolver VOF Curvature TwoPhaseSolver IB PhaseChange RisingBubble
+TARGETS = IncompSolver VOF Curvature TwoPhaseSolver IB PhaseChange RisingBubble Wave
 
 include Makefiles/compiler_flags.mk
 include Makefiles/libs.mk

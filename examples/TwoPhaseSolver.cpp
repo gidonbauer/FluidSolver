@@ -268,7 +268,7 @@ auto main() -> int {
 
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
-    std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
+    copy(vof.vf, vof.vf_old);
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);

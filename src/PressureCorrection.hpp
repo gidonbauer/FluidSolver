@@ -63,8 +63,8 @@ class PS {
   HYPRE_StructSolver m_solver{};
   HYPRE_StructSolver m_precond{};
 
-  PSSolver m_solver_type     = PSSolver::GMRES;
-  PSPrecond m_precond_type   = PSPrecond::SMG;
+  PSSolver m_solver_type     = PSSolver::PCG;
+  PSPrecond m_precond_type   = PSPrecond::PFMG;
   PSDirichlet m_dirichlet_bc = PSDirichlet::NONE;
 
   Float m_tol;

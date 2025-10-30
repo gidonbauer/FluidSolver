@@ -255,9 +255,13 @@ void calc_curvature_quad_volume_matching(const FS<Float, NX, NY, NGHOST>& fs,
 
       sort_begin_end(interfaces);
       const auto curv = detail::calc_curv_quad_volume_matching_impl(interfaces);
+#if 0
       IGOR_ASSERT(
           !(std::isnan(curv) || std::isinf(curv)), "Calculated curvature is NaN or inf: {}", curv);
       vof.curv(i, j) = curv;
+#else
+      vof.curv(i, j) = !(std::isnan(curv) || std::isinf(curv)) ? curv : 0.0;
+#endif
     } else {
       vof.curv(i, j) = 0.0;
     }

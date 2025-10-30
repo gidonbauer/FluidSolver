@@ -38,9 +38,9 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 10.0;
-constexpr Float DT_MAX          = 1e-2;
-constexpr Float CFL_MAX         = 0.9;
+constexpr Float T_END           = 20.0;
+constexpr Float DT_MAX          = 1e-3;
+constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 5e-2;
 
 constexpr Float RHO_G           = 1.0;
@@ -86,7 +86,7 @@ void calc_vof_stats(const FS<Float, NX, NY, NGHOST>& fs,
 
   min                         = *min_it;
   max                         = *max_it;
-  integral                    = integrate<true>(fs.dx, fs.dy, vf);
+  integral                    = integrate(fs.dx, fs.dy, vf);
   loss                        = init_vf_integral - integral;
 }
 
@@ -190,7 +190,7 @@ auto main() -> int {
     vof.vf(i, j) = quadrature(vof0, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
   apply_neumann_bconds(vof.vf);
-  const Float init_vf_integral = integrate<true>(fs.dx, fs.dy, vof.vf);
+  const Float init_vf_integral = integrate(fs.dx, fs.dy, vof.vf);
   localize_cells(fs.x, fs.y, vof.ir);
   reconstruct_interface(fs, vof.vf, vof.ir);
   // = Initialize VOF field ========================================================================

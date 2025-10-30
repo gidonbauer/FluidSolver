@@ -47,11 +47,12 @@ constexpr Float RHO_G           = 1.0;
 constexpr Float VISC_G          = 1e-6;
 constexpr Float RHO_L           = 1e3;
 constexpr Float VISC_L          = 1e-3;
-constexpr Float GRAVITY         = -1e-1;
+constexpr Float GRAVITY         = -1e-0;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr auto vof0             = [](Float x, [[maybe_unused]] Float y) {
-  return static_cast<Float>(2.0 <= x && x <= 3.0);
+  return static_cast<Float>(y < 0.9 * std::exp(-Igor::sqr((x - 2.5) / 0.5)));
+  // return static_cast<Float>(2.0 <= x && x <= 3.0);
   // return static_cast<Float>(2.0 <= x && x <= 3.0 && 0.1 <= y && y <= 0.9);
 };
 

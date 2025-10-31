@@ -91,10 +91,10 @@ constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    //        LEFT              RIGHT           BOTTOM            TOP
-    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {U_BCOND, 0.0, 0.0, 0.0},
-    .V     = {0.0, 0.0, 0.0, 0.0},
+    .left   = Dirichlet{.U = U_BCOND, .V = 0.0},
+    .right  = Neumann{},
+    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet{.U = 0.0, .V = 0.0},
 };
 
 #ifndef FS_BASE_DIR

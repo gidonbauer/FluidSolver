@@ -72,18 +72,11 @@ constexpr Float Re_G = RHO_G * U_BCOND * (Y_MAX - Y_MIN) / VISC_G;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    //        LEFT              RIGHT           BOTTOM            TOP
-    .types = {BCond::DIRICHLET, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {U_BCOND, 0.0, 0.0, 0.0},
-    .V     = {0.0, 0.0, 0.0, 0.0},
+    .left   = Dirichlet{.U = U_BCOND, .V = 0.0},
+    .right  = Neumann{},
+    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet{.U = 0.0, .V = 0.0},
 };
-
-// constexpr FlowBConds<Float> bconds{
-//     //        LEFT            RIGHT           BOTTOM            TOP
-//     .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-//     .U     = {0.0, 0.0, 0.0, 0.0},
-//     .V     = {0.0, 0.0, 0.0, 0.0},
-// };
 
 #ifndef FS_BASE_DIR
 #define FS_BASE_DIR "."

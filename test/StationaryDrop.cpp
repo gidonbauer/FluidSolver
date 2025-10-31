@@ -59,17 +59,17 @@ constexpr Index NUM_SUBITER     = 3;
 
 #if 0
 constexpr FlowBConds<Float> bconds{
-    //        LEFT             RIGHT            BOTTOM           TOP
-    .types = {BCond::SYMMETRY, BCond::SYMMETRY, BCond::SYMMETRY, BCond::SYMMETRY},
-    .U     = {0.0, 0.0, 0.0, 0.0},
-    .V     = {0.0, 0.0, 0.0, 0.0},
+    .left   = Symmetry{},
+    .right  = Symmetry{},
+    .bottom = Symmetry{},
+    .top    = Symmetry{},
 };
 #else
 constexpr FlowBConds<Float> bconds{
-    //        LEFT            RIGHT           BOTTOM          TOP
-    .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::NEUMANN, BCond::NEUMANN},
-    .U     = {0.0, 0.0, 0.0, 0.0},
-    .V     = {0.0, 0.0, 0.0, 0.0},
+    .left   = Neumann{},
+    .right  = Neumann{},
+    .bottom = Neumann{},
+    .top    = Neumann{},
 };
 #endif
 

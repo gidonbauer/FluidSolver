@@ -47,10 +47,10 @@ constexpr Index NUM_SUBITER     = 2;
 constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/TaylorGreenVortex/";
 
 constexpr FlowBConds<Float> bconds{
-    //        LEFT             RIGHT            BOTTOM           TOP
-    .types = {BCond::PERIODIC, BCond::PERIODIC, BCond::PERIODIC, BCond::PERIODIC},
-    .U     = {},
-    .V     = {},
+    .left   = Periodic{},
+    .right  = Periodic{},
+    .bottom = Periodic{},
+    .top    = Periodic{},
 };
 // = Config ========================================================================================
 

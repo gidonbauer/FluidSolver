@@ -47,10 +47,10 @@ constexpr Index NUM_SUBITER     = 2;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    //        LEFT             RIGHT            BOTTOM            TOP
-    .types = {BCond::PERIODIC, BCond::PERIODIC, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {0.0, 0.0, 0.0, 0.0},
-    .V     = {0.0, 0.0, 0.0, 0.0},
+    .left   = Periodic{},
+    .right  = Periodic{},
+    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet{.U = 0.0, .V = 0.0},
 };
 
 #ifndef FS_BASE_DIR

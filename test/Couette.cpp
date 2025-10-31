@@ -47,10 +47,10 @@ constexpr Index NUM_SUBITER     = 2;
 
 // Couette flow
 constexpr FlowBConds<Float> bconds{
-    //        LEFT            RIGHT           BOTTOM            TOP
-    .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::DIRICHLET},
-    .U     = {0.0, 0.0, 0.0, U_TOP},
-    .V     = {0.0, 0.0, 0.0, 0.0},
+    .left   = Neumann{},
+    .right  = Neumann{},
+    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet{.U = U_TOP, .V = 0.0},
 };
 
 #ifndef FS_BASE_DIR

@@ -82,10 +82,10 @@ constexpr Float Mo = Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * (RHO_L 
 constexpr Float Bu = (RHO_L - RHO_G) / RHO_G;
 
 constexpr FlowBConds<Float> bconds{
-    //        LEFT            RIGHT           BOTTOM            TOP
-    .types = {BCond::NEUMANN, BCond::NEUMANN, BCond::DIRICHLET, BCond::NEUMANN},
-    .U     = {0.0, 0.0, 0.0, 0.0},
-    .V     = {0.0, 0.0, V_IN, 0.0},
+    .left   = Neumann{},
+    .right  = Neumann{},
+    .bottom = Dirichlet{.U = 0.0, .V = V_IN},
+    .top    = Neumann{},
 };
 
 #ifndef FS_BASE_DIR

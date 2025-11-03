@@ -29,6 +29,19 @@ class XDMFWriter {
 
   Matrix<Float, NX, NY, 0, Layout::F> m_local_storage{};
 
+  void save_scalar_hdf5(Index write_index,
+                        const Matrix<Float, NX, NY, NGHOST>& scalar,
+                        const std::string& name) {
+    // Make sure that data is in Fortan order, this is incorrect for HDF5 but XDMF wants it...
+    for_each_i(scalar, [&](Index i, Index j) { m_local_storage(i, j) = scalar(i, j); });
+
+    constexpr hsize_t RANK                  = 3;
+    constexpr std::array<hsize_t, RANK> DIM = {NX, NY, 1};
+    const auto dataset_name                 = Igor::detail::format("/{}/{}", write_index, name);
+    H5LTmake_dataset_double(
+        m_data_file_id, dataset_name.c_str(), RANK, DIM.data(), m_local_storage.get_data());
+  }
+
   // -----------------------------------------------------------------------------------------------
   void write_scalar(Index write_index,
                     const Matrix<Float, NX, NY, NGHOST>& scalar,
@@ -47,14 +60,51 @@ class XDMFWriter {
     m_xdmf_out << R"(        </Attribute>)" << '\n';
     // - Write meta-data ---------------------------------------------------------------------------
 
-    // Make sure that data is in Fortan order, this is incorrect for HDF5 but XDMF wants it...
-    for_each_i(scalar, [&](Index i, Index j) { m_local_storage(i, j) = scalar(i, j); });
+    save_scalar_hdf5(write_index, scalar, name);
+  }
 
-    constexpr hsize_t RANK                  = 3;
-    constexpr std::array<hsize_t, RANK> DIM = {NX, NY, 1};
-    const auto dataset_name                 = Igor::detail::format("/{}/{}", write_index, name);
-    H5LTmake_dataset_double(
-        m_data_file_id, dataset_name.c_str(), RANK, DIM.data(), m_local_storage.get_data());
+  // -----------------------------------------------------------------------------------------------
+  void write_vector(Index write_index,
+                    const Matrix<Float, NX, NY, NGHOST>& x_comp,
+                    const Matrix<Float, NX, NY, NGHOST>& y_comp,
+                    const std::string& name) {
+    const auto x_name = Igor::detail::format("{}_x", name);
+    const auto y_name = Igor::detail::format("{}_y", name);
+
+    // = Define vector =================
+    m_xdmf_out << Igor::detail::format(
+                      R"(        <Attribute Name="{}" AttributeType="Vector" Center="Cell">)", name)
+               << '\n';
+    m_xdmf_out
+        << R"a(          <DataItem Dimensions="&DimsZM; &DimsYM; &DimsXM; 2" Function="JOIN($0, $1)" ItemType="Function">)a"
+        << '\n';
+
+    // = x-component ===================
+    m_xdmf_out
+        << R"(            <DataItem Dimensions="&DimsZM; &DimsYM; &DimsXM;" NumberType="Float" Precision="8" Format="HDF">)"
+        << '\n';
+    m_xdmf_out << Igor::detail::format(
+                      R"(              {}:/{}/{})", m_data_filename, write_index, x_name)
+               << '\n';
+    m_xdmf_out << R"(            </DataItem>)" << '\n';
+    // = x-component ===================
+
+    // = y-component ===================
+    m_xdmf_out
+        << R"(            <DataItem Dimensions="&DimsZM; &DimsYM; &DimsXM;" NumberType="Float" Precision="8" Format="HDF">)"
+        << '\n';
+    m_xdmf_out << Igor::detail::format(
+                      R"(              {}:/{}/{})", m_data_filename, write_index, y_name)
+               << '\n';
+    m_xdmf_out << R"(            </DataItem>)" << '\n';
+    // = y-component ===================
+
+    m_xdmf_out << R"(          </DataItem>)" << '\n';
+    m_xdmf_out << R"(        </Attribute>)" << '\n';
+    // = Define vector =================
+
+    save_scalar_hdf5(write_index, x_comp, x_name);
+    save_scalar_hdf5(write_index, y_comp, y_name);
   }
 
  public:
@@ -66,6 +116,7 @@ class XDMFWriter {
                    x,
                    y) {}
 
+  // -----------------------------------------------------------------------------------------------
   XDMFWriter(std::string xdmf_path,
              std::string data_path,
              const Vector<Float, NX + 1, NGHOST>* x,
@@ -106,6 +157,7 @@ class XDMFWriter {
     H5LTmake_dataset_double(m_data_file_id, "/ycoords", 1, &dim, y->get_data());
   }
 
+  // -----------------------------------------------------------------------------------------------
   XDMFWriter(const XDMFWriter& other) noexcept                    = delete;
   XDMFWriter(XDMFWriter&& other) noexcept                         = delete;
   auto operator=(const XDMFWriter& other) noexcept -> XDMFWriter& = delete;
@@ -187,10 +239,8 @@ class XDMFWriter {
     }
 
     for (size_t i = 0; i < m_vector_names.size(); ++i) {
-      auto name = Igor::detail::format("{}_x", m_vector_names[i]);
-      write_scalar(write_counter, *m_vector_values[i][0], name);
-      name = Igor::detail::format("{}_y", m_vector_names[i]);
-      write_scalar(write_counter, *m_vector_values[i][1], name);
+      write_vector(
+          write_counter, *m_vector_values[i][0], *m_vector_values[i][1], m_vector_names[i]);
     }
 
     H5Gclose(group_id);

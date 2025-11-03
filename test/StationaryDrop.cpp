@@ -16,7 +16,6 @@
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
-#include "VTKWriter.hpp"
 
 // TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
 //       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
@@ -176,7 +175,7 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
-  VTKWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   data_writer.add_scalar("density", &rhoi);
   data_writer.add_scalar("viscosity", &fs.visc);
   data_writer.add_scalar("pressure", &fs.p);

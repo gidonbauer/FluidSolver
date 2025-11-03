@@ -14,7 +14,6 @@
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
 #include "Utility.hpp"
-#include "VTKWriter.hpp"
 
 // = Config ========================================================================================
 using Float                     = double;
@@ -101,10 +100,10 @@ auto main() -> int {
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
-  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  vtk_writer.add_scalar("pressure", &fs.p);
-  vtk_writer.add_scalar("divergence", &div);
-  vtk_writer.add_vector("velocity", &Ui, &Vi);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  data_writer.add_scalar("pressure", &fs.p);
+  data_writer.add_scalar("divergence", &div);
+  data_writer.add_vector("velocity", &Ui, &Vi);
   // = Output ======================================================================================
 
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
@@ -122,7 +121,7 @@ auto main() -> int {
   U_max   = abs_max(fs.curr.U);
   V_max   = abs_max(fs.curr.V);
   div_max = abs_max(div);
-  if (!vtk_writer.write(t)) { return 1; }
+  if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -181,7 +180,7 @@ auto main() -> int {
     V_max   = abs_max(fs.curr.V);
     div_max = abs_max(div);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!vtk_writer.write(t)) { return 1; }
+      if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
   }

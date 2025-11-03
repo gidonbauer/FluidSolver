@@ -14,7 +14,6 @@
 #include "Operators.hpp"
 #include "PressureCorrection.hpp"
 #include "Utility.hpp"
-#include "VTKWriter.hpp"
 
 #include "Common.hpp"
 
@@ -132,10 +131,10 @@ auto main() -> int {
   monitor.add_variable(&mom_x, "momentum (x)");
   monitor.add_variable(&mom_y, "momentum (y)");
 
-  VTKWriter<Float, NX, NY, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
-  vtk_writer.add_scalar("pressure", &fs.p);
-  vtk_writer.add_scalar("divergence", &div);
-  vtk_writer.add_vector("velocity", &Ui, &Vi);
+  DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
+  data_writer.add_scalar("pressure", &fs.p);
+  data_writer.add_scalar("divergence", &div);
+  data_writer.add_vector("velocity", &Ui, &Vi);
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
@@ -155,7 +154,7 @@ auto main() -> int {
   div_max = abs_max(div);
   p_max   = abs_max(fs.p);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
-  if (!vtk_writer.write(t)) { return 1; }
+  if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -264,7 +263,7 @@ auto main() -> int {
     p_max   = abs_max(fs.p);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!vtk_writer.write(t)) { return 1; }
+      if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
   }

@@ -4,6 +4,7 @@
 #include <array>
 #include <bit>
 #include <fstream>
+#include <type_traits>
 #include <vector>
 
 #include "Container.hpp"

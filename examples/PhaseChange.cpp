@@ -14,19 +14,6 @@
 #include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
-#if defined(USE_VTK) || defined(FS_DISABLE_HDF)
-#include "VTKWriter.hpp"
-template <typename Float, int NX, int NY, int NGHOST>
-using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
-#else
-#include "XDMFWriter.hpp"
-template <typename Float, int NX, int NY, int NGHOST>
-using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
-#endif  // USE_VTK
-
-// TODO: Test case for capillary forces: Stationary drop, no flow -> capillary forces should not
-//       induce a current. Important: only calculate a quarter of the drop and use Neumann boundary
-//       conditions.
 
 // = Config ========================================================================================
 using Float                     = double;

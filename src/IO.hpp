@@ -4,12 +4,21 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <type_traits>
 
 #include <Igor/Logging.hpp>
 
 #include "Container.hpp"
 #include "FS.hpp"
+
+#if defined(USE_VTK) || defined(FS_DISABLE_HDF)
+#include "VTKWriter.hpp"
+template <typename Float, Index NX, Index NY, Index NGHOST>
+using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
+#else
+#include "XDMFWriter.hpp"
+template <typename Float, Index NX, Index NY, Index NGHOST>
+using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
+#endif  // USE_VTK
 
 namespace detail {
 

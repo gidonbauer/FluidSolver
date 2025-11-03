@@ -16,16 +16,6 @@
 #include "Quadrature.hpp"
 #include "VOF.hpp"
 
-#if defined(USE_VTK) || defined(FS_DISABLE_HDF)
-#include "VTKWriter.hpp"
-template <typename Float, Index NX, Index NY, Index NGHOST>
-using DataWriter = VTKWriter<Float, NX, NY, NGHOST>;
-#else
-#include "XDMFWriter.hpp"
-template <typename Float, Index NX, Index NY, Index NGHOST>
-using DataWriter = XDMFWriter<Float, NX, NY, NGHOST>;
-#endif  // USE_VTK
-
 // = Config ========================================================================================
 using Float                     = double;
 

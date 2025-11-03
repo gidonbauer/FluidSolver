@@ -2,11 +2,11 @@
 #define FLUID_SOLVER_VTK_WRITER_HPP_
 
 #include <array>
+#include <bit>
 #include <fstream>
 #include <vector>
 
 #include "Container.hpp"
-#include "IO.hpp"
 
 // TODO: Save as unstructured grid in VTKHDF file format
 // (https://docs.vtk.org/en/latest/design_documents/VTKFileFormats.html)
@@ -23,6 +23,18 @@ class VTKWriter {
   std::vector<std::string> m_vector_names;
   std::vector<std::array<const Matrix<Float, NX, NY, NGHOST>*, 2>> m_vector_values{};
 
+  template <typename T>
+  requires(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8))
+  [[nodiscard]] constexpr auto interpret_as_big_endian_bytes(T value)
+      -> std::array<const char, sizeof(T)> {
+    if constexpr (std::endian::native == std::endian::big) {
+      return std::bit_cast<std::array<const char, sizeof(T)>>(value);
+    }
+    using U = std::conditional_t<sizeof(T) == 4, std::uint32_t, std::uint64_t>;
+    static_assert(sizeof(T) == sizeof(U));
+    return std::bit_cast<std::array<const char, sizeof(T)>>(std::byteswap(std::bit_cast<U>(value)));
+  }
+
   // -----------------------------------------------------------------------------------------------
   void write_header(std::ofstream& out, Float t) {
     // = Write VTK header ====
@@ -37,9 +49,9 @@ class VTKWriter {
     for (Index j = 0; j < m_y->extent(0); ++j) {
       for (Index i = 0; i < m_x->extent(0); ++i) {
         constexpr double zk = 0.0;
-        out.write(detail::interpret_as_big_endian_bytes((*m_x)(i)).data(), sizeof((*m_x)(i)));
-        out.write(detail::interpret_as_big_endian_bytes((*m_y)(j)).data(), sizeof((*m_y)(j)));
-        out.write(detail::interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
+        out.write(interpret_as_big_endian_bytes((*m_x)(i)).data(), sizeof((*m_x)(i)));
+        out.write(interpret_as_big_endian_bytes((*m_y)(j)).data(), sizeof((*m_y)(j)));
+        out.write(interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
       }
     }
     out << "\n\n";
@@ -56,7 +68,7 @@ class VTKWriter {
     out << "LOOKUP_TABLE default\n";
     for (Index j = 0; j < scalar.extent(1); ++j) {
       for (Index i = 0; i < scalar.extent(0); ++i) {
-        out.write(detail::interpret_as_big_endian_bytes(scalar(i, j)).data(), sizeof(scalar(i, j)));
+        out.write(interpret_as_big_endian_bytes(scalar(i, j)).data(), sizeof(scalar(i, j)));
       }
     }
     out << "\n\n";
@@ -71,9 +83,9 @@ class VTKWriter {
     for (Index j = 0; j < x_comp.extent(1); ++j) {
       for (Index i = 0; i < x_comp.extent(0); ++i) {
         constexpr double z_comp_ij = 0.0;
-        out.write(detail::interpret_as_big_endian_bytes(x_comp(i, j)).data(), sizeof(x_comp(i, j)));
-        out.write(detail::interpret_as_big_endian_bytes(y_comp(i, j)).data(), sizeof(y_comp(i, j)));
-        out.write(detail::interpret_as_big_endian_bytes(z_comp_ij).data(), sizeof(z_comp_ij));
+        out.write(interpret_as_big_endian_bytes(x_comp(i, j)).data(), sizeof(x_comp(i, j)));
+        out.write(interpret_as_big_endian_bytes(y_comp(i, j)).data(), sizeof(y_comp(i, j)));
+        out.write(interpret_as_big_endian_bytes(z_comp_ij).data(), sizeof(z_comp_ij));
       }
     }
     out << "\n\n";

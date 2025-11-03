@@ -83,8 +83,8 @@ constexpr auto advect_point(const IRL::Pt& pt,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr auto
-advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY, NGHOST>& fs, Float dt) -> IRL::Pt {
+constexpr auto advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY, NGHOST>& fs, Float dt)
+    -> IRL::Pt {
   const auto u1 = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0], pt[1]);
   const auto v1 = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0], pt[1]);
 
@@ -361,12 +361,12 @@ constexpr void calc_interface_length(const FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-[[nodiscard]] constexpr auto
-get_intersections_with_cell(Index i,
-                            Index j,
-                            const Vector<Float, NX + 1, NGHOST>& x,
-                            const Vector<Float, NY + 1, NGHOST>& y,
-                            const IRL::Plane& plane) -> std::array<IRL::Pt, 2> {
+[[nodiscard]] constexpr auto get_intersections_with_cell(Index i,
+                                                         Index j,
+                                                         const Vector<Float, NX + 1, NGHOST>& x,
+                                                         const Vector<Float, NY + 1, NGHOST>& y,
+                                                         const IRL::Plane& plane)
+    -> std::array<IRL::Pt, 2> {
   Igor::StaticVector<IRL::Pt, 4> trial_points{};
   constexpr std::array offsets{
       std::pair<Index, Index>{0, 0},
@@ -422,6 +422,18 @@ auto save_interface(const std::string& filename,
                     const Vector<Float, NX + 1, NGHOST>& x,
                     const Vector<Float, NY + 1, NGHOST>& y,
                     const Matrix<IRL::PlanarSeparator, NX, NY>& interface) -> bool {
+
+  auto interpret_as_big_endian_bytes = []<typename T>(T value)->std::array<const char, sizeof(T)> {
+    static_assert(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8),
+                  "Incompatible data type.");
+    if constexpr (std::endian::native == std::endian::big) {
+      return std::bit_cast<std::array<const char, sizeof(T)>>(value);
+    }
+    using U = std::conditional_t<sizeof(T) == 4, std::uint32_t, std::uint64_t>;
+    static_assert(sizeof(T) == sizeof(U));
+    return std::bit_cast<std::array<const char, sizeof(T)>>(std::byteswap(std::bit_cast<U>(value)));
+  };
+
   // - Find intersection points of planar separator and grid =======================================
   static std::vector<IRL::Pt> points{};
   points.resize(0);
@@ -460,18 +472,18 @@ auto save_interface(const std::string& filename,
     const auto xi       = p[0];
     const auto yj       = p[1];
     constexpr double zk = 0.0;
-    out.write(detail::interpret_as_big_endian_bytes(xi).data(), sizeof(xi));
-    out.write(detail::interpret_as_big_endian_bytes(yj).data(), sizeof(yj));
-    out.write(detail::interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
+    out.write(interpret_as_big_endian_bytes(xi).data(), sizeof(xi));
+    out.write(interpret_as_big_endian_bytes(yj).data(), sizeof(yj));
+    out.write(interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
   }
   out << "\n\n";
 
   // = Write cell data =============================================================================
   out << "LINES " << 3 << ' ' << points.size() / 2 * 3 << '\n';
   for (uint32_t i = 0; i < points.size(); i += 2) {
-    out.write(detail::interpret_as_big_endian_bytes(uint32_t{2}).data(), sizeof(uint32_t));
-    out.write(detail::interpret_as_big_endian_bytes(i).data(), sizeof(uint32_t));
-    out.write(detail::interpret_as_big_endian_bytes(i + 1).data(), sizeof(uint32_t));
+    out.write(interpret_as_big_endian_bytes(uint32_t{2}).data(), sizeof(uint32_t));
+    out.write(interpret_as_big_endian_bytes(i).data(), sizeof(uint32_t));
+    out.write(interpret_as_big_endian_bytes(i + 1).data(), sizeof(uint32_t));
   }
 
   return out.good();

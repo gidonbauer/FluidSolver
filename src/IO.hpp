@@ -1,7 +1,6 @@
 #ifndef FLUID_SOLVER_IO_HPP_
 #define FLUID_SOLVER_IO_HPP_
 
-#include <bit>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -13,102 +12,6 @@
 #include "FS.hpp"
 
 namespace detail {
-
-// -------------------------------------------------------------------------------------------------
-template <typename T>
-requires(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8))
-[[nodiscard]] constexpr auto interpret_as_big_endian_bytes(T value)
-    -> std::array<const char, sizeof(T)> {
-  if constexpr (std::endian::native == std::endian::big) {
-    return std::bit_cast<std::array<const char, sizeof(T)>>(value);
-  }
-  using U = std::conditional_t<sizeof(T) == 4, std::uint32_t, std::uint64_t>;
-  static_assert(sizeof(T) == sizeof(U));
-  return std::bit_cast<std::array<const char, sizeof(T)>>(std::byteswap(std::bit_cast<U>(value)));
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void write_scalar_vtk(std::ofstream& out,
-                      const Matrix<Float, NX, NY>& scalar,
-                      const std::string& name) {
-  out << "SCALARS " << name << " double 1\n";
-  out << "LOOKUP_TABLE default\n";
-  for (Index j = 0; j < scalar.extent(1); ++j) {
-    for (Index i = 0; i < scalar.extent(0); ++i) {
-      out.write(interpret_as_big_endian_bytes(scalar[i, j]).data(), sizeof(scalar[i, j]));
-    }
-  }
-  out << "\n\n";
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-void write_vector_vtk(std::ofstream& out,
-                      const Matrix<Float, NX, NY>& x_comp,
-                      const Matrix<Float, NX, NY>& y_comp,
-                      const std::string& name) {
-  out << "VECTORS " << name << " double\n";
-  for (Index j = 0; j < x_comp.extent(1); ++j) {
-    for (Index i = 0; i < x_comp.extent(0); ++i) {
-      constexpr double z_comp_ij = 0.0;
-      out.write(interpret_as_big_endian_bytes(x_comp[i, j]).data(), sizeof(x_comp[i, j]));
-      out.write(interpret_as_big_endian_bytes(y_comp[i, j]).data(), sizeof(y_comp[i, j]));
-      out.write(interpret_as_big_endian_bytes(z_comp_ij).data(), sizeof(z_comp_ij));
-    }
-  }
-  out << "\n\n";
-}
-
-// -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-[[nodiscard]] auto save_state_vtk(const std::string& output_dir,
-                                  const Vector<Float, NX + 1>& x,
-                                  const Vector<Float, NY + 1>& y,
-                                  const Matrix<Float, NX, NY>& Ui,
-                                  const Matrix<Float, NX, NY>& Vi,
-                                  const Matrix<Float, NX, NY>& p,
-                                  const Matrix<Float, NX, NY>& div,
-                                  // const Matrix<Float, NX, NY>& vof,
-                                  Float t) -> bool {
-  static_assert(std::is_same_v<Float, double>, "Assumes Float=double");
-
-  static Index write_counter = 0;
-  const auto filename = Igor::detail::format("{}/state_{:06d}.vtk", output_dir, write_counter++);
-  std::ofstream out(filename);
-  if (!out) {
-    Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));
-    return false;
-  }
-
-  // = Write VTK header ============================================================================
-  out << "# vtk DataFile Version 2.0\n";
-  out << "State of FluidSolver at time t=" << t << '\n';
-  out << "BINARY\n";
-
-  // = Write grid ==================================================================================
-  out << "DATASET STRUCTURED_GRID\n";
-  out << "DIMENSIONS " << x.size() << ' ' << y.size() << " 1\n";
-  out << "POINTS " << x.size() * y.size() << " double\n";
-  for (Index j = 0; j < y.size(); ++j) {
-    for (Index i = 0; i < x.size(); ++i) {
-      constexpr double zk = 0.0;
-      out.write(interpret_as_big_endian_bytes(x[i]).data(), sizeof(x[i]));
-      out.write(interpret_as_big_endian_bytes(y[j]).data(), sizeof(y[j]));
-      out.write(interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
-    }
-  }
-  out << "\n\n";
-
-  // = Write cell data =============================================================================
-  out << "CELL_DATA " << Ui.size() << '\n';
-  write_scalar_vtk(out, p, "pressure");
-  write_scalar_vtk(out, div, "divergence");
-  write_vector_vtk(out, Ui, Vi, "velocity");
-  // write_scalar_vtk(out, vof, "VOF");
-
-  return out.good();
-}
 
 template <std::floating_point Float, Index RANK>
 requires(RANK >= 1)
@@ -182,21 +85,6 @@ requires(RANK >= 1)
 }  // namespace detail
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index NX, Index NY>
-[[nodiscard, deprecated("Use VTKWriter instead.")]] auto
-save_state(const std::string& output_dir,
-           const Vector<Float, NX + 1>& x,
-           const Vector<Float, NY + 1>& y,
-           const Matrix<Float, NX, NY>& Ui,
-           const Matrix<Float, NX, NY>& Vi,
-           const Matrix<Float, NX, NY>& p,
-           const Matrix<Float, NX, NY>& div,
-           // const Matrix<Float, NX, NY>& vof,
-           Float t) -> bool {
-  return detail::save_state_vtk(output_dir, x, y, Ui, Vi, p, div, /*vof,*/ t);
-}
-
-// -------------------------------------------------------------------------------------------------
 template <typename Float>
 [[nodiscard]] constexpr auto should_save(Float t, Float dt, Float dt_write, Float t_end) -> bool {
   constexpr Float DT_SAFE      = 1e-6;
@@ -208,6 +96,25 @@ template <typename Float>
   if (res && is_last && std::abs(t - last_save_t) < DT_SAFE) { return false; }
   if (res) { last_save_t = t; }
   return res;
+}
+
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto init_output_directory(const std::string& directory_name) noexcept -> bool {
+  std::error_code ec;
+
+  std::filesystem::remove_all(directory_name, ec);
+  if (ec) {
+    Igor::Warn("Could remove directory `{}`: {}", directory_name, ec.message());
+    return false;
+  }
+
+  std::filesystem::create_directories(directory_name, ec);
+  if (ec) {
+    Igor::Warn("Could not create directory `{}`: {}", directory_name, ec.message());
+    return false;
+  }
+
+  return true;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -260,25 +167,6 @@ template <std::floating_point Float, Index M, Index N, Index NGHOST, Layout LAYO
     return false;
   }
   // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
-
-  return true;
-}
-
-// -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto init_output_directory(const std::string& directory_name) noexcept -> bool {
-  std::error_code ec;
-
-  std::filesystem::remove_all(directory_name, ec);
-  if (ec) {
-    Igor::Warn("Could remove directory `{}`: {}", directory_name, ec.message());
-    return false;
-  }
-
-  std::filesystem::create_directories(directory_name, ec);
-  if (ec) {
-    Igor::Warn("Could not create directory `{}`: {}", directory_name, ec.message());
-    return false;
-  }
 
   return true;
 }

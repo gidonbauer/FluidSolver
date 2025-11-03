@@ -230,6 +230,7 @@ class PS {
 
  public:
   // -----------------------------------------------------------------------------------------------
+  // TODO: This is still very slow.
   void setup(const FS<Float, NX, NY, NGHOST>& fs) noexcept {
     CHECK_ERROR(msg_buffer.data());
 

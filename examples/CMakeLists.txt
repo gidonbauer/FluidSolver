@@ -4,6 +4,7 @@ set(executables
   Curvature
   TwoPhaseSolver
   IB
+  GrowingIB
   PhaseChange
   RisingBubble
   DivFreeExtrapolation

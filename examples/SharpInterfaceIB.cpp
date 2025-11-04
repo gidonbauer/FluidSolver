@@ -17,8 +17,8 @@
 // = Config ========================================================================================
 using Float              = double;
 
-constexpr Index NX       = 5 * 128;
-constexpr Index NY       = 128;
+constexpr Index NX       = 5 * 16;  // 5 * 64;
+constexpr Index NY       = 16;      // 64;
 constexpr Index NGHOST   = 1;
 
 constexpr Float X_MIN    = 0.0;
@@ -31,7 +31,7 @@ constexpr Float DT_MAX   = 1e-2;
 constexpr Float CFL_MAX  = 0.5;
 constexpr Float DT_WRITE = 1e-2;
 
-constexpr Float U_BCOND  = 5.0;
+constexpr Float U_BCOND  = 1.0;
 constexpr Float U_0      = 0.0;
 constexpr Float VISC     = 1e-3;
 constexpr Float RHO      = 1.0;
@@ -43,6 +43,13 @@ constexpr Float CY           = 0.5;
 constexpr Float R0           = 0.1;
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
+};
+constexpr auto normal_immersed_wall = [](Float x, Float y) -> std::array<Float, 2> {
+  const auto d = std::sqrt(Igor::sqr(x - CX) + Igor::sqr(y - CY));
+  return {
+      (x - CX) / d,
+      (y - CY) / d,
+  };
 };
 #else
 struct Point {
@@ -105,8 +112,6 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
-                                  const Matrix<Float, NX + 1, NY, NGHOST>& ib_u_stag,
-                                  const Matrix<Float, NX, NY + 1, NGHOST>& ib_v_stag,
                                   Float& mass,
                                   Float& momentum_x,
                                   Float& momentum_y) noexcept {
@@ -115,26 +120,119 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
   momentum_y = 0.0;
 
   for_each<0, NX, 0, NY>([&](Index i, Index j) {
-    mass += (ib_u_stag(i, j) * fs.curr.rho_u_stag(i, j) +
-             ib_u_stag(i + 1, j) * fs.curr.rho_u_stag(i + 1, j) +
-             ib_v_stag(i, j) * fs.curr.rho_v_stag(i, j) +
-             ib_v_stag(i, j + 1) * fs.curr.rho_v_stag(i, j + 1)) /
+    mass += ((1.0 - immersed_wall(fs.x(i), fs.ym(j))) * fs.curr.rho_u_stag(i, j) +
+             (1.0 - immersed_wall(fs.x(i + 1), fs.ym(j))) * fs.curr.rho_u_stag(i + 1, j) +
+             (1.0 - immersed_wall(fs.xm(i), fs.y(j))) * fs.curr.rho_v_stag(i, j) +
+             (1.0 - immersed_wall(fs.xm(i), fs.y(j + 1))) * fs.curr.rho_v_stag(i, j + 1)) /
             4.0 * fs.dx * fs.dy;
 
-    momentum_x += (ib_u_stag(i, j) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
-                   ib_u_stag(i + 1, j) * fs.curr.rho_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
-                  2.0 * fs.dx * fs.dy;
-    momentum_y += (ib_v_stag(i, j) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
-                   ib_v_stag(i, j + 1) * fs.curr.rho_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
-                  2.0 * fs.dx * fs.dy;
+    momentum_x +=
+        ((1.0 - immersed_wall(fs.x(i), fs.ym(j))) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
+         (1.0 - immersed_wall(fs.x(i + 1), fs.ym(j))) * fs.curr.rho_u_stag(i + 1, j) *
+             fs.curr.U(i + 1, j)) /
+        2.0 * fs.dx * fs.dy;
+    momentum_y +=
+        ((1.0 - immersed_wall(fs.xm(i), fs.y(j))) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
+         (1.0 - immersed_wall(fs.xm(i), fs.y(j + 1))) * fs.curr.rho_v_stag(i, j + 1) *
+             fs.curr.V(i, j + 1)) /
+        2.0 * fs.dx * fs.dy;
   });
 }
 
 // -------------------------------------------------------------------------------------------------
-auto main() -> int {
-  const auto OUTPUT_DIR = get_output_directory();
+enum IBBoundary : uint32_t {
+  INSIDE = 0b0000,
+  LEFT   = 0b0001,
+  RIGHT  = 0b0010,
+  BOTTOM = 0b0100,
+  TOP    = 0b1000,
+};
 
+[[nodiscard]] auto is_boundary_U(const FS<Float, NX, NY, NGHOST>& fs, Index i, Index j)
+    -> uint32_t {
+  if (immersed_wall(fs.x(i), fs.ym(j)) < 1.0) { return IBBoundary::INSIDE; }
+
+  uint32_t boundary = 0;
+  if (immersed_wall(fs.x(i + 1), fs.ym(j)) < 1.0) { boundary |= IBBoundary::RIGHT; }
+  if (immersed_wall(fs.x(i - 1), fs.ym(j)) < 1.0) { boundary |= IBBoundary::LEFT; }
+  if (immersed_wall(fs.x(i), fs.ym(j + 1)) < 1.0) { boundary |= IBBoundary::TOP; }
+  if (immersed_wall(fs.x(i), fs.ym(j - 1)) < 1.0) { boundary |= IBBoundary::BOTTOM; }
+
+  return boundary;
+}
+
+[[nodiscard]] auto is_boundary_V(const FS<Float, NX, NY, NGHOST>& fs, Index i, Index j)
+    -> uint32_t {
+  if (immersed_wall(fs.xm(i), fs.y(j)) < 1.0) { return IBBoundary::INSIDE; }
+
+  uint32_t boundary = 0;
+  if (immersed_wall(fs.xm(i + 1), fs.y(j)) < 1.0) { boundary |= IBBoundary::RIGHT; }
+  if (immersed_wall(fs.xm(i - 1), fs.y(j)) < 1.0) { boundary |= IBBoundary::LEFT; }
+  if (immersed_wall(fs.xm(i), fs.y(j + 1)) < 1.0) { boundary |= IBBoundary::TOP; }
+  if (immersed_wall(fs.xm(i), fs.y(j - 1)) < 1.0) { boundary |= IBBoundary::BOTTOM; }
+
+  return boundary;
+}
+
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto intersect_line_circle(std::array<Float, 2> p1,
+                                         std::array<Float, 2> p2,
+                                         std::array<Float, 2> c,
+                                         Float r) {
+  // See: https://mathworld.wolfram.com/Circle-LineIntersection.html
+  enum : size_t { X, Y };
+
+  p1[X]                  -= c[X];
+  p1[Y]                  -= c[Y];
+  p2[X]                  -= c[X];
+  p2[Y]                  -= c[Y];
+
+  const auto dx           = p2[X] - p1[X];
+  const auto dy           = p2[Y] - p1[Y];
+  const auto dr           = std::sqrt(dx * dx + dy * dy);
+  const auto det          = p1[X] * p2[Y] - p2[X] * p1[Y];
+
+  const auto inside_sqrt  = r * r * dr * dr - det * det;
+  if (!(inside_sqrt >= 0.0)) { Igor::Panic("Line and circle do not intersect."); }
+
+  auto sign     = [](Float x) -> Float { return x < 0 ? -1.0 : 1.0; };
+  std::array i1 = {
+      (det * dy + sign(dy) * dx * std::sqrt(inside_sqrt)) / (dr * dr),
+      (-det * dx + std::abs(dy) * std::sqrt(inside_sqrt)) / (dr * dr),
+  };
+
+  std::array i2 = {
+      (det * dy - sign(dy) * dx * std::sqrt(inside_sqrt)) / (dr * dr),
+      (-det * dx - std::abs(dy) * std::sqrt(inside_sqrt)) / (dr * dr),
+  };
+
+  auto on_finite_line = [&](const std::array<Float, 2>& i) -> bool {
+    return std::min(p1[X], p2[X]) <= i[X] && i[X] <= std::max(p1[X], p2[X]) &&
+           std::min(p1[Y], p2[Y]) <= i[Y] && i[Y] <= std::max(p1[Y], p2[Y]);
+  };
+
+  if (!(on_finite_line(i1) || on_finite_line(i2))) {
+    Igor::Panic("None of the intersection points is on the finite line.");
+  }
+  if (on_finite_line(i1) && on_finite_line(i2)) {
+    Igor::Panic("Both of the intersection points is on the finite line.");
+  }
+
+  if (on_finite_line(i1)) {
+    i1[X] += c[X];
+    i1[Y] += c[Y];
+    return i1;
+  } else {
+    i2[X] += c[X];
+    i2[Y] += c[Y];
+    return i2;
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+auto main() -> int {
   // = Create output directory =====================================================================
+  const auto OUTPUT_DIR = get_output_directory();
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
@@ -154,8 +252,6 @@ auto main() -> int {
   Matrix<Float, NX, NY, NGHOST> delta_p{};
 
   Matrix<Float, NX, NY, NGHOST> ib{};
-  Matrix<Float, NX + 1, NY, NGHOST> ib_u_stag{};
-  Matrix<Float, NX, NY + 1, NGHOST> ib_v_stag{};
 
   // Observation variables
   Float t       = 0.0;
@@ -203,20 +299,10 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize immersed boundaries ==============================================================
-  for_each_a<Exec::Parallel>(ib_u_stag, [&](Index i, Index j) {
-    ib_u_stag(i, j) =
-        quadrature(
-            immersed_wall, fs.x(i) - fs.dx / 2.0, fs.x(i) + fs.dx / 2.0, fs.y(j), fs.y(j + 1)) /
-        (fs.dx * fs.dy);
+  for_each_a(ib, [&](Index i, Index j) {
+    ib(i, j) =
+        quadrature(immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
-
-  for_each_a<Exec::Parallel>(ib_v_stag, [&](Index i, Index j) {
-    ib_v_stag(i, j) =
-        quadrature(
-            immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j) - fs.dy / 2.0, fs.y(j) + fs.dy / 2.0) /
-        (fs.dx * fs.dy);
-  });
-  interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
   // = Initialize immersed boundaries ==============================================================
 
   // = Initialize flow field =======================================================================
@@ -230,7 +316,7 @@ auto main() -> int {
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
   div_max = max(div);
-  calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
+  calc_conserved_quantities_ib(fs, mass, mom_x, mom_y);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -251,15 +337,80 @@ auto main() -> int {
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U(i, j) = (1.0 - ib_u_stag(i, j)) *
-                          (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
+        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
                           fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V(i, j) = (1.0 - ib_v_stag(i, j)) *
-                          (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
+        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
                           fs.curr.rho_v_stag(i, j);
       });
+
+      // = IB forcing ==============================================================================
+      for_each_i<Exec::Serial>(fs.curr.U, [&](Index i, Index j) {
+        const auto boundary = is_boundary_U(fs, i, j);
+        if (boundary == IBBoundary::INSIDE) { return; }
+
+        const auto [normal_x, normal_y] = normal_immersed_wall(fs.x(i), fs.ym(j));
+        const auto direction            = [&]() {
+          if (std::abs(normal_x) > std::abs(normal_y)) {
+            return normal_x > 0.0 ? IBBoundary::RIGHT : IBBoundary::LEFT;
+          } else {
+            return normal_y > 0.0 ? IBBoundary::TOP : IBBoundary::BOTTOM;
+          }
+        }();
+        IGOR_ASSERT((direction & boundary) > 0, "Direction and boundary do not align.");
+
+        switch (direction) {
+          case IBBoundary::LEFT:
+            {
+              Igor::Debug("x0 = ({:.6f}, {:.6f})", fs.x(i), fs.ym(j));
+              Igor::Debug("U0 = {:.6e}", fs.curr.U(i, j));
+              Igor::Debug("wall0 = {:.1f}", immersed_wall(fs.x(i), fs.ym(j)));
+              Igor::Debug("x1 = ({:.6f}, {:.6f})", fs.x(i - 1), fs.ym(j));
+              Igor::Debug("U1 = {:.6e}", fs.curr.U(i - 1, j));
+              Igor::Debug("wall1 = {:.1f}", immersed_wall(fs.x(i - 1), fs.ym(j)));
+              Igor::Debug("x2 = ({:.6f}, {:.6f})", fs.x(i - 2), fs.ym(j));
+              Igor::Debug("U2 = {:.6e}", fs.curr.U(i - 2, j));
+              Igor::Debug("wall2 = {:.1f}", immersed_wall(fs.x(i - 2), fs.ym(j)));
+
+              const auto [intersect_x, intersect_y] =
+                  intersect_line_circle({fs.x(i), fs.ym(j)}, {fs.x(i - 1), fs.ym(j)}, {CX, CY}, R0);
+              Igor::Debug("intersection = ({:.6f}, {:.6f})", intersect_x, intersect_y);
+
+              const auto beta = std::abs(intersect_x - fs.x(i)) / fs.dx;
+              Igor::Debug("beta = {:.6e}", beta);
+            }
+            Igor::Todo("Direction LEFT");
+          case IBBoundary::RIGHT:  Igor::Todo("Direction RIGHT");
+          case IBBoundary::BOTTOM: Igor::Todo("Direction BOTTOM");
+          case IBBoundary::TOP:    Igor::Todo("Direction TOP");
+          case IBBoundary::INSIDE:
+          default:                 Igor::Panic("Unreachable");
+        }
+
+        Igor::Debug("Normal: ({:.6e}, {:.6e})", normal_x, normal_y);
+        Igor::Debug("Direction: LEFT={}, RIGHT={}, BOTTOM={}, TOP={}",
+                    (direction & LEFT) > 0,
+                    (direction & RIGHT) > 0,
+                    (direction & BOTTOM) > 0,
+                    (direction & TOP) > 0);
+        Igor::Todo("U boundary: LEFT={}, RIGHT={}, BOTTOM={}, TOP={}",
+                   (boundary & LEFT) > 0,
+                   (boundary & RIGHT) > 0,
+                   (boundary & BOTTOM) > 0,
+                   (boundary & TOP) > 0);
+      });
+      for_each_i<Exec::Serial>(fs.curr.V, [&](Index i, Index j) {
+        const auto boundary = is_boundary_V(fs, i, j);
+        if (boundary == IBBoundary::INSIDE) { return; }
+        Igor::Todo("V boundary: LEFT={}, RIGHT={}, BOTTOM={}, TOP={}",
+                   (boundary & LEFT) > 0,
+                   (boundary & RIGHT) > 0,
+                   (boundary & BOTTOM) > 0,
+                   (boundary & TOP) > 0);
+      });
+      // = IB forcing ==============================================================================
+
       apply_velocity_bconds(fs, bconds);
 
       // Correct the outflow
@@ -305,7 +456,7 @@ auto main() -> int {
     U_max   = max(fs.curr.U);
     V_max   = max(fs.curr.V);
     div_max = max(div);
-    calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
+    calc_conserved_quantities_ib(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }

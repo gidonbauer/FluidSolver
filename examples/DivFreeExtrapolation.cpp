@@ -21,11 +21,6 @@ constexpr Float Y_MAX  = 1.0;
 
 constexpr Float VISC   = 1.0;
 constexpr Float RHO    = 1.0;
-
-#ifndef FS_BASE_DIR
-#define FS_BASE_DIR "."
-#endif  // FS_BASE_DIR
-constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/DivFreeExtrapolation/";
 // = Setup =========================================================================================
 
 // =================================================================================================
@@ -39,6 +34,7 @@ auto v_analytical(Float x, Float y, Float t) -> Float {
 
 // =================================================================================================
 auto main() -> int {
+  const auto OUTPUT_DIR = get_output_directory();
   if (!init_output_directory(OUTPUT_DIR)) {
     Igor::Warn("Could not initialize the output directory `{}`", OUTPUT_DIR);
     return 1;

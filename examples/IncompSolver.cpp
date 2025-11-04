@@ -58,11 +58,6 @@ constexpr FlowBConds<Float> bconds{
 //     .U     = {0.0, 0.0, 0.0, U_BCOND},
 //     .V     = {0.0, 0.0, 0.0, 0.0},
 // };
-
-#ifndef FS_BASE_DIR
-#define FS_BASE_DIR "."
-#endif  // FS_BASE_DIR
-constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/IncompSolver/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -82,6 +77,7 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
+  const auto OUTPUT_DIR = get_output_directory();
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================

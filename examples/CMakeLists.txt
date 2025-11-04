@@ -3,7 +3,8 @@ set(executables
   VOF
   Curvature
   TwoPhaseSolver
-  IB
+  DiffuseInterfaceIB
+  SharpInterfaceIB
   GrowingIB
   PhaseChange
   RisingBubble

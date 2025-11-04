@@ -30,11 +30,6 @@ constexpr Float DX            = (X_MAX - X_MIN) / static_cast<Float>(N);
 constexpr Float DY            = (Y_MAX - Y_MIN) / static_cast<Float>(N);
 
 constexpr Index NUM_TEST_ITER = 50'000;
-
-#ifndef FS_BASE_DIR
-#define FS_BASE_DIR "."
-#endif  // FS_BASE_DIR
-constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/Curvature";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -113,6 +108,7 @@ void test_curvature(CURV_FUNC calc_curv,
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
+  const auto OUTPUT_DIR = get_output_directory();
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================

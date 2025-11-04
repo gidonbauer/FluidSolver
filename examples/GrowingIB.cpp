@@ -54,11 +54,6 @@ constexpr FlowBConds<Float> bconds{
     .top    = ClippedNeumann{},
 };
 #endif
-
-#ifndef FS_BASE_DIR
-#define FS_BASE_DIR "."
-#endif  // FS_BASE_DIR
-constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/GrowingIB/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -116,8 +111,35 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
+void calc_ib(const FS<Float, NX, NY, NGHOST>& fs,
+             auto&& immersed_wall,
+             Float t,
+             Matrix<Float, NX + 1, NY, NGHOST>& ib_u_stag,
+             Matrix<Float, NX, NY + 1, NGHOST>& ib_v_stag,
+             Matrix<Float, NX, NY, NGHOST>& ib) {
+  for_each_a<Exec::Parallel>(ib_u_stag, [&](Index i, Index j) {
+    ib_u_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, t); },
+                                 fs.x(i) - fs.dx / 2.0,
+                                 fs.x(i) + fs.dx / 2.0,
+                                 fs.y(j),
+                                 fs.y(j + 1)) /
+                      (fs.dx * fs.dy);
+  });
+  for_each_a<Exec::Parallel>(ib_v_stag, [&](Index i, Index j) {
+    ib_v_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, t); },
+                                 fs.x(i),
+                                 fs.x(i + 1),
+                                 fs.y(j) - fs.dy / 2.0,
+                                 fs.y(j) + fs.dy / 2.0) /
+                      (fs.dx * fs.dy);
+  });
+  interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
+}
+
+// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
+  const auto OUTPUT_DIR = get_output_directory();
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
@@ -200,23 +222,7 @@ auto main() -> int {
     return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(r(t)));
   };
 
-  for_each_a<Exec::Parallel>(ib_u_stag, [&](Index i, Index j) {
-    ib_u_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, 0.0); },
-                                 fs.x(i) - fs.dx / 2.0,
-                                 fs.x(i) + fs.dx / 2.0,
-                                 fs.y(j),
-                                 fs.y(j + 1)) /
-                      (fs.dx * fs.dy);
-  });
-  for_each_a<Exec::Parallel>(ib_v_stag, [&](Index i, Index j) {
-    ib_v_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, 0.0); },
-                                 fs.x(i),
-                                 fs.x(i + 1),
-                                 fs.y(j) - fs.dy / 2.0,
-                                 fs.y(j) + fs.dy / 2.0) /
-                      (fs.dx * fs.dy);
-  });
-  interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
+  calc_ib(fs, immersed_wall, t, ib_u_stag, ib_v_stag, ib);
   // = Initialize immersed boundaries ==============================================================
 
   // = Initialize flow field =======================================================================
@@ -243,23 +249,7 @@ auto main() -> int {
     dt = std::min(dt, T_END - t);
 
     // = Update IB field ===========================================================================
-    for_each_a<Exec::Parallel>(ib_u_stag, [&](Index i, Index j) {
-      ib_u_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, t); },
-                                   fs.x(i) - fs.dx / 2.0,
-                                   fs.x(i) + fs.dx / 2.0,
-                                   fs.y(j),
-                                   fs.y(j + 1)) /
-                        (fs.dx * fs.dy);
-    });
-    for_each_a<Exec::Parallel>(ib_v_stag, [&](Index i, Index j) {
-      ib_v_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, t); },
-                                   fs.x(i),
-                                   fs.x(i + 1),
-                                   fs.y(j) - fs.dy / 2.0,
-                                   fs.y(j) + fs.dy / 2.0) /
-                        (fs.dx * fs.dy);
-    });
-    interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
+    calc_ib(fs, immersed_wall, t, ib_u_stag, ib_v_stag, ib);
     // = Update IB field ===========================================================================
 
     // Save previous state

@@ -59,16 +59,6 @@ constexpr FlowBConds<Float> bconds{
     .bottom = Dirichlet{.U = 0.0, .V = 0.0},
     .top    = Dirichlet{.U = 0.0, .V = 0.0},
 };
-
-#ifndef FS_BASE_DIR
-#define FS_BASE_DIR "."
-#endif  // FS_BASE_DIR
-#ifndef LC_U_INIT
-constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/LaminarChannel/";
-#else
-constexpr auto OUTPUT_DIR =
-    FS_BASE_DIR "/test/output/LaminarChannel_" IGOR_STRINGIFY(LC_U_INIT) "/";
-#endif
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -90,6 +80,11 @@ auto main() -> int {
   omp_set_num_threads(4);
 
   // = Create output directory =====================================================================
+#ifndef LC_U_INIT
+  const auto OUTPUT_DIR = get_output_directory("test/output");
+#else
+  const auto OUTPUT_DIR = get_output_directory("test/output") + IGOR_STRINGIFY(LC_U_INIT) "/";
+#endif
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================

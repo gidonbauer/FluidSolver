@@ -77,11 +77,6 @@ constexpr FlowBConds<Float> bconds{
     .bottom = Dirichlet{.U = 0.0, .V = V_IN},
     .top    = Neumann{},
 };
-
-#ifndef FS_BASE_DIR
-#define FS_BASE_DIR "."
-#endif  // FS_BASE_DIR
-constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/RisingBubble/";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -145,6 +140,7 @@ auto main(int argc, char** argv) -> int {
   Igor::Info("We = {:.6e}", We);
 
   // = Create output directory =====================================================================
+  const auto OUTPUT_DIR = get_output_directory();
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================

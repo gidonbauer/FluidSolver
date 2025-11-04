@@ -34,11 +34,6 @@ Float INIT_VF_INT      = 0.0;  // NOLINT
 
 constexpr Float DT     = 5e-3;
 constexpr Index NITER  = 120;
-
-#ifndef FS_BASE_DIR
-#define FS_BASE_DIR "."
-#endif  // FS_BASE_DIR
-constexpr auto OUTPUT_DIR = FS_BASE_DIR "/test/output/ConstantVelocityVOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -91,6 +86,7 @@ auto main() -> int {
   omp_set_num_threads(4);
 
   // = Create output directory =====================================================================
+  const auto OUTPUT_DIR = get_output_directory("test/output");
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================

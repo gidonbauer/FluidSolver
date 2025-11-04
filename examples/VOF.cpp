@@ -47,11 +47,6 @@ constexpr Float DT_MAX   = 1e-2;
 constexpr Float CFL_MAX  = 0.5;
 constexpr Float T_END    = 30.0;
 constexpr Float DT_WRITE = 5e-2;
-
-#ifndef FS_BASE_DIR
-#define FS_BASE_DIR "."
-#endif  // FS_BASE_DIR
-constexpr auto OUTPUT_DIR = FS_BASE_DIR "/output/VOF";
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -93,6 +88,7 @@ void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
+  const auto OUTPUT_DIR = get_output_directory();
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================

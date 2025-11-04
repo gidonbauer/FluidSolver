@@ -108,7 +108,50 @@ template <typename Float>
 }
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto init_output_directory(const std::string& directory_name) noexcept -> bool {
+[[nodiscard]] auto
+get_output_directory(std::string_view subdir  = "output",
+                     std::source_location loc = std::source_location::current()) noexcept
+    -> std::string {
+  auto strip_path = [](std::string_view full_path) -> std::string_view {
+#if defined(WIN32) || defined(_WIN32)
+#error "Not implemented yet: Requires different path separator ('\\') and potentially uses wchar"
+#else
+    constexpr char separator = '/';
+#endif
+    size_t counter = 0;
+    for (char c : std::ranges::reverse_view(full_path)) {
+      if (c == separator) { break; }
+      ++counter;
+    }
+
+    return full_path.substr(full_path.size() - counter, counter);
+  };
+
+  auto strip_extension = [](std::string_view full_name) -> std::string_view {
+    constexpr char separator = '.';
+    size_t counter           = 0;
+    for (char c : std::ranges::reverse_view(full_name)) {
+      if (c == separator) { break; }
+      ++counter;
+    }
+
+    return full_name.substr(0, full_name.size() - counter - 1);
+  };
+
+  try {
+    return Igor::detail::format("{}/{}/{}/",
+#ifdef FS_BASE_DIR
+                                FS_BASE_DIR,
+#else
+                                ".",
+#endif  // FS_BASE_DIR
+                                subdir,
+                                strip_extension(strip_path(loc.file_name())));
+  } catch (const std::exception& e) { Igor::Panic("Could not create output directory name."); }
+}
+
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto init_output_directory(std::string_view directory_name) noexcept -> bool {
   std::error_code ec;
 
   std::filesystem::remove_all(directory_name, ec);

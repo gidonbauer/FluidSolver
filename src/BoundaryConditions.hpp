@@ -11,18 +11,28 @@ requires(NGHOST > 0)
 struct FS;
 
 // -------------------------------------------------------------------------------------------------
-// TODO: Clipped Neumann?
-// clang-format off
 template <typename Float>
-struct Dirichlet { Float U{}, V{}; };
+struct Dirichlet {
+  Float U{}, V{};
+};
+
+template <typename Float>
+struct CustomDirichlet {
+  using Func = Float (*)(Float, Float);
+  Func U{}, V{};
+};
+
 struct Neumann {};
+
 struct ClippedNeumann {};
+
 struct Periodic {};
+
 struct Symmetry {};
 
 template <typename Float>
-using BCond_t = std::variant<Dirichlet<Float>, ClippedNeumann, Neumann, Periodic, Symmetry>;
-// clang-format on
+using BCond_t = std::
+    variant<Dirichlet<Float>, CustomDirichlet<Float>, Neumann, ClippedNeumann, Periodic, Symmetry>;
 
 template <typename Float>
 struct FlowBConds {
@@ -43,7 +53,9 @@ struct Dispatcher : Ts... {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float>& bconds) {
+void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs,
+                           const FlowBConds<Float>& bconds,
+                           Float t = 0.0) {
   static_assert(NGHOST == 1, "Expected exactly one ghost cell.");
 
   // = Left side of domain =========================================================================
@@ -51,6 +63,12 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       [&](const Dirichlet<Float>& bcond) {
         for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.curr.U(-NGHOST, j) = bcond.U; });
         for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(-NGHOST, j) = bcond.V; });
+      },
+      [&](const CustomDirichlet<Float>& bcond) {
+        for_each_a<Exec::Parallel>(fs.ym,
+                                   [&](Index j) { fs.curr.U(-NGHOST, j) = bcond.U(fs.ym(j), t); });
+        for_each_a<Exec::Parallel>(fs.y,
+                                   [&](Index j) { fs.curr.V(-NGHOST, j) = bcond.V(fs.y(j), t); });
       },
       [&](const Neumann& /*bcond*/) {
         for_each_a<Exec::Parallel>(fs.ym,
@@ -84,6 +102,12 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
         for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.curr.U(NX + NGHOST, j) = bcond.U; });
         for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(NX + NGHOST - 1, j) = bcond.V; });
       },
+      [&](const CustomDirichlet<Float>& bcond) {
+        for_each_a<Exec::Parallel>(
+            fs.ym, [&](Index j) { fs.curr.U(NX + NGHOST, j) = bcond.U(fs.ym(j), t); });
+        for_each_a<Exec::Parallel>(
+            fs.y, [&](Index j) { fs.curr.V(NX + NGHOST - 1, j) = bcond.V(fs.y(j), t); });
+      },
       [&](const Neumann& /*bcond*/) {
         for_each_a<Exec::Parallel>(fs.ym,
                                    [&](Index j) { fs.curr.U(NX + NGHOST, j) = fs.curr.U(NX, j); });
@@ -116,11 +140,16 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
   // = Bottom side of domain =======================================================================
   const detail::Dispatcher bottom_visitor{
       [&](const Dirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
-          fs.curr.U(i, -NGHOST) = 2.0 * bcond.U - fs.curr.U(i, 0);
-          // fs.curr.U(i, -NGHOST) = bcond.U;
-        });
+        for_each_a<Exec::Parallel>(
+            fs.x, [&](Index i) { fs.curr.U(i, -NGHOST) = 2.0 * bcond.U - fs.curr.U(i, 0); });
         for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.curr.V(i, -NGHOST) = bcond.V; });
+      },
+      [&](const CustomDirichlet<Float>& bcond) {
+        for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
+          fs.curr.U(i, -NGHOST) = 2.0 * bcond.U(fs.x(i), t) - fs.curr.U(i, 0);
+        });
+        for_each_a<Exec::Parallel>(fs.xm,
+                                   [&](Index i) { fs.curr.V(i, -NGHOST) = bcond.V(fs.xm(i), t); });
       },
       [&](const Neumann& /*bcond*/) {
         for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, -NGHOST) = fs.curr.U(i, 0); });
@@ -153,9 +182,15 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs, const FlowBConds<Float
       [&](const Dirichlet<Float>& bcond) {
         for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
           fs.curr.U(i, NY + NGHOST - 1) = 2.0 * bcond.U - fs.curr.U(i, NY - 1);
-          // fs.curr.U(i, NY + NGHOST - 1) = bcond.U;
         });
         for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.curr.V(i, NY + NGHOST) = bcond.V; });
+      },
+      [&](const CustomDirichlet<Float>& bcond) {
+        for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
+          fs.curr.U(i, NY + NGHOST - 1) = 2.0 * bcond.U(fs.x(i), t) - fs.curr.U(i, NY - 1);
+        });
+        for_each_a<Exec::Parallel>(
+            fs.xm, [&](Index i) { fs.curr.V(i, NY + NGHOST) = bcond.V(fs.xm(i), t); });
       },
       [&](const Neumann& /*bcond*/) {
         for_each_a<Exec::Parallel>(

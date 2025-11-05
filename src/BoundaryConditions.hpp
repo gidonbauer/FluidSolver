@@ -55,7 +55,7 @@ struct Dispatcher : Ts... {
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs,
                            const FlowBConds<Float>& bconds,
-                           Float t = 0.0) {
+                           Float t = -1.0) {
   static_assert(NGHOST == 1, "Expected exactly one ghost cell.");
 
   // = Left side of domain =========================================================================

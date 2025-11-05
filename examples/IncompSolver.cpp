@@ -19,24 +19,23 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 128 * 10;
-constexpr Index NY              = 128;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 2.2;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 0.41;
+
+constexpr Index NY              = 64;
+constexpr Index NX              = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
 constexpr Index NGHOST          = 1;
 
-constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 10.0;
-constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 1.0;
-
-constexpr Float T_END           = 1.0;
+constexpr Float T_END           = 8.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 1e-2;
+constexpr Float DT_WRITE        = 5e-2;
 
-constexpr Float U_BCOND         = 1.0;
 constexpr Float U_0             = 0.0;
-constexpr Float VISC            = 1e-3;  // 1e-1;
-constexpr Float RHO             = 0.9;
+constexpr Float VISC            = 1e-3;
+constexpr Float RHO             = 1.0;
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -45,7 +44,15 @@ constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    .left   = Dirichlet{.U = U_BCOND, .V = 0.0},
+    .left = CustomDirichlet<Float>{
+        .U = [](Float y, Float t) -> Float {
+          IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
+          constexpr auto DELTA_Y = Y_MAX - Y_MIN;
+          const auto U           = 1.5 * std::sin(std::numbers::pi * t / 8.0);
+          return (4.0 * U * y * (DELTA_Y - y)) / Igor::sqr(DELTA_Y);
+        },
+        .V = [](Float /*y*/, Float /*t*/) -> Float { return 0.0; },
+    },
     .right  = Neumann{},
     .bottom = Dirichlet{.U = 0.0, .V = 0.0},
     .top    = Dirichlet{.U = 0.0, .V = 0.0},
@@ -131,12 +138,12 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
 
   // = Initialize flow field =======================================================================
   for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
   for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
-  apply_velocity_bconds(fs, bconds);
+  apply_velocity_bconds(fs, bconds, t);
   calc_inflow_outflow(fs, inflow, outflow, mass_error);
 
   interpolate_U(fs.curr.U, Ui);
@@ -173,7 +180,7 @@ auto main() -> int {
                           fs.curr.rho_v_stag(i, j);
       });
       // Boundary conditions
-      apply_velocity_bconds(fs, bconds);
+      apply_velocity_bconds(fs, bconds, t);
 
       // Correct the outflow
       calc_inflow_outflow(fs, inflow, outflow, mass_error);

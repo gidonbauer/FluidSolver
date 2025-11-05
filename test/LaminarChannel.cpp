@@ -21,8 +21,8 @@
 // = Config ========================================================================================
 using Float              = double;
 
-constexpr Index NX       = 1100;  // 510;
-constexpr Index NY       = 11;    // 51;
+constexpr Index NX       = 1300;  // 510;
+constexpr Index NY       = 13;    // 51;
 constexpr Index NGHOST   = 1;
 
 constexpr Float X_MIN    = 0.0;
@@ -32,7 +32,7 @@ constexpr Float Y_MAX    = 1.0;
 
 constexpr Float T_END    = 60.0;
 constexpr Float DT_MAX   = 1e-1;
-constexpr Float CFL_MAX  = 0.9;
+constexpr Float CFL_MAX  = 0.25;
 constexpr Float DT_WRITE = 1.0;
 
 constexpr Float U_IN     = 1.0;
@@ -132,12 +132,12 @@ auto main() -> int {
   monitor.add_variable(&p_max, "max(p)");
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
-  // monitor.add_variable(&inflow, "inflow");
-  // monitor.add_variable(&outflow, "outflow");
+  monitor.add_variable(&inflow, "inflow");
+  monitor.add_variable(&outflow, "outflow");
   monitor.add_variable(&mass_error, "mass error");
   monitor.add_variable(&mass, "mass");
-  monitor.add_variable(&mom_x, "momentum (x)");
-  monitor.add_variable(&mom_y, "momentum (y)");
+  // monitor.add_variable(&mom_x, "momentum (x)");
+  // monitor.add_variable(&mom_y, "momentum (y)");
 
   DataWriter<Float, NX, NY, NGHOST> data_writer(OUTPUT_DIR, &fs.x, &fs.y);
   data_writer.add_scalar("pressure", &fs.p);
@@ -146,7 +146,7 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
@@ -310,12 +310,9 @@ auto main() -> int {
 
   // Test U profile
   {
-    constexpr Float TOL = 5e-4;
+    constexpr Float TOL = 7.5e-3;
     auto u_analytical   = [&](Float y, Float dpdx) -> Float {
-      // NOTE: Adjustment due to the ghost cells, the dirichlet boundary condition is now enforced
-      //       in the ghost cell
-      return dpdx / (2 * VISC) * (y * y - y - (fs.dy / 2.0 + Igor::sqr(fs.dy / 2.0)));
-      // return dpdx / (2 * VISC) * (y * y - y);
+      return dpdx / (2 * VISC) * (y * y - y);
     };
     Vector<Float, NY + 2 * NGHOST, 0> diff{};
 

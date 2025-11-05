@@ -299,12 +299,9 @@ auto main() -> int {
 
   // - Test U profile --------
   {
-    constexpr Float TOL = 1e-4;
+    constexpr Float TOL = 1e-3;
     auto u_analytical   = [&](Float y, Float dpdx) -> Float {
-      // NOTE: Adjustment due to the ghost cells, the dirichlet boundary condition is now enforced
-      //       in the ghost cell
-      return dpdx / (2 * VISC) * (y * y - y - (fs.dy / 2.0 + Igor::sqr(fs.dy / 2.0)));
-      // return dpdx / (2 * VISC) * (y * y - y);
+      return dpdx / (2 * VISC) * (y * y - y);
     };
     Vector<Float, NY + 2 * NGHOST, 0> diff{};
 

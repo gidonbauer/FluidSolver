@@ -224,14 +224,7 @@ auto main() -> int {
 
   // = Perform tests ===============================================================================
   {
-    auto u_analytical = [&](Float y) -> Float {
-      // NOTE: Adjustment due to the ghost cells, the dirichlet boundary condition is now enforced
-      //       in the ghost cell
-      const auto m = U_TOP / (1.0 + fs.dy);
-      const auto n = m * fs.dy / 2.0;
-      return m * y + n;
-      // return U_TOP * y;
-    };
+    auto u_analytical = [&](Float y) -> Float { return U_TOP * y; };
     Vector<Float, NY + 2 * NGHOST> diff{};
 
     constexpr Index N_CHECKS                       = 3;
@@ -246,7 +239,7 @@ auto main() -> int {
       L1_errors[counter++] = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
     }
 
-    constexpr Float TOL = 1e-4;
+    constexpr Float TOL = 1e-5;
     counter             = 0;
     for (size_t i : i_check) {
       const auto err = L1_errors[counter++];

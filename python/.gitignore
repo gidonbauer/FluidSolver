@@ -2,7 +2,9 @@
 !.gitignore
 !Utility.py
 !patch_xdmf.py
-!verify_laminar_channel.py
-!verify_couette.py
+!verify_laminar_channel_vtk.py
+!verify_couette_vtk.py
+!verify_laminar_channel_xdmf.py
+!verify_couette_xdmf.py
 !vis_fs.py
 !vis_curv_error.py

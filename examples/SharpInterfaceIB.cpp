@@ -14,6 +14,9 @@
 #include "Quadrature.hpp"
 #include "Utility.hpp"
 
+// See: Vreman, A.W., 2020. Immersed boundary and overset grid methods assessed for Stokes flow due
+// to an oscillating sphere. Journal of Computational Physics 423, 109783.
+
 // = Config ========================================================================================
 using Float              = double;
 

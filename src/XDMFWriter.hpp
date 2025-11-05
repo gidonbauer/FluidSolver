@@ -152,9 +152,9 @@ class XDMFWriter {
 
     // Write grid
     auto dim = static_cast<hsize_t>(x->extent(0));
-    H5LTmake_dataset_double(m_data_file_id, "/xcoords", 1, &dim, x->get_data());
+    H5LTmake_dataset_double(m_data_file_id, "/xcoords", 1, &dim, &(*x)(0));
     dim = static_cast<hsize_t>(y->extent(0));
-    H5LTmake_dataset_double(m_data_file_id, "/ycoords", 1, &dim, y->get_data());
+    H5LTmake_dataset_double(m_data_file_id, "/ycoords", 1, &dim, &(*y)(0));
   }
 
   // -----------------------------------------------------------------------------------------------

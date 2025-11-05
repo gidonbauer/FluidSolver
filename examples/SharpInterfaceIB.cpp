@@ -17,8 +17,8 @@
 // = Config ========================================================================================
 using Float              = double;
 
-constexpr Index NX       = 5 * 16;  // 5 * 64;
-constexpr Index NY       = 16;      // 64;
+constexpr Index NX       = 5 * 128;
+constexpr Index NY       = 128;
 constexpr Index NGHOST   = 1;
 
 constexpr Float X_MIN    = 0.0;
@@ -26,13 +26,12 @@ constexpr Float X_MAX    = 5.0;
 constexpr Float Y_MIN    = 0.0;
 constexpr Float Y_MAX    = 1.0;
 
-constexpr Float T_END    = 1.0;
+constexpr Float T_END    = 4.0;
 constexpr Float DT_MAX   = 1e-2;
 constexpr Float CFL_MAX  = 0.5;
 constexpr Float DT_WRITE = 1e-2;
 
-constexpr Float U_BCOND  = 1.0;
-constexpr Float U_0      = 0.0;
+constexpr Float U_BCOND  = 5.0;
 constexpr Float VISC     = 1e-3;
 constexpr Float RHO      = 1.0;
 
@@ -90,7 +89,7 @@ constexpr Index NUM_SUBITER     = 5;
 // Channel flow
 constexpr FlowBConds<Float> bconds{
     .left   = Dirichlet{.U = U_BCOND, .V = 0.0},
-    .right  = Neumann{},
+    .right  = ClippedNeumann{},
     .bottom = Dirichlet{.U = 0.0, .V = 0.0},
     .top    = Dirichlet{.U = 0.0, .V = 0.0},
 };
@@ -148,29 +147,14 @@ enum IBBoundary : uint32_t {
   TOP    = 0b1000,
 };
 
-[[nodiscard]] auto is_boundary_U(const FS<Float, NX, NY, NGHOST>& fs, Index i, Index j)
-    -> uint32_t {
-  if (immersed_wall(fs.x(i), fs.ym(j)) < 1.0) { return IBBoundary::INSIDE; }
+[[nodiscard]] auto is_boundary(const auto& xs, const auto& ys, Index i, Index j) -> uint32_t {
+  if (immersed_wall(xs(i), ys(j)) < 1.0) { return IBBoundary::INSIDE; }
 
-  uint32_t boundary = 0;
-  if (immersed_wall(fs.x(i + 1), fs.ym(j)) < 1.0) { boundary |= IBBoundary::RIGHT; }
-  if (immersed_wall(fs.x(i - 1), fs.ym(j)) < 1.0) { boundary |= IBBoundary::LEFT; }
-  if (immersed_wall(fs.x(i), fs.ym(j + 1)) < 1.0) { boundary |= IBBoundary::TOP; }
-  if (immersed_wall(fs.x(i), fs.ym(j - 1)) < 1.0) { boundary |= IBBoundary::BOTTOM; }
-
-  return boundary;
-}
-
-[[nodiscard]] auto is_boundary_V(const FS<Float, NX, NY, NGHOST>& fs, Index i, Index j)
-    -> uint32_t {
-  if (immersed_wall(fs.xm(i), fs.y(j)) < 1.0) { return IBBoundary::INSIDE; }
-
-  uint32_t boundary = 0;
-  if (immersed_wall(fs.xm(i + 1), fs.y(j)) < 1.0) { boundary |= IBBoundary::RIGHT; }
-  if (immersed_wall(fs.xm(i - 1), fs.y(j)) < 1.0) { boundary |= IBBoundary::LEFT; }
-  if (immersed_wall(fs.xm(i), fs.y(j + 1)) < 1.0) { boundary |= IBBoundary::TOP; }
-  if (immersed_wall(fs.xm(i), fs.y(j - 1)) < 1.0) { boundary |= IBBoundary::BOTTOM; }
-
+  uint32_t boundary = IBBoundary::INSIDE;
+  if (immersed_wall(xs(i + 1), ys(j)) < 1.0) { boundary |= IBBoundary::RIGHT; }
+  if (immersed_wall(xs(i - 1), ys(j)) < 1.0) { boundary |= IBBoundary::LEFT; }
+  if (immersed_wall(xs(i), ys(j + 1)) < 1.0) { boundary |= IBBoundary::TOP; }
+  if (immersed_wall(xs(i), ys(j - 1)) < 1.0) { boundary |= IBBoundary::BOTTOM; }
   return boundary;
 }
 
@@ -193,7 +177,17 @@ enum IBBoundary : uint32_t {
   const auto det          = p1[X] * p2[Y] - p2[X] * p1[Y];
 
   const auto inside_sqrt  = r * r * dr * dr - det * det;
-  if (!(inside_sqrt >= 0.0)) { Igor::Panic("Line and circle do not intersect."); }
+  if (!(inside_sqrt >= 0.0)) {
+    Igor::Panic("Line ({:.6e}, {:.6e}) -- ({:.6e}, {:.6e}) and circle ({:.6e}, {:.6e}, R={:.6e}) "
+                "do not intersect.",
+                p1[X] + c[X],
+                p1[Y] + c[Y],
+                p2[X] + c[X],
+                p2[Y] + c[Y],
+                c[X],
+                c[Y],
+                r);
+  }
 
   auto sign     = [](Float x) -> Float { return x < 0 ? -1.0 : 1.0; };
   std::array i1 = {
@@ -212,10 +206,28 @@ enum IBBoundary : uint32_t {
   };
 
   if (!(on_finite_line(i1) || on_finite_line(i2))) {
-    Igor::Panic("None of the intersection points is on the finite line.");
+    Igor::Panic("None of the intersection points ({:.6e}, {:.6e}) and ({:.6e}, {:.6e}) is on the "
+                "finite line ({:.6e}, {:.6e}) -- ({:.6e}, {:.6e}).",
+                i1[X] + c[X],
+                i1[Y] + c[Y],
+                i2[X] + c[X],
+                i2[Y] + c[Y],
+                p1[X] + c[X],
+                p1[Y] + c[Y],
+                p2[X] + c[X],
+                p2[Y] + c[Y]);
   }
   if (on_finite_line(i1) && on_finite_line(i2)) {
-    Igor::Panic("Both of the intersection points is on the finite line.");
+    Igor::Panic("Both of the intersection points ({:.6e}, {:.6e}) and ({:.6e}, {:.6e}) are on the "
+                "finite line ({:.6e}, {:.6e}) -- ({:.6e}, {:.6e}).",
+                i1[X] + c[X],
+                i1[Y] + c[Y],
+                i2[X] + c[X],
+                i2[Y] + c[Y],
+                p1[X] + c[X],
+                p1[Y] + c[Y],
+                p2[X] + c[X],
+                p2[Y] + c[Y]);
   }
 
   if (on_finite_line(i1)) {
@@ -228,6 +240,109 @@ enum IBBoundary : uint32_t {
     return i2;
   }
 }
+
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto get_extrapolated_velocity(
+    const auto& xs, const auto& ys, Float dx, Float dy, const auto& vel, Index i, Index j)
+    -> Float {
+  auto get_weights = [](Float beta) -> std::array<Float, 3> {
+    constexpr Float BETA1 = 0.5;
+    if (beta < BETA1) {
+      return {
+          2.0 / ((1.0 - beta) * (2.0 - beta)),
+          -2.0 * beta / (1.0 - beta),
+          beta / (2.0 - beta),
+      };
+    } else {
+      const auto w0 = 2.0 / ((1.0 - BETA1) * (2.0 - BETA1));
+      return {
+          w0,
+          2.0 - (2.0 - beta) * w0,
+          -1.0 + (1.0 - beta) * w0,
+      };
+    }
+  };
+
+  const auto [normal_x, normal_y] = normal_immersed_wall(xs(i), ys(j));
+  const auto direction            = [&]() {
+    if (std::abs(normal_x) > std::abs(normal_y)) {
+      return normal_x > 0.0 ? IBBoundary::RIGHT : IBBoundary::LEFT;
+    } else {
+      return normal_y > 0.0 ? IBBoundary::TOP : IBBoundary::BOTTOM;
+    }
+  }();
+  // IGOR_ASSERT((direction & boundary) > 0, "Direction and boundary do not align.");
+
+  const Float U0 = 0.0;  // Velocity at interface is set to zero
+  Float U1       = 0.0;
+  Float U2       = 0.0;
+  Float beta     = 0.0;
+  switch (direction) {
+    case IBBoundary::LEFT:
+      {
+        const auto xe = xs(i);
+        const auto ye = ys(j);
+        const auto x1 = xs(i - 1);
+        const auto y1 = ys(j);
+        const auto [intersect_x, intersect_y] =
+            intersect_line_circle({xe, ye}, {x1, y1}, {CX, CY}, R0);
+        beta = std::abs(intersect_x - xe) / dx;
+        U1   = vel(i - 1, j);
+        U2   = vel(i - 2, j);
+      }
+      break;
+    case IBBoundary::RIGHT:
+      {
+        const auto xe = xs(i);
+        const auto ye = ys(j);
+        const auto x1 = xs(i + 1);
+        const auto y1 = ys(j);
+        const auto [intersect_x, intersect_y] =
+            intersect_line_circle({xe, ye}, {x1, y1}, {CX, CY}, R0);
+        beta = std::abs(intersect_x - xe) / dx;
+        U1   = vel(i + 1, j);
+        U2   = vel(i + 2, j);
+      }
+      break;
+    case IBBoundary::BOTTOM:
+      {
+        const auto xe = xs(i);
+        const auto ye = ys(j);
+        const auto x1 = xs(i);
+        const auto y1 = ys(j - 1);
+        const auto [intersect_x, intersect_y] =
+            intersect_line_circle({xe, ye}, {x1, y1}, {CX, CY}, R0);
+        beta = std::abs(intersect_y - ye) / dy;
+        U1   = vel(i, j - 1);
+        U2   = vel(i, j - 2);
+      }
+      break;
+    case IBBoundary::TOP:
+      {
+        const auto xe = xs(i);
+        const auto ye = ys(j);
+        const auto x1 = xs(i);
+        const auto y1 = ys(j + 1);
+        const auto [intersect_x, intersect_y] =
+            intersect_line_circle({xe, ye}, {x1, y1}, {CX, CY}, R0);
+        beta = std::abs(intersect_y - ye) / dy;
+        U1   = vel(i, j + 1);
+        U2   = vel(i, j + 2);
+      }
+      break;
+    case IBBoundary::INSIDE:
+    default:                 Igor::Panic("Unreachable");
+  }
+
+  const auto [w0, w1, w2] = get_weights(beta);
+  IGOR_ASSERT(std::abs(w0 + w1 + w2 - 1.0) < 1e-8,
+              "Expected sum of weights to be 1.0 but is {:.6e}",
+              w0 + w1 + w2);
+  IGOR_ASSERT(std::abs(beta * w0 + w1 + 2.0 * w2) < 1e-8,
+              "Expected beta*w0 + w1 + 2*w2 to be 0.0 but is {:.6e}",
+              beta * w0 + w1 + 2.0 * w2);
+  return w0 * U0 + w1 * U1 + w2 * U2;
+};
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
@@ -306,7 +421,10 @@ auto main() -> int {
   // = Initialize immersed boundaries ==============================================================
 
   // = Initialize flow field =======================================================================
-  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+    // fs.curr.U(i, j) = 1.0 - immersed_wall(fs.x(i), fs.ym(j));
+    fs.curr.U(i, j) = 0.0;
+  });
   for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
@@ -347,67 +465,16 @@ auto main() -> int {
 
       // = IB forcing ==============================================================================
       for_each_i<Exec::Serial>(fs.curr.U, [&](Index i, Index j) {
-        const auto boundary = is_boundary_U(fs, i, j);
+        if (immersed_wall(fs.x(i), fs.ym(j)) > 0.0) { fs.curr.U(i, j) = 0.0; }
+        const auto boundary = is_boundary(fs.x, fs.ym, i, j);
         if (boundary == IBBoundary::INSIDE) { return; }
-
-        const auto [normal_x, normal_y] = normal_immersed_wall(fs.x(i), fs.ym(j));
-        const auto direction            = [&]() {
-          if (std::abs(normal_x) > std::abs(normal_y)) {
-            return normal_x > 0.0 ? IBBoundary::RIGHT : IBBoundary::LEFT;
-          } else {
-            return normal_y > 0.0 ? IBBoundary::TOP : IBBoundary::BOTTOM;
-          }
-        }();
-        IGOR_ASSERT((direction & boundary) > 0, "Direction and boundary do not align.");
-
-        switch (direction) {
-          case IBBoundary::LEFT:
-            {
-              Igor::Debug("x0 = ({:.6f}, {:.6f})", fs.x(i), fs.ym(j));
-              Igor::Debug("U0 = {:.6e}", fs.curr.U(i, j));
-              Igor::Debug("wall0 = {:.1f}", immersed_wall(fs.x(i), fs.ym(j)));
-              Igor::Debug("x1 = ({:.6f}, {:.6f})", fs.x(i - 1), fs.ym(j));
-              Igor::Debug("U1 = {:.6e}", fs.curr.U(i - 1, j));
-              Igor::Debug("wall1 = {:.1f}", immersed_wall(fs.x(i - 1), fs.ym(j)));
-              Igor::Debug("x2 = ({:.6f}, {:.6f})", fs.x(i - 2), fs.ym(j));
-              Igor::Debug("U2 = {:.6e}", fs.curr.U(i - 2, j));
-              Igor::Debug("wall2 = {:.1f}", immersed_wall(fs.x(i - 2), fs.ym(j)));
-
-              const auto [intersect_x, intersect_y] =
-                  intersect_line_circle({fs.x(i), fs.ym(j)}, {fs.x(i - 1), fs.ym(j)}, {CX, CY}, R0);
-              Igor::Debug("intersection = ({:.6f}, {:.6f})", intersect_x, intersect_y);
-
-              const auto beta = std::abs(intersect_x - fs.x(i)) / fs.dx;
-              Igor::Debug("beta = {:.6e}", beta);
-            }
-            Igor::Todo("Direction LEFT");
-          case IBBoundary::RIGHT:  Igor::Todo("Direction RIGHT");
-          case IBBoundary::BOTTOM: Igor::Todo("Direction BOTTOM");
-          case IBBoundary::TOP:    Igor::Todo("Direction TOP");
-          case IBBoundary::INSIDE:
-          default:                 Igor::Panic("Unreachable");
-        }
-
-        Igor::Debug("Normal: ({:.6e}, {:.6e})", normal_x, normal_y);
-        Igor::Debug("Direction: LEFT={}, RIGHT={}, BOTTOM={}, TOP={}",
-                    (direction & LEFT) > 0,
-                    (direction & RIGHT) > 0,
-                    (direction & BOTTOM) > 0,
-                    (direction & TOP) > 0);
-        Igor::Todo("U boundary: LEFT={}, RIGHT={}, BOTTOM={}, TOP={}",
-                   (boundary & LEFT) > 0,
-                   (boundary & RIGHT) > 0,
-                   (boundary & BOTTOM) > 0,
-                   (boundary & TOP) > 0);
+        fs.curr.U(i, j) = get_extrapolated_velocity(fs.x, fs.ym, fs.dx, fs.dy, fs.curr.U, i, j);
       });
       for_each_i<Exec::Serial>(fs.curr.V, [&](Index i, Index j) {
-        const auto boundary = is_boundary_V(fs, i, j);
+        if (immersed_wall(fs.xm(i), fs.y(j)) > 0.0) { fs.curr.V(i, j) = 0.0; }
+        const auto boundary = is_boundary(fs.xm, fs.y, i, j);
         if (boundary == IBBoundary::INSIDE) { return; }
-        Igor::Todo("V boundary: LEFT={}, RIGHT={}, BOTTOM={}, TOP={}",
-                   (boundary & LEFT) > 0,
-                   (boundary & RIGHT) > 0,
-                   (boundary & BOTTOM) > 0,
-                   (boundary & TOP) > 0);
+        fs.curr.V(i, j) = get_extrapolated_velocity(fs.xm, fs.y, fs.dx, fs.dy, fs.curr.V, i, j);
       });
       // = IB forcing ==============================================================================
 

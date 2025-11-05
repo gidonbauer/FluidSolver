@@ -32,11 +32,10 @@ constexpr Float CFL_MAX  = 0.5;
 constexpr Float DT_WRITE = 1e-2;
 
 constexpr Float U_BCOND  = 5.0;
-constexpr Float U_0      = 0.0;
 constexpr Float VISC     = 1e-3;
 constexpr Float RHO      = 1.0;
 
-#define IB_POLYGON
+// #define IB_POLYGON
 #ifndef IB_POLYGON
 constexpr Float CX           = 1.0;
 constexpr Float CY           = 0.5;
@@ -83,7 +82,7 @@ constexpr Index NUM_SUBITER     = 5;
 // Channel flow
 constexpr FlowBConds<Float> bconds{
     .left   = Dirichlet{.U = U_BCOND, .V = 0.0},
-    .right  = Neumann{},
+    .right  = ClippedNeumann{},
     .bottom = Dirichlet{.U = 0.0, .V = 0.0},
     .top    = Dirichlet{.U = 0.0, .V = 0.0},
 };
@@ -219,7 +218,7 @@ auto main() -> int {
   // = Initialize immersed boundaries ==============================================================
 
   // = Initialize flow field =======================================================================
-  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
+  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = 0.0; });
   for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 

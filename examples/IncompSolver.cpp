@@ -44,18 +44,19 @@ constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    .left = CustomDirichlet<Float>{
-        .U = [](Float y, Float t) -> Float {
-          IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
-          constexpr auto DELTA_Y = Y_MAX - Y_MIN;
-          const auto U           = 1.5 * std::sin(std::numbers::pi * t / 8.0);
-          return (4.0 * U * y * (DELTA_Y - y)) / Igor::sqr(DELTA_Y);
+    .left =
+        Dirichlet<Float>{
+            .U = [](Float y, Float t) -> Float {
+              IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
+              constexpr auto DELTA_Y = Y_MAX - Y_MIN;
+              const auto U           = 1.5 * std::sin(std::numbers::pi * t / 8.0);
+              return (4.0 * U * y * (DELTA_Y - y)) / Igor::sqr(DELTA_Y);
+            },
+            .V = 0.0,
         },
-        .V = [](Float /*y*/, Float /*t*/) -> Float { return 0.0; },
-    },
     .right  = Neumann{},
-    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
-    .top    = Dirichlet{.U = 0.0, .V = 0.0},
+    .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
 };
 
 // // Couette flow

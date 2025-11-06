@@ -47,13 +47,14 @@ constexpr Index NUM_SUBITER     = 2;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    .left = CustomDirichlet<Float>{
-        .U = [](Float y, Float /*t*/) -> Float { return DPDX / (2.0 * VISC) * (y * y - y); },
-        .V = [](Float /*y*/, Float /*t*/) -> Float { return 0.0; },
-    },
+    .left =
+        Dirichlet<Float>{
+            .U = [](Float y, Float /*t*/) -> Float { return DPDX / (2.0 * VISC) * (y * y - y); },
+            .V = 0.0,
+        },
     .right  = Neumann{},
-    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
-    .top    = Dirichlet{.U = 0.0, .V = 0.0},
+    .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
 };
 // = Config ========================================================================================
 
@@ -265,7 +266,7 @@ auto main() -> int {
         if (std::abs(fs.p(i, j) - ref_pressure) > TOL) { constant_pressure = false; }
       }
       if (!constant_pressure) {
-        Igor::Warn("Non constant pressure along y-axis for x={}.", fs.xm(i));
+        Igor::Warn("Non constant pressure along y-axis for x({})={}.", i, fs.xm(i));
         any_test_failed = true;
       }
     }

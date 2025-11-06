@@ -74,7 +74,7 @@ constexpr Float Bu = (RHO_L - RHO_G) / RHO_G;
 constexpr FlowBConds<Float> bconds{
     .left   = Neumann{},
     .right  = Neumann{},
-    .bottom = Dirichlet{.U = 0.0, .V = V_IN},
+    .bottom = Dirichlet<Float>{.U = 0.0, .V = V_IN},
     .top    = Neumann{},
 };
 // = Config ========================================================================================

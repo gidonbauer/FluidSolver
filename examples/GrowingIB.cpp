@@ -48,10 +48,10 @@ constexpr FlowBConds<Float> bconds{
 };
 #else
 constexpr FlowBConds<Float> bconds{
-    .left   = ClippedNeumann{},
-    .right  = ClippedNeumann{},
-    .bottom = ClippedNeumann{},
-    .top    = ClippedNeumann{},
+    .left   = Neumann{.clipped = true},
+    .right  = Neumann{.clipped = true},
+    .bottom = Neumann{.clipped = true},
+    .top    = Neumann{.clipped = true},
 };
 #endif
 // = Config ========================================================================================

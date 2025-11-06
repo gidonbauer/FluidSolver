@@ -62,10 +62,10 @@ constexpr Float Re_G = RHO_G * U_BCOND * (Y_MAX - Y_MIN) / VISC_G;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    .left   = Dirichlet{.U = U_BCOND, .V = 0.0},
+    .left   = Dirichlet<Float>{.U = U_BCOND, .V = 0.0},
     .right  = Neumann{},
-    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
-    .top    = Dirichlet{.U = 0.0, .V = 0.0},
+    .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
 };
 // = Config ========================================================================================
 

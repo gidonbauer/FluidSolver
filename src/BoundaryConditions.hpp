@@ -13,26 +13,199 @@ struct FS;
 // -------------------------------------------------------------------------------------------------
 template <typename Float>
 struct Dirichlet {
-  Float U{}, V{};
+  std::variant<Float, Float (*)(Float, Float)> U{}, V{};
+
+  // = LEFT ========
+  template <Index NX, Index NY>
+  constexpr void apply_left(FS<Float, NX, NY, 1>& fs, Float t) const noexcept {
+    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+      const Float U_bc =
+          std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.ym(j), t);
+      fs.curr.U(-1, j) = U_bc;
+      // fs.curr.U(-1, j) = 2.0 * U_bc - fs.curr.U(1, j);
+    });
+
+    for_each_a<Exec::Parallel>(fs.y, [&](Index j) {
+      const Float V_bc =
+          std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(fs.y(j), t);
+      fs.curr.V(-1, j) = V_bc;
+      // fs.curr.V(-1, j) = 2.0 * V_bc - fs.curr.V(0, j);
+    });
+  }
+
+  // = RIGHT =======
+  template <Index NX, Index NY>
+  constexpr void apply_right(FS<Float, NX, NY, 1>& fs, Float t) const noexcept {
+    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+      const Float U_bc =
+          std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.ym(j), t);
+      fs.curr.U(NX + 1, j) = U_bc;
+      // fs.curr.U(NX + 1, j) = 2.0 * U_bc - fs.curr.U(NX - 1, j);
+    });
+
+    for_each_a<Exec::Parallel>(fs.y, [&](Index j) {
+      const Float V_bc =
+          std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(fs.y(j), t);
+      fs.curr.V(NX, j) = V_bc;
+      // fs.curr.V(NX, j) = 2.0 * V_bc - fs.curr.V(NX - 1, j);
+    });
+  }
+
+  // = BOTTOM ======
+  template <Index NX, Index NY>
+  constexpr void apply_bottom(FS<Float, NX, NY, 1>& fs, Float t) const noexcept {
+    for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
+      const Float U_bc =
+          std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.x(i), t);
+      // fs.curr.U(i, -1) = U_bc;
+      fs.curr.U(i, -1) = 2.0 * U_bc - fs.curr.U(i, 0);
+    });
+
+    for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+      const Float V_bc =
+          std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(fs.xm(i), t);
+      fs.curr.V(i, -1) = V_bc;
+      // fs.curr.V(i, -1) = 2.0 * V_bc - fs.curr.V(i, 1);
+    });
+  }
+
+  // = TOP =========
+  template <Index NX, Index NY>
+  constexpr void apply_top(FS<Float, NX, NY, 1>& fs, Float t) const noexcept {
+    for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
+      const Float U_bc =
+          std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.x(i), t);
+      // fs.curr.U(i, NY) = U_bc;
+      fs.curr.U(i, NY) = 2.0 * U_bc - fs.curr.U(i, NY - 1);
+    });
+
+    for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+      const Float V_bc =
+          std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(fs.xm(i), t);
+      fs.curr.V(i, NY + 1) = V_bc;
+      // fs.curr.V(i, NY + 1) = 2.0 * V_bc - fs.curr.V(i, NY - 1);
+    });
+  }
 };
 
-template <typename Float>
-struct CustomDirichlet {
-  using Func = Float (*)(Float, Float);
-  Func U{}, V{};
+// -------------------------------------------------------------------------------------------------
+struct Neumann {
+  bool clipped = false;
+
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_left(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    if (clipped) {
+      for_each_a<Exec::Parallel>(
+          fs.ym, [&](Index j) { fs.curr.U(-1, j) = std::min(fs.curr.U(0, j), 0.0); });
+    } else {
+      for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.curr.U(-1, j) = fs.curr.U(0, j); });
+    }
+    for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(-1, j) = fs.curr.V(0, j); });
+  }
+
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_right(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    if (clipped) {
+      for_each_a<Exec::Parallel>(
+          fs.ym, [&](Index j) { fs.curr.U(NX + 1, j) = std::max(fs.curr.U(NX, j), 0.0); });
+    } else {
+      for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.curr.U(NX + 1, j) = fs.curr.U(NX, j); });
+    }
+    for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(NX, j) = fs.curr.V(NX - 1, j); });
+  }
+
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_bottom(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, -1) = fs.curr.U(i, 0); });
+    if (clipped) {
+      for_each_a<Exec::Parallel>(
+          fs.xm, [&](Index i) { fs.curr.V(i, -1) = std::min(fs.curr.V(i, 0), 0.0); });
+    } else {
+      for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.curr.V(i, -1) = fs.curr.V(i, 0); });
+    }
+  }
+
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_top(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, NY) = fs.curr.U(i, NY - 1); });
+    if (clipped) {
+      for_each_a<Exec::Parallel>(
+          fs.xm, [&](Index i) { fs.curr.V(i, NY + 1) = std::max(fs.curr.V(i, NY), 0.0); });
+    } else {
+      for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.curr.V(i, NY + 1) = fs.curr.V(i, NY); });
+    }
+  }
 };
 
-struct Neumann {};
+// -------------------------------------------------------------------------------------------------
+struct Periodic {
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_left(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.curr.U(-1, j) = fs.curr.U(NX - 1, j); });
+    for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(-1, j) = fs.curr.V(NX - 1, j); });
+  }
 
-struct ClippedNeumann {};
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_right(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.curr.U(NX + 1, j) = fs.curr.U(1, j); });
+    for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(NX, j) = fs.curr.V(0, j); });
+  }
 
-struct Periodic {};
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_bottom(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, -1) = fs.curr.U(i, NY - 1); });
+    for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.curr.V(i, -1) = fs.curr.V(i, NY - 1); });
+  }
 
-struct Symmetry {};
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_top(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, NY) = fs.curr.U(i, 0); });
+    for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.curr.V(i, NY + 1) = fs.curr.V(i, 1); });
+  }
+};
 
+// -------------------------------------------------------------------------------------------------
+struct Symmetry {
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_left(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+      fs.curr.U(-1, j) = -fs.curr.U(1, j);
+      fs.curr.U(0, j)  = 0.0;
+    });
+    for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(-1, j) = fs.curr.V(0, j); });
+  }
+
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_right(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+      fs.curr.U(NX + 1, j) = -fs.curr.U(NX - 1, j);
+      fs.curr.U(NX, j)     = 0.0;
+    });
+    for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(NX, j) = fs.curr.V(NX - 1, j); });
+  }
+
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_bottom(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, -1) = fs.curr.U(i, 0); });
+    for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+      fs.curr.V(i, -1) = -fs.curr.V(i, 1);
+      fs.curr.V(i, 0)  = 0.0;
+    });
+  }
+
+  template <typename Float, Index NX, Index NY>
+  constexpr void apply_top(FS<Float, NX, NY, 1>& fs, Float /*t*/) const noexcept {
+    for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, NY) = fs.curr.U(i, NY - 1); });
+    for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+      fs.curr.V(i, NY + 1) = -fs.curr.V(i, NY - 1);
+      fs.curr.V(i, NY)     = 0.0;
+    });
+  }
+};
+
+// -------------------------------------------------------------------------------------------------
 template <typename Float>
-using BCond_t = std::
-    variant<Dirichlet<Float>, CustomDirichlet<Float>, Neumann, ClippedNeumann, Periodic, Symmetry>;
+using BCond_t = std::variant<Dirichlet<Float>, Neumann, Periodic, Symmetry>;
 
 template <typename Float>
 struct FlowBConds {
@@ -42,184 +215,16 @@ struct FlowBConds {
   BCond_t<Float> top;
 };
 
-namespace detail {
-
-template <typename... Ts>
-struct Dispatcher : Ts... {
-  using Ts::operator()...;
-};
-
-}  // namespace detail
-
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs,
                            const FlowBConds<Float>& bconds,
                            Float t = -1.0) {
   static_assert(NGHOST == 1, "Expected exactly one ghost cell.");
-
-  // = Left side of domain =========================================================================
-  const detail::Dispatcher left_visitor{
-      [&](const Dirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.curr.U(-NGHOST, j) = bcond.U; });
-        for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(-NGHOST, j) = bcond.V; });
-      },
-      [&](const CustomDirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(fs.ym,
-                                   [&](Index j) { fs.curr.U(-NGHOST, j) = bcond.U(fs.ym(j), t); });
-        for_each_a<Exec::Parallel>(fs.y,
-                                   [&](Index j) { fs.curr.V(-NGHOST, j) = bcond.V(fs.y(j), t); });
-      },
-      [&](const Neumann& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.ym,
-                                   [&](Index j) { fs.curr.U(-NGHOST, j) = fs.curr.U(0, j); });
-        for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(-NGHOST, j) = fs.curr.V(0, j); });
-      },
-      [&](const ClippedNeumann& /*bcond*/) {
-        for_each_a<Exec::Parallel>(
-            fs.ym, [&](Index j) { fs.curr.U(-NGHOST, j) = std::min(fs.curr.U(0, j), 0.0); });
-        for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(-NGHOST, j) = fs.curr.V(0, j); });
-      },
-      [&](const Periodic& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.ym,
-                                   [&](Index j) { fs.curr.U(-NGHOST, j) = fs.curr.U(NX - 1, j); });
-        for_each_a<Exec::Parallel>(fs.y,
-                                   [&](Index j) { fs.curr.V(-NGHOST, j) = fs.curr.V(NX - 1, j); });
-      },
-      [&](const Symmetry& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-          fs.curr.U(-NGHOST, j) = -fs.curr.U(1, j);
-          fs.curr.U(0, j)       = 0.0;
-        });
-        for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(-NGHOST, j) = fs.curr.V(0, j); });
-      },
-  };
-  std::visit(left_visitor, bconds.left);
-
-  // = Right side of domain ========================================================================
-  const detail::Dispatcher right_visitor{
-      [&](const Dirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.curr.U(NX + NGHOST, j) = bcond.U; });
-        for_each_a<Exec::Parallel>(fs.y, [&](Index j) { fs.curr.V(NX + NGHOST - 1, j) = bcond.V; });
-      },
-      [&](const CustomDirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(
-            fs.ym, [&](Index j) { fs.curr.U(NX + NGHOST, j) = bcond.U(fs.ym(j), t); });
-        for_each_a<Exec::Parallel>(
-            fs.y, [&](Index j) { fs.curr.V(NX + NGHOST - 1, j) = bcond.V(fs.y(j), t); });
-      },
-      [&](const Neumann& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.ym,
-                                   [&](Index j) { fs.curr.U(NX + NGHOST, j) = fs.curr.U(NX, j); });
-        for_each_a<Exec::Parallel>(
-            fs.y, [&](Index j) { fs.curr.V(NX + NGHOST - 1, j) = fs.curr.V(NX - 1, j); });
-      },
-      [&](const ClippedNeumann& /*bcond*/) {
-        for_each_a<Exec::Parallel>(
-            fs.ym, [&](Index j) { fs.curr.U(NX + NGHOST, j) = std::max(fs.curr.U(NX, j), 0.0); });
-        for_each_a<Exec::Parallel>(
-            fs.y, [&](Index j) { fs.curr.V(NX + NGHOST - 1, j) = fs.curr.V(NX - 1, j); });
-      },
-      [&](const Periodic& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.ym,
-                                   [&](Index j) { fs.curr.U(NX + NGHOST, j) = fs.curr.U(1, j); });
-        for_each_a<Exec::Parallel>(
-            fs.y, [&](Index j) { fs.curr.V(NX + NGHOST - 1, j) = fs.curr.V(0, j); });
-      },
-      [&](const Symmetry& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-          fs.curr.U(NX + NGHOST, j) = -fs.curr.U(NX - 1, j);
-          fs.curr.U(NX, j)          = 0.0;
-        });
-        for_each_a<Exec::Parallel>(
-            fs.y, [&](Index j) { fs.curr.V(NX + NGHOST - 1, j) = fs.curr.V(NX - 1, j); });
-      },
-  };
-  std::visit(right_visitor, bconds.right);
-
-  // = Bottom side of domain =======================================================================
-  const detail::Dispatcher bottom_visitor{
-      [&](const Dirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(
-            fs.x, [&](Index i) { fs.curr.U(i, -NGHOST) = 2.0 * bcond.U - fs.curr.U(i, 0); });
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.curr.V(i, -NGHOST) = bcond.V; });
-      },
-      [&](const CustomDirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
-          fs.curr.U(i, -NGHOST) = 2.0 * bcond.U(fs.x(i), t) - fs.curr.U(i, 0);
-        });
-        for_each_a<Exec::Parallel>(fs.xm,
-                                   [&](Index i) { fs.curr.V(i, -NGHOST) = bcond.V(fs.xm(i), t); });
-      },
-      [&](const Neumann& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, -NGHOST) = fs.curr.U(i, 0); });
-        for_each_a<Exec::Parallel>(fs.xm,
-                                   [&](Index i) { fs.curr.V(i, -NGHOST) = fs.curr.V(i, 0); });
-      },
-      [&](const ClippedNeumann& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, -NGHOST) = fs.curr.U(i, 0); });
-        for_each_a<Exec::Parallel>(
-            fs.xm, [&](Index i) { fs.curr.V(i, -NGHOST) = std::min(fs.curr.V(i, 0), 0.0); });
-      },
-      [&](const Periodic& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.x,
-                                   [&](Index i) { fs.curr.U(i, -NGHOST) = fs.curr.U(i, NY - 1); });
-        for_each_a<Exec::Parallel>(fs.xm,
-                                   [&](Index i) { fs.curr.V(i, -NGHOST) = fs.curr.V(i, NY - 1); });
-      },
-      [&](const Symmetry& /*bcond*/) {
-        for_each_a<Exec::Parallel>(fs.x, [&](Index i) { fs.curr.U(i, -NGHOST) = fs.curr.U(i, 0); });
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
-          fs.curr.V(i, -NGHOST) = -fs.curr.V(i, 1);
-          fs.curr.V(i, 0)       = 0.0;
-        });
-      },
-  };
-  std::visit(bottom_visitor, bconds.bottom);
-
-  // = Top side of domain ==========================================================================
-  const detail::Dispatcher top_visitor{
-      [&](const Dirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
-          fs.curr.U(i, NY + NGHOST - 1) = 2.0 * bcond.U - fs.curr.U(i, NY - 1);
-        });
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.curr.V(i, NY + NGHOST) = bcond.V; });
-      },
-      [&](const CustomDirichlet<Float>& bcond) {
-        for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
-          fs.curr.U(i, NY + NGHOST - 1) = 2.0 * bcond.U(fs.x(i), t) - fs.curr.U(i, NY - 1);
-        });
-        for_each_a<Exec::Parallel>(
-            fs.xm, [&](Index i) { fs.curr.V(i, NY + NGHOST) = bcond.V(fs.xm(i), t); });
-      },
-      [&](const Neumann& /*bcond*/) {
-        for_each_a<Exec::Parallel>(
-            fs.x, [&](Index i) { fs.curr.U(i, NY + NGHOST - 1) = fs.curr.U(i, NY - 1); });
-        for_each_a<Exec::Parallel>(fs.xm,
-                                   [&](Index i) { fs.curr.V(i, NY + NGHOST) = fs.curr.V(i, NY); });
-      },
-      [&](const ClippedNeumann& /*bcond*/) {
-        for_each_a<Exec::Parallel>(
-            fs.x, [&](Index i) { fs.curr.U(i, NY + NGHOST - 1) = fs.curr.U(i, NY - 1); });
-        for_each_a<Exec::Parallel>(
-            fs.xm, [&](Index i) { fs.curr.V(i, NY + NGHOST) = std::max(fs.curr.V(i, NY), 0.0); });
-      },
-      [&](const Periodic& /*bcond*/) {
-        for_each_a<Exec::Parallel>(
-            fs.x, [&](Index i) { fs.curr.U(i, NY + NGHOST - 1) = fs.curr.U(i, 0); });
-        for_each_a<Exec::Parallel>(fs.xm,
-                                   [&](Index i) { fs.curr.V(i, NY + NGHOST) = fs.curr.V(i, 1); });
-      },
-      [&](const Symmetry& /*bcond*/) {
-        for_each_a<Exec::Parallel>(
-            fs.x, [&](Index i) { fs.curr.U(i, NY + NGHOST - 1) = fs.curr.U(i, NY - 1); });
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
-          fs.curr.V(i, NY + NGHOST) = -fs.curr.V(i, NY - 1);
-          fs.curr.V(i, NY)          = 0.0;
-        });
-      },
-  };
-  std::visit(top_visitor, bconds.top);
+  std::visit([&](auto&& bcond) { bcond.apply_left(fs, t); }, bconds.left);
+  std::visit([&](auto&& bcond) { bcond.apply_right(fs, t); }, bconds.right);
+  std::visit([&](auto&& bcond) { bcond.apply_bottom(fs, t); }, bconds.bottom);
+  std::visit([&](auto&& bcond) { bcond.apply_top(fs, t); }, bconds.top);
 }
 
 // -------------------------------------------------------------------------------------------------

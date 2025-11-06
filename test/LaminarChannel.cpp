@@ -54,10 +54,10 @@ constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    .left   = Dirichlet{.U = U_IN, .V = 0.0},
+    .left   = Dirichlet<Float>{.U = U_IN, .V = 0.0},
     .right  = Neumann{},
-    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
-    .top    = Dirichlet{.U = 0.0, .V = 0.0},
+    .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
 };
 // = Config ========================================================================================
 

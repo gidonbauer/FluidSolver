@@ -47,7 +47,7 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 constexpr Index NUM_SUBITER     = 2;
 
 constexpr FlowBConds<Float> bconds{
-    .left   = Dirichlet{.U = 0.0, .V = 0.0},
+    .left   = Dirichlet<Float>{.U = 0.0, .V = 0.0},
     .right  = Neumann{},
     .bottom = Neumann{},
     .top    = Neumann{},

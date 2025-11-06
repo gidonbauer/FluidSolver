@@ -52,10 +52,10 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 constexpr Index NUM_SUBITER     = 5;
 
 constexpr FlowBConds<Float> bconds{
-    .left   = Dirichlet{.U = 0.0, .V = 0.0},
-    .right  = Dirichlet{.U = 0.0, .V = 0.0},
-    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
-    .top    = Dirichlet{.U = 0.0, .V = 0.0},
+    .left   = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .right  = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
 };
 // = Config ========================================================================================
 

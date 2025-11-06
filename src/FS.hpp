@@ -22,6 +22,7 @@ struct State {
 };
 
 // -------------------------------------------------------------------------------------------------
+// TODO: Move time t into FS.
 template <typename Float, Index NX, Index NY, Index NGHOST>
 requires(NGHOST > 0)
 struct FS {

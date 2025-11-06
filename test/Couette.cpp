@@ -48,8 +48,8 @@ constexpr Index NUM_SUBITER     = 2;
 constexpr FlowBConds<Float> bconds{
     .left   = Neumann{},
     .right  = Neumann{},
-    .bottom = Dirichlet{.U = 0.0, .V = 0.0},
-    .top    = Dirichlet{.U = U_TOP, .V = 0.0},
+    .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet<Float>{.U = U_TOP, .V = 0.0},
 };
 // = Config ========================================================================================
 

@@ -17,29 +17,28 @@
 // = Config ========================================================================================
 using Float              = double;
 
-constexpr Index NX       = 5 * 128;
-constexpr Index NY       = 128;
+constexpr Float X_MIN    = 0.0;
+constexpr Float X_MAX    = 2.2;
+constexpr Float Y_MIN    = 0.0;
+constexpr Float Y_MAX    = 0.41;
+
+constexpr Index NY       = 64;
+constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
 constexpr Index NGHOST   = 1;
 
-constexpr Float X_MIN    = 0.0;
-constexpr Float X_MAX    = 5.0;
-constexpr Float Y_MIN    = 0.0;
-constexpr Float Y_MAX    = 1.0;
-
-constexpr Float T_END    = 4.0;
+constexpr Float T_END    = 8.0;
 constexpr Float DT_MAX   = 1e-2;
 constexpr Float CFL_MAX  = 0.5;
-constexpr Float DT_WRITE = 1e-2;
+constexpr Float DT_WRITE = 2e-2;
 
-constexpr Float U_BCOND  = 5.0;
 constexpr Float VISC     = 1e-3;
 constexpr Float RHO      = 1.0;
 
 // #define IB_POLYGON
 #ifndef IB_POLYGON
-constexpr Float CX           = 1.0;
-constexpr Float CY           = 0.5;
-constexpr Float R0           = 0.1;
+constexpr Float CX           = 0.2;
+constexpr Float CY           = 0.2;
+constexpr Float R0           = 0.05;
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
@@ -81,7 +80,16 @@ constexpr Index NUM_SUBITER     = 5;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
-    .left   = Dirichlet<Float>{.U = U_BCOND, .V = 0.0},
+    .left =
+        Dirichlet<Float>{
+            .U = [](Float y, Float t) -> Float {
+              IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
+              constexpr auto DELTA_Y = Y_MAX - Y_MIN;
+              const auto U           = 1.5 * std::sin(std::numbers::pi * t / 8.0);
+              return (4.0 * U * y * (DELTA_Y - y)) / Igor::sqr(DELTA_Y);
+            },
+            .V = 0.0,
+        },
     .right  = Neumann{.clipped = true},
     .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
     .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
@@ -114,19 +122,30 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
   momentum_y = 0.0;
 
   for_each<0, NX, 0, NY>([&](Index i, Index j) {
-    mass += (ib_u_stag(i, j) * fs.curr.rho_u_stag(i, j) +
-             ib_u_stag(i + 1, j) * fs.curr.rho_u_stag(i + 1, j) +
-             ib_v_stag(i, j) * fs.curr.rho_v_stag(i, j) +
-             ib_v_stag(i, j + 1) * fs.curr.rho_v_stag(i, j + 1)) /
+    mass += ((1.0 - ib_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) +
+             (1.0 - ib_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) +
+             (1.0 - ib_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) +
+             (1.0 - ib_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1)) /
             4.0 * fs.dx * fs.dy;
 
-    momentum_x += (ib_u_stag(i, j) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
-                   ib_u_stag(i + 1, j) * fs.curr.rho_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
-                  2.0 * fs.dx * fs.dy;
-    momentum_y += (ib_v_stag(i, j) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
-                   ib_v_stag(i, j + 1) * fs.curr.rho_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
-                  2.0 * fs.dx * fs.dy;
+    momentum_x +=
+        ((1.0 - ib_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
+         (1.0 - ib_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
+        2.0 * fs.dx * fs.dy;
+    momentum_y +=
+        ((1.0 - ib_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
+         (1.0 - ib_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
+        2.0 * fs.dx * fs.dy;
   });
+}
+
+// -------------------------------------------------------------------------------------------------
+constexpr auto calc_p_diff(const FS<Float, NX, NY, NGHOST>& fs) -> Float {
+  constexpr std::array<Float, 2> a1 = {0.15, 0.2};
+  constexpr std::array<Float, 2> a2 = {0.25, 0.2};
+  const auto p1                     = bilinear_interpolate(fs.xm, fs.ym, fs.p, a1[0], a1[1]);
+  const auto p2                     = bilinear_interpolate(fs.xm, fs.ym, fs.p, a2[0], a2[1]);
+  return p1 - p2;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -142,6 +161,14 @@ auto main() -> int {
   calc_rho(fs);
   calc_visc(fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
+
+  // ===================================
+  Igor::Debug("R0 = {:.6e}", R0);
+  Igor::Debug("dx = {:.6e}", fs.dx);
+  Igor::Debug("dy = {:.6e}", fs.dy);
+  Igor::Debug("NX = {}", NX);
+  Igor::Debug("NY = {}", NY);
+  // ===================================
 
   Matrix<Float, NX, NY, NGHOST> Ui{};
   Matrix<Float, NX, NY, NGHOST> Vi{};
@@ -172,6 +199,7 @@ auto main() -> int {
   // Float p_max         = 0.0;
   Float p_res  = 0.0;
   Index p_iter = 0;
+  Float p_diff = 0.0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -194,6 +222,7 @@ auto main() -> int {
   // monitor.add_variable(&p_max, "max(p)");
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
+  monitor.add_variable(&p_diff, "p_diff");
 
   monitor.add_variable(&mass, "mass");
   monitor.add_variable(&mom_x, "momentum (x)");
@@ -220,7 +249,7 @@ auto main() -> int {
   // = Initialize flow field =======================================================================
   for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = 0.0; });
   for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
-  apply_velocity_bconds(fs, bconds);
+  apply_velocity_bconds(fs, bconds, t);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
@@ -228,6 +257,7 @@ auto main() -> int {
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
   div_max = max(div);
+  p_diff  = calc_p_diff(fs);
   calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
@@ -258,7 +288,7 @@ auto main() -> int {
                           (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
                           fs.curr.rho_v_stag(i, j);
       });
-      apply_velocity_bconds(fs, bconds);
+      apply_velocity_bconds(fs, bconds, t);
 
       // Correct the outflow
       Float inflow     = 0.0;
@@ -303,6 +333,7 @@ auto main() -> int {
     U_max   = max(fs.curr.U);
     V_max   = max(fs.curr.V);
     div_max = max(div);
+    p_diff  = calc_p_diff(fs);
     calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }

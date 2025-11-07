@@ -7,7 +7,6 @@
 
 // #define FS_HYPRE_VERBOSE
 #define FS_SILENCE_CONV_WARN
-#define FS_PARALLEL_THRESHOLD 50000
 
 #include "FS.hpp"
 #include "IO.hpp"

@@ -14,97 +14,10 @@
 #include "Quadrature.hpp"
 #include "Utility.hpp"
 
+#include "DFGBenchmarkSetup.hpp"
+
 // See: Vreman, A.W., 2020. Immersed boundary and overset grid methods assessed for Stokes flow due
 // to an oscillating sphere. Journal of Computational Physics 423, 109783.
-
-// = Config ========================================================================================
-using Float              = double;
-
-constexpr Float X_MIN    = 0.0;
-constexpr Float X_MAX    = 2.2;
-constexpr Float Y_MIN    = 0.0;
-constexpr Float Y_MAX    = 0.41;
-
-constexpr Index NY       = 64;
-constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
-constexpr Index NGHOST   = 1;
-
-constexpr Float T_END    = 8.0;
-constexpr Float DT_MAX   = 1e-2;
-constexpr Float CFL_MAX  = 0.5;
-constexpr Float DT_WRITE = 2e-2;
-
-constexpr Float VISC     = 1e-3;
-constexpr Float RHO      = 1.0;
-
-// #define IB_POLYGON
-#ifndef IB_POLYGON
-constexpr Float CX           = 0.2;
-constexpr Float CY           = 0.2;
-constexpr Float R0           = 0.05;
-constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
-};
-constexpr auto normal_immersed_wall = [](Float x, Float y) -> std::array<Float, 2> {
-  const auto d = std::sqrt(Igor::sqr(x - CX) + Igor::sqr(y - CY));
-  return {
-      (x - CX) / d,
-      (y - CY) / d,
-  };
-};
-#else
-struct Point {
-  Float x, y;
-};
-[[nodiscard]] constexpr auto polygon_contains_point(const auto& polygon, const Point& p) noexcept
-    -> bool {
-  if (polygon.size() < 2) { return false; }
-
-  for (size_t i = 0; i < polygon.size(); ++i) {
-    const auto& p1 = polygon[i];
-    const auto& p2 = polygon[(i + 1) % polygon.size()];
-    const auto n   = Point{
-          .x = p1.y - p2.y,
-          .y = -(p1.x - p2.x),
-    };
-    const auto v = n.x * (p.x - p1.x) + n.y * (p.y - p1.y);
-    if (v < 0.0) { return false; }
-  }
-  return true;
-}
-constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  constexpr Igor::StaticVector<Point, 8> polygon = {
-      Point{.x = 0.9, .y = 0.5},
-      Point{.x = 1.1, .y = 0.3},
-      Point{.x = 2.0, .y = 0.6},
-      Point{.x = 1.1, .y = 0.7},
-  };
-  return static_cast<Float>(polygon_contains_point(polygon, {.x = x, .y = y}));
-};
-#endif
-
-constexpr int PRESSURE_MAX_ITER = 50;
-constexpr Float PRESSURE_TOL    = 1e-6;
-
-constexpr Index NUM_SUBITER     = 5;
-
-// Channel flow
-constexpr FlowBConds<Float> bconds{
-    .left =
-        Dirichlet<Float>{
-            .U = [](Float y, Float t) -> Float {
-              IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
-              constexpr auto DELTA_Y = Y_MAX - Y_MIN;
-              const auto U           = 1.5 * std::sin(std::numbers::pi * t / 8.0);
-              return (4.0 * U * y * (DELTA_Y - y)) / Igor::sqr(DELTA_Y);
-            },
-            .V = 0.0,
-        },
-    .right  = Neumann{.clipped = true},
-    .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
-    .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
-};
-// = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
 void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
@@ -147,15 +60,6 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
              fs.curr.V(i, j + 1)) /
         2.0 * fs.dx * fs.dy;
   });
-}
-
-// -------------------------------------------------------------------------------------------------
-constexpr auto calc_p_diff(const FS<Float, NX, NY, NGHOST>& fs) -> Float {
-  constexpr std::array<Float, 2> a1 = {0.15, 0.2};
-  constexpr std::array<Float, 2> a2 = {0.25, 0.2};
-  const auto p1                     = bilinear_interpolate(fs.xm, fs.ym, fs.p, a1[0], a1[1]);
-  const auto p2                     = bilinear_interpolate(fs.xm, fs.ym, fs.p, a2[0], a2[1]);
-  return p1 - p2;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -368,7 +272,8 @@ enum IBBoundary : uint32_t {
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
-  const auto OUTPUT_DIR = get_output_directory();
+  const auto OUTPUT_DIR = get_output_directory() + "DFG" IGOR_STRINGIFY(DFG_BENCHMARK) "/";
+  Igor::Info("Save results in `{}`.", OUTPUT_DIR);
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================

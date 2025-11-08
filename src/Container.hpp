@@ -131,6 +131,7 @@ class Matrix {
                                          std::unique_ptr<std::array<Contained, ARRAY_SIZE>>>;
   StorageType m_data{};
 
+ public:
   [[nodiscard]] constexpr auto get_idx(Index i, Index j) const noexcept -> Index {
     if constexpr (LAYOUT == Layout::C) {
       return (j + NGHOST) + (i + NGHOST) * (N + 2 * NGHOST);
@@ -139,7 +140,6 @@ class Matrix {
     }
   }
 
- public:
   Matrix() noexcept
   requires(is_small)
   {

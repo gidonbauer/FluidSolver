@@ -14,6 +14,7 @@ set(executables
   Container
   Utility
   OffloadGPU
+  LinearSolver
 )
 
 foreach(exec ${executables})
@@ -40,6 +41,11 @@ foreach(exec ${executables})
     target_link_libraries(${exec} PRIVATE HYPRE::HYPRE)
     if (HDF5_FOUND)
       target_link_libraries(${exec} PRIVATE HDF5::HDF5 hdf5::hdf5_hl hdf5::hdf5_hl_cpp)
+    endif()
+
+    if (${exec} STREQUAL "LinearSolver" OR ${exec} STREQUAL "PeriodicChannel")
+      target_compile_definitions(${exec} PRIVATE "ACCELERATE_NEW_LAPACK")
+      target_link_libraries(${exec} PRIVATE "-framework Accelerate")
     endif()
 
     add_test(NAME ${exec} COMMAND ${exec})

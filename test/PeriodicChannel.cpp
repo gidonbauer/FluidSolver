@@ -12,7 +12,7 @@
 #include "IO.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
-#include "PressureCorrection.hpp"
+#include "PressureCorrection_Accelerate.hpp"
 #include "Utility.hpp"
 
 #include "Common.hpp"
@@ -39,7 +39,7 @@ constexpr Float VISC            = 1e-3;
 constexpr Float RHO             = 0.5;
 constexpr Float TOTAL_FLOW      = (Y_MAX - Y_MIN) * U_INIT * RHO;
 
-constexpr int PRESSURE_MAX_ITER = 50;
+constexpr int PRESSURE_MAX_ITER = 500;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 2;
@@ -134,7 +134,8 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
+  // PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
+  PS_Accelerate ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
@@ -327,10 +328,10 @@ auto main() -> int {
     constexpr Float TOL = 1e-7;
     for_each_i(fs.curr.V, [&](Index i, Index j) {
       if (std::abs(fs.curr.V(i, j)) > TOL) {
-        Igor::Warn("V-velocity at ({:.6e}, {:.6e}) is not zero: {:.6e}",
-                   fs.xm(i),
-                   fs.y(j),
-                   fs.curr.V(i, j));
+        // Igor::Warn("V-velocity at ({:.6e}, {:.6e}) is not zero: {:.6e}",
+        //            fs.xm(i),
+        //            fs.y(j),
+        //            fs.curr.V(i, j));
         any_test_failed = true;
       }
     });

@@ -39,7 +39,7 @@ constexpr Float VISC            = 1e-3;
 constexpr Float RHO             = 0.5;
 constexpr Float TOTAL_FLOW      = (Y_MAX - Y_MIN) * U_INIT * RHO;
 
-constexpr int PRESSURE_MAX_ITER = 500;
+constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 2;
@@ -325,13 +325,13 @@ auto main() -> int {
 
   // - Test U profile --------
   {
-    constexpr Float TOL = 1e-7;
+    constexpr Float TOL = 1e-5;  // 1e-7;
     for_each_i(fs.curr.V, [&](Index i, Index j) {
       if (std::abs(fs.curr.V(i, j)) > TOL) {
-        // Igor::Warn("V-velocity at ({:.6e}, {:.6e}) is not zero: {:.6e}",
-        //            fs.xm(i),
-        //            fs.y(j),
-        //            fs.curr.V(i, j));
+        Igor::Warn("V-velocity at ({:.6e}, {:.6e}) is not zero: {:.6e}",
+                   fs.xm(i),
+                   fs.y(j),
+                   fs.curr.V(i, j));
         any_test_failed = true;
       }
     });

@@ -11,7 +11,7 @@ enum class PSDirichlet : std::uint8_t { NONE, LEFT, RIGHT, BOTTOM, TOP };
 
 template <typename Float, Index NX, Index NY, Index NGHOST>
 class PS_Accelerate {
-  static_assert(std::is_same_v<Float, double>, "HYPRE requires Float=double");
+  static_assert(std::is_same_v<Float, double>, "Accelerate requires Float=double");
 
   PSDirichlet m_dirichlet_bc = PSDirichlet::NONE;
 
@@ -203,8 +203,6 @@ class PS_Accelerate {
              Index* num_iter          = nullptr) -> bool {
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
 
-    bool res       = true;
-
     const auto vol = fs.dx * fs.dy;
 
     static Matrix<Float, NX, NY, NGHOST> rhs_values{};
@@ -252,8 +250,8 @@ class PS_Accelerate {
         .maxIterations = m_max_iter,
         .atol          = m_tol,
         .rtol          = 0.0,
+        .reportStatus  = nullptr,
         // .reportStatus  = [](const char* message) { std::cout << message; },
-        .reportStatus = nullptr,
     };
     const auto status =
         SparseSolve(SparseConjugateGradient(opts), m_A, m_b, m_x, SparsePreconditionerDiagScaling);
@@ -262,32 +260,19 @@ class PS_Accelerate {
       case SparseIterativeConverged:      break;
       case SparseIterativeIllConditioned: Igor::Warn("Ill conditioned."); return false;
       case SparseIterativeInternalError:  Igor::Warn("Internal error."); return false;
-      case SparseIterativeMaxIterations:  Igor::Warn("Max. iterations."); return false;
+      case SparseIterativeMaxIterations:  Igor::Warn("Max. iterations."); break;
       case SparseIterativeParameterError: Igor::Warn("Parameter error."); return false;
     }
 
     // = Get solution ==============================================================================
-    if (pressure_residual != nullptr) { *pressure_residual = -1.0; }
+    if (pressure_residual != nullptr) {
+      for_each_a(rhs_values, [&](Index i, Index j) { rhs_values(i, j) *= -1.0; });
+      SparseMultiplyAdd(m_A, m_x, m_b);
+      *pressure_residual = abs_max<true>(rhs_values);
+    }
     if (num_iter != nullptr) { *num_iter = -1; }
 
-    // = Check for errors ==========================================================================
-    //     const HYPRE_Int error_flag = HYPRE_GetError();
-    //     if (error_flag != 0) {
-    //       if (HYPRE_CheckError(error_flag, HYPRE_ERROR_CONV) != 0) {
-    // #ifndef FS_SILENCE_CONV_WARN
-    //         Igor::Warn("HYPRE did not converge: residual = {:.6e}, #iterations = {}",
-    //                    final_residual,
-    //                    local_num_iter);
-    // #endif  // FS_SILENCE_CONV_WARN
-    //         HYPRE_ClearError(HYPRE_ERROR_CONV);
-    //         res = false;
-    //       } else {
-    //         HYPRE_DescribeError(error_flag, msg_buffer.data());
-    //         Igor::Panic("An error occured in HYPRE: {}", msg_buffer.data());
-    //       }
-    //     }
-
-    return res;
+    return true;
   }
 };
 

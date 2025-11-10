@@ -22,14 +22,13 @@ struct Dirichlet {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.ym(j), t);
       fs.curr.U(-1, j) = U_bc;
-      // fs.curr.U(-1, j) = 2.0 * U_bc - fs.curr.U(1, j);
+      fs.curr.U(0, j)  = U_bc;
     });
 
     for_each_a<Exec::Parallel>(fs.y, [&](Index j) {
       const Float V_bc =
           std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(fs.y(j), t);
-      fs.curr.V(-1, j) = V_bc;
-      // fs.curr.V(-1, j) = 2.0 * V_bc - fs.curr.V(0, j);
+      fs.curr.V(-1, j) = 2.0 * V_bc - fs.curr.V(0, j);
     });
   }
 
@@ -39,15 +38,14 @@ struct Dirichlet {
     for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.ym(j), t);
+      fs.curr.U(NX, j)     = U_bc;
       fs.curr.U(NX + 1, j) = U_bc;
-      // fs.curr.U(NX + 1, j) = 2.0 * U_bc - fs.curr.U(NX - 1, j);
     });
 
     for_each_a<Exec::Parallel>(fs.y, [&](Index j) {
       const Float V_bc =
           std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(fs.y(j), t);
-      fs.curr.V(NX, j) = V_bc;
-      // fs.curr.V(NX, j) = 2.0 * V_bc - fs.curr.V(NX - 1, j);
+      fs.curr.V(NX, j) = 2.0 * V_bc - fs.curr.V(NX - 1, j);
     });
   }
 
@@ -57,8 +55,6 @@ struct Dirichlet {
     for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.x(i), t);
-      // TODO: New boundary conditions fail for TwoPhaseSolver
-      // fs.curr.U(i, -1) = U_bc;
       fs.curr.U(i, -1) = 2.0 * U_bc - fs.curr.U(i, 0);
     });
 
@@ -66,7 +62,7 @@ struct Dirichlet {
       const Float V_bc =
           std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(fs.xm(i), t);
       fs.curr.V(i, -1) = V_bc;
-      // fs.curr.V(i, -1) = 2.0 * V_bc - fs.curr.V(i, 1);
+      fs.curr.V(i, 0)  = V_bc;
     });
   }
 
@@ -76,16 +72,14 @@ struct Dirichlet {
     for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.x(i), t);
-      // TODO: New boundary conditions fail for TwoPhaseSolver
-      // fs.curr.U(i, NY) = U_bc;
       fs.curr.U(i, NY) = 2.0 * U_bc - fs.curr.U(i, NY - 1);
     });
 
     for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
       const Float V_bc =
           std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(fs.xm(i), t);
+      fs.curr.V(i, NY)     = V_bc;
       fs.curr.V(i, NY + 1) = V_bc;
-      // fs.curr.V(i, NY + 1) = 2.0 * V_bc - fs.curr.V(i, NY - 1);
     });
   }
 };

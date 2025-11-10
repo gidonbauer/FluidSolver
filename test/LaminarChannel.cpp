@@ -1,5 +1,4 @@
 #include <cstddef>
-#include <type_traits>
 
 #include <omp.h>
 
@@ -19,35 +18,27 @@
 #include "Common.hpp"
 
 // = Config ========================================================================================
-using Float              = double;
+using Float                     = double;
 
-constexpr Index NX       = 1300;  // 510;
-constexpr Index NY       = 13;    // 51;
-constexpr Index NGHOST   = 1;
+constexpr Index NX              = 750;
+constexpr Index NY              = 15;
+constexpr Index NGHOST          = 1;
 
-constexpr Float X_MIN    = 0.0;
-constexpr Float X_MAX    = 100.0;
-constexpr Float Y_MIN    = 0.0;
-constexpr Float Y_MAX    = 1.0;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 100.0;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END    = 60.0;
-constexpr Float DT_MAX   = 1e-1;
-constexpr Float CFL_MAX  = 0.25;
-constexpr Float DT_WRITE = 1.0;
+constexpr Float T_END           = 60.0;
+constexpr Float DT_MAX          = 1e-1;
+constexpr Float CFL_MAX         = 0.9;
+constexpr Float DT_WRITE        = 1.0;
 
-constexpr Float U_IN     = 1.0;
-#ifndef LC_U_INIT
-constexpr Float U_INIT = 1.0;
-#else
-static_assert(
-    std::is_convertible_v<std::remove_cvref_t<decltype(LC_U_INIT)>, Float>,
-    "LC_U_INIT must have a value (the initital U-velocity) that must be convertible to Float.");
-constexpr Float U_INIT = LC_U_INIT;
-#endif
+constexpr Float U_IN            = 1.0;
 constexpr Float VISC            = 1e-3;
 constexpr Float RHO             = 0.5;
 
-constexpr int PRESSURE_MAX_ITER = 500;
+constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
@@ -76,15 +67,26 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto main() -> int {
+auto main(int argc, char** argv) -> int {
   omp_set_num_threads(4);
 
   // = Create output directory =====================================================================
-#ifndef LC_U_INIT
-  const auto OUTPUT_DIR = get_output_directory("test/output");
-#else
-  const auto OUTPUT_DIR = get_output_directory("test/output") + IGOR_STRINGIFY(LC_U_INIT) "/";
-#endif
+  if (argc < 2) {
+    Igor::Warn("Usage: {} <initial U-velocity>", argv[0]);
+    Igor::Warn("       Did not provide initial U-velocity.");
+    return 1;
+  }
+
+  const char* U_init_cstr = argv[1];
+  char* cstr_end          = nullptr;
+  const Float U_init      = std::strtod(U_init_cstr, &cstr_end);
+  if (U_init == HUGE_VAL ||
+      static_cast<size_t>(cstr_end - U_init_cstr) != std::strlen(U_init_cstr)) {
+    Igor::Warn("Could not parse c-string `{}` as double.", U_init_cstr);
+    return 1;
+  }
+
+  const auto OUTPUT_DIR = get_output_directory("test/output") + U_init_cstr + "/";
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
@@ -150,7 +152,7 @@ auto main() -> int {
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_INIT; });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_init; });
   for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
@@ -166,11 +168,7 @@ auto main() -> int {
   monitor.write();
   // = Initialize flow field =======================================================================
 
-#ifndef LC_U_INIT
-  Igor::ScopeTimer timer("LaminarChannel");
-#else
-  Igor::ScopeTimer timer("LaminarChannel_" IGOR_STRINGIFY(LC_U_INIT));
-#endif
+  Igor::ScopeTimer timer(std::string("LaminarChannel-") + U_init_cstr);
   bool failed          = false;
   bool any_test_failed = false;
   while (t < T_END && !failed) {

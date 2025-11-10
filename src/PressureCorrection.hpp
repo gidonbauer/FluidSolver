@@ -45,7 +45,10 @@ constexpr Index PS_PARALLEL_GRID_SIZE_THRESHOLD = PS_PARALLEL_THRESHOLD;
 
 enum class PSSolver : std::uint8_t { GMRES, PCG, BiCGSTAB, SMG, PFMG };
 enum class PSPrecond : std::uint8_t { SMG, PFMG, NONE };
+#ifndef FLUID_SOLVER_PS_DIRICHLET_
+#define FLUID_SOLVER_PS_DIRICHLET_
 enum class PSDirichlet : std::uint8_t { NONE, LEFT, RIGHT, BOTTOM, TOP };
+#endif  // FLUID_SOLVER_PS_DIRICHLET_
 
 // TODO: Look into IJ-interface of HYPRE
 template <typename Float, Index NX, Index NY, Index NGHOST>

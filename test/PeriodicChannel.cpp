@@ -12,7 +12,7 @@
 #include "IO.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
-#include "PressureCorrection_Accelerate.hpp"
+#include "PressureCorrection.hpp"
 #include "Utility.hpp"
 
 #include "Common.hpp"
@@ -134,8 +134,7 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
-  // PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
-  PS_Accelerate ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
@@ -325,7 +324,7 @@ auto main() -> int {
 
   // - Test U profile --------
   {
-    constexpr Float TOL = 1e-5;  // 1e-7;
+    constexpr Float TOL = 1e-7;
     for_each_i(fs.curr.V, [&](Index i, Index j) {
       if (std::abs(fs.curr.V(i, j)) > TOL) {
         Igor::Warn("V-velocity at ({:.6e}, {:.6e}) is not zero: {:.6e}",

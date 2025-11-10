@@ -3,6 +3,7 @@ set(executables
   dmomdt-fuse-flux
   dmomdt-fuse-all
   update-velo-fuse
+  LinearSolver
 )
 
 foreach(exec ${executables})
@@ -32,6 +33,9 @@ foreach(exec ${executables})
     if (HDF5_FOUND)
       target_link_libraries(${exec} PRIVATE HDF5::HDF5 hdf5::hdf5_hl hdf5::hdf5_hl_cpp)
     endif()
+
+    if (${exec} STREQUAL "LinearSolver")
+      target_compile_definitions(${exec} PRIVATE "ACCELERATE_NEW_LAPACK")
+      target_link_libraries(${exec} PRIVATE "-framework Accelerate")
+    endif()
 endforeach()
-
-

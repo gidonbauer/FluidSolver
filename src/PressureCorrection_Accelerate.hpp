@@ -6,8 +6,12 @@
 #include <Igor/Math.hpp>
 
 #include "FS.hpp"
+#include "Utility.hpp"
 
+#ifndef FLUID_SOLVER_PS_DIRICHLET_
+#define FLUID_SOLVER_PS_DIRICHLET_
 enum class PSDirichlet : std::uint8_t { NONE, LEFT, RIGHT, BOTTOM, TOP };
+#endif  // FLUID_SOLVER_PS_DIRICHLET_
 
 template <typename Float, Index NX, Index NY, Index NGHOST>
 class PS_Accelerate {
@@ -244,6 +248,7 @@ class PS_Accelerate {
         .count = resP.size(),
         .data  = resP.get_data(),
     };
+
     // = Solve the system ==========================================================================
     SparseCGOptions opts{
         .reportError =
@@ -254,8 +259,8 @@ class PS_Accelerate {
         .reportStatus  = nullptr,
         // .reportStatus  = [](const char* message) { std::cout << message; },
     };
-    const auto status =
-        SparseSolve(SparseConjugateGradient(opts), m_A, m_b, m_x, SparsePreconditionerDiagScaling);
+    const auto precond = SparseCreatePreconditioner(SparsePreconditionerDiagScaling, m_A);
+    const auto status  = SparseSolve(SparseConjugateGradient(opts), m_A, m_b, m_x, precond);
 
     switch (status) {
       case SparseIterativeConverged:      break;
@@ -265,7 +270,7 @@ class PS_Accelerate {
       case SparseIterativeParameterError: Igor::Warn("Parameter error."); return false;
     }
 
-    // = Get solution ==============================================================================
+    // = Get residual ==============================================================================
     if (pressure_residual != nullptr) {
       for_each_a(rhs_values, [&](Index i, Index j) { rhs_values(i, j) *= -1.0; });
       SparseMultiplyAdd(m_A, m_x, m_b);

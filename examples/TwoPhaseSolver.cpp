@@ -61,6 +61,7 @@ constexpr Float Re_L = RHO_L * U_BCOND * (Y_MAX - Y_MIN) / VISC_L;
 constexpr Float Re_G = RHO_G * U_BCOND * (Y_MAX - Y_MIN) / VISC_G;
 
 // Channel flow
+// TODO: New boundary conditions fail here
 constexpr FlowBConds<Float> bconds{
     .left   = Dirichlet<Float>{.U = U_BCOND, .V = 0.0},
     .right  = Neumann{},
@@ -221,7 +222,7 @@ auto main() -> int {
 
   calc_rho(vof.vf, fs);
   calc_visc(vof.vf, fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
+  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);

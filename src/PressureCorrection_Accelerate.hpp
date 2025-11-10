@@ -246,7 +246,8 @@ class PS_Accelerate {
     };
     // = Solve the system ==========================================================================
     SparseCGOptions opts{
-        .reportError   = [](const char* message) { std::cerr << "ERROR: " << message; },
+        .reportError =
+            []([[maybe_unused]] const char* message) { /*std::cerr << "ERROR: " << message;*/ },
         .maxIterations = m_max_iter,
         .atol          = m_tol,
         .rtol          = 0.0,

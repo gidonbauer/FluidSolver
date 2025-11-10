@@ -57,6 +57,7 @@ struct Dirichlet {
     for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.x(i), t);
+      // TODO: New boundary conditions fail for TwoPhaseSolver
       // fs.curr.U(i, -1) = U_bc;
       fs.curr.U(i, -1) = 2.0 * U_bc - fs.curr.U(i, 0);
     });
@@ -75,6 +76,7 @@ struct Dirichlet {
     for_each_a<Exec::Parallel>(fs.x, [&](Index i) {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(fs.x(i), t);
+      // TODO: New boundary conditions fail for TwoPhaseSolver
       // fs.curr.U(i, NY) = U_bc;
       fs.curr.U(i, NY) = 2.0 * U_bc - fs.curr.U(i, NY - 1);
     });

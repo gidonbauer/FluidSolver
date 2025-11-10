@@ -47,6 +47,7 @@ enum class PSSolver : std::uint8_t { GMRES, PCG, BiCGSTAB, SMG, PFMG };
 enum class PSPrecond : std::uint8_t { SMG, PFMG, NONE };
 enum class PSDirichlet : std::uint8_t { NONE, LEFT, RIGHT, BOTTOM, TOP };
 
+// TODO: Look into IJ-interface of HYPRE
 template <typename Float, Index NX, Index NY, Index NGHOST>
 class PS {
   static_assert(std::is_same_v<Float, double>, "HYPRE requires Float=double");

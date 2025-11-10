@@ -75,14 +75,6 @@ auto main() -> int {
   calc_visc(fs);
   PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
 
-  // ===================================
-  Igor::Debug("R0 = {:.6e}", R0);
-  Igor::Debug("dx = {:.6e}", fs.dx);
-  Igor::Debug("dy = {:.6e}", fs.dy);
-  Igor::Debug("NX = {}", NX);
-  Igor::Debug("NY = {}", NY);
-  // ===================================
-
   Matrix<Float, NX, NY, NGHOST> Ui{};
   Matrix<Float, NX, NY, NGHOST> Vi{};
   Matrix<Float, NX, NY, NGHOST> div{};
@@ -107,12 +99,14 @@ auto main() -> int {
   Float V_max   = 0.0;
 
   Float div_max = 0.0;
-  // Float div_L1        = 0.0;
 
-  // Float p_max         = 0.0;
-  Float p_res  = 0.0;
-  Index p_iter = 0;
-  Float p_diff = 0.0;
+  Float p_res   = 0.0;
+  Index p_iter  = 0;
+  Float p_diff  = 0.0;
+
+  Float Re      = calc_Re(t);
+  Float C_L     = 0.0;
+  Float C_D     = 0.0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -130,16 +124,20 @@ auto main() -> int {
   monitor.add_variable(&V_max, "max(V)");
 
   monitor.add_variable(&div_max, "max(div)");
-  // monitor.add_variable(&div_L1, "L1(div)");
 
-  // monitor.add_variable(&p_max, "max(p)");
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
-  monitor.add_variable(&p_diff, "p_diff");
 
   monitor.add_variable(&mass, "mass");
   monitor.add_variable(&mom_x, "momentum (x)");
   monitor.add_variable(&mom_y, "momentum (y)");
+
+  Monitor<Float> monitor_dfg(Igor::detail::format("{}/monitor_dfg.log", OUTPUT_DIR));
+  monitor_dfg.add_variable(&t, "time");
+  monitor_dfg.add_variable(&Re, "Re");
+  monitor_dfg.add_variable(&p_diff, "p_diff");
+  monitor_dfg.add_variable(&C_L, "C_L");
+  monitor_dfg.add_variable(&C_D, "C_D");
   // = Output ======================================================================================
 
   // = Initialize immersed boundaries ==============================================================
@@ -171,9 +169,13 @@ auto main() -> int {
   V_max   = max(fs.curr.V);
   div_max = max(div);
   p_diff  = calc_p_diff(fs);
+  Re      = calc_Re(t);
+  C_L     = calc_C_L(fs, t);
+  C_D     = calc_C_D(fs, t);
   calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
+  monitor_dfg.write();
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
@@ -247,11 +249,15 @@ auto main() -> int {
     V_max   = max(fs.curr.V);
     div_max = max(div);
     p_diff  = calc_p_diff(fs);
+    Re      = calc_Re(t);
+    C_L     = calc_C_L(fs, t);
+    C_D     = calc_C_D(fs, t);
     calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
+    monitor_dfg.write();
   }
 
   Igor::Info("Solver finished successfully.");

@@ -147,7 +147,10 @@ get_output_directory(std::string_view subdir  = "output",
 #endif  // FS_BASE_DIR
                                 subdir,
                                 strip_extension(strip_path(loc.file_name())));
-  } catch (const std::exception& e) { Igor::Panic("Could not create output directory name."); }
+  } catch (const std::exception& e) {
+    Igor::Panic("Could not create output directory name.");
+    std::unreachable();
+  }
 }
 
 // -------------------------------------------------------------------------------------------------

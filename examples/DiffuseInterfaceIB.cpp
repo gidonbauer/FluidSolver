@@ -102,9 +102,10 @@ auto main() -> int {
 
   Float p_res   = 0.0;
   Index p_iter  = 0;
-  Float p_diff  = 0.0;
+  Float p_max   = 0.0;
 
   Float Re      = calc_Re(t);
+  Float p_diff  = 0.0;
   Float C_L     = 0.0;
   Float C_D     = 0.0;
   // = Allocate memory =============================================================================
@@ -125,6 +126,7 @@ auto main() -> int {
 
   monitor.add_variable(&div_max, "max(div)");
 
+  monitor.add_variable(&p_max, "max(p)");
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
@@ -168,6 +170,7 @@ auto main() -> int {
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
   div_max = max(div);
+  p_max   = max(fs.p);
   p_diff  = calc_p_diff(fs);
   Re      = calc_Re(t);
   C_L     = calc_C_L(fs, t);
@@ -248,6 +251,7 @@ auto main() -> int {
     U_max   = max(fs.curr.U);
     V_max   = max(fs.curr.V);
     div_max = max(div);
+    p_max   = max(fs.p);
     p_diff  = calc_p_diff(fs);
     Re      = calc_Re(t);
     C_L     = calc_C_L(fs, t);

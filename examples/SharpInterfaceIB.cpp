@@ -88,8 +88,6 @@ enum IBBoundary : uint32_t {
                                          std::array<Float, 2> c,
                                          Float r) {
   // See: https://mathworld.wolfram.com/Circle-LineIntersection.html
-  enum : size_t { X, Y };
-
   p1[X]                  -= c[X];
   p1[Y]                  -= c[Y];
   p2[X]                  -= c[X];

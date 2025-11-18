@@ -12,7 +12,8 @@
 #include "IO.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
-#include "PressureCorrection.hpp"
+// #include "PressureCorrection.hpp"
+#include "LinearSolver_StructHypre.hpp"
 #include "Utility.hpp"
 
 // = Config ========================================================================================
@@ -138,7 +139,9 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize pressure solver ==================================================================
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
+  // PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER);
+  LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(PRESSURE_TOL, PRESSURE_MAX_ITER);
+  ps.set_pressure_operator(fs);
 
   // = Initialize flow field =======================================================================
   for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
@@ -191,7 +194,8 @@ auto main() -> int {
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       Index local_pressure_iter = 0;
-      ps.solve(fs, div, dt, delta_p, &pressure_res, &local_pressure_iter);
+      ps.set_pressure_rhs(fs, div, dt);
+      ps.solve(delta_p, &pressure_res, &local_pressure_iter);
       pressure_iter += local_pressure_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);

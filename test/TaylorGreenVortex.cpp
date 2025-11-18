@@ -10,9 +10,9 @@
 
 #include "FS.hpp"
 #include "IO.hpp"
+#include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
-#include "PressureCorrection.hpp"
 #include "Utility.hpp"
 
 // = Config ========================================================================================
@@ -102,7 +102,8 @@ auto main() -> int {
   data_writer.add_vector("velocity", &Ui, &Vi);
   // = Output ======================================================================================
 
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
+  LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(PRESSURE_TOL, PRESSURE_MAX_ITER);
+  ps.set_pressure_operator(fs);
 
   // = Initialize flow field =======================================================================
   for_each_i<Exec::Parallel>(
@@ -151,10 +152,8 @@ auto main() -> int {
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
       Index local_p_iter = 0;
-      if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
-        Igor::Warn("Pressure correction failed at t={}.", t);
-        failed = true;
-      }
+      ps.set_pressure_rhs(fs, div, dt);
+      ps.solve(delta_p, &p_res, &local_p_iter);
       p_iter += local_p_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);

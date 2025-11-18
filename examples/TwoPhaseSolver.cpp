@@ -4,15 +4,15 @@
 #include <Igor/Timer.hpp>
 
 // #define FS_HYPRE_VERBOSE
-#define FS_SILENCE_CONV_WARN
+// #define FS_SILENCE_CONV_WARN
 // #define FS_ARITHMETIC_VISC
 
 #include "Curvature.hpp"
 #include "FS.hpp"
 #include "IO.hpp"
+#include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
-#include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
 
@@ -24,26 +24,25 @@ constexpr Index NY              = 128;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 5.0;
+constexpr Float X_MAX           = 2.2;
 constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 1.0;
+constexpr Float Y_MAX           = 0.41;
 
 constexpr Float T_END           = 5.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.9;
 constexpr Float DT_WRITE        = 5e-2;
 
-constexpr Float U_BCOND         = 1.0;
-constexpr Float U_0             = 0.0;
+constexpr Float U_IN_AVG        = 5e-1;
 constexpr Float RHO_G           = 1.0;
-constexpr Float VISC_G          = 1e-6;  // * RHO_G;  // Dynamic viscosity?
+constexpr Float VISC_G          = 1e-6;
 constexpr Float RHO_L           = 1e3;
-constexpr Float VISC_L          = 1e-3;  // * RHO_L;  // Dynamic viscosity?
+constexpr Float VISC_L          = 1e-3;
 
-constexpr Float SURFACE_TENSION = 1.0 / 20.0;
-constexpr Float CX              = 1.0;
-constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.1;
+constexpr Float SURFACE_TENSION = 1.0 / 200.0;
+constexpr Float CX              = 0.2;
+constexpr Float CY              = 0.2;
+constexpr Float R0              = 0.05;
 constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
@@ -54,16 +53,30 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 constexpr Index NUM_SUBITER     = 5;
 
 // Weber number
-constexpr Float We = RHO_L * Igor::sqr(U_BCOND) * 2.0 * R0 / SURFACE_TENSION;
+constexpr Float We = RHO_L * Igor::sqr(U_IN_AVG) * 2.0 * R0 / SURFACE_TENSION;
 // Liquid Reynolds number
-constexpr Float Re_L = RHO_L * U_BCOND * (Y_MAX - Y_MIN) / VISC_L;
+constexpr Float Re_L = RHO_L * U_IN_AVG * (Y_MAX - Y_MIN) / VISC_L;
 // Gas Reynolds number
-constexpr Float Re_G = RHO_G * U_BCOND * (Y_MAX - Y_MIN) / VISC_G;
+constexpr Float Re_G = RHO_G * U_IN_AVG * (Y_MAX - Y_MIN) / VISC_G;
 
 // Channel flow
-// TODO: New boundary conditions fail here
+// constexpr FlowBConds<Float> bconds{
+//     .left   = Dirichlet<Float>{.U = U_IN_AVG, .V = 0.0},
+//     .right  = Neumann{},
+//     .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+//     .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+// };
 constexpr FlowBConds<Float> bconds{
-    .left   = Dirichlet<Float>{.U = U_BCOND, .V = 0.0},
+    .left =
+        Dirichlet<Float>{
+            .U = [](Float y, Float /*t*/) -> Float {
+              static_assert(X_MIN == 0.0, "Assume X_MIN is zero.");
+              constexpr Float a = -6.0 * U_IN_AVG / Igor::sqr(Y_MAX);
+              constexpr Float b = 6.0 * U_IN_AVG / Y_MAX;
+              return a * y * y + b * y;
+            },
+            .V = 0.0,
+        },
     .right  = Neumann{},
     .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
     .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
@@ -213,16 +226,13 @@ auto main() -> int {
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_0; });
-  // for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-  //   fs.curr.U(i, j) = U_BCOND * (vof.vf(i - 1, j) + vof.vf(i, j)) / 2.0;
-  // });
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = 0.0; });
   for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
   apply_velocity_bconds(fs, bconds);
 
   calc_rho(vof.vf, fs);
   calc_visc(vof.vf, fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
+  LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
@@ -256,6 +266,7 @@ auto main() -> int {
     save_old_density(fs.curr, fs.old);
 
     advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
+    apply_neumann_bconds(vof.vf);
     calc_visc(vof.vf, fs);
 
     p_iter = 0;
@@ -325,8 +336,9 @@ auto main() -> int {
       // ===== Add capillary forces ================================================================
 
       Index local_p_iter = 0;
-      ps.setup(fs);
-      ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter);
+      ps.set_pressure_operator(fs);
+      ps.set_pressure_rhs(fs, div, dt);
+      ps.solve(delta_p, &p_res, &local_p_iter);
       p_iter += local_p_iter;
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       // Correct pressure

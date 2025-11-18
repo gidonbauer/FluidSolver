@@ -1,9 +1,9 @@
 #include <Igor/Timer.hpp>
 
 #include "FS.hpp"
+#include "LinearSolver_Accelerate.hpp"
+#include "LinearSolver_StructHypre.hpp"
 #include "Operators.hpp"
-#include "PressureCorrection.hpp"
-#include "PressureCorrection_Accelerate.hpp"
 
 // = Setup =========================================================================================
 using Float                 = double;
@@ -52,8 +52,11 @@ void run_bench() {
     Index num_iter;
     Float residual;
 
-    PS ps(fs, PS_TOL, PS_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
-    ps.solve(fs, div, dt, resP, &residual, &num_iter);
+    LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(
+        PS_TOL, PS_MAX_ITER, HypreSolver::PCG, HyprePrecond::PFMG, PSDirichlet::NONE);
+    ps.set_pressure_operator(fs);
+    ps.set_pressure_rhs(fs, div, dt);
+    ps.solve(resP, &residual, &num_iter);
     Igor::Info("HYPRE: residual = {:.6e}", residual);
     Igor::Info("HYPRE: num_iter = {}", num_iter);
   }
@@ -63,8 +66,11 @@ void run_bench() {
     Index num_iter;
     Float residual;
 
-    PS ps(fs, PS_TOL, PS_MAX_ITER, PSSolver::PCG, PSPrecond::SMG, PSDirichlet::NONE);
-    ps.solve(fs, div, dt, resP, &residual, &num_iter);
+    LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(
+        PS_TOL, PS_MAX_ITER, HypreSolver::PCG, HyprePrecond::SMG, PSDirichlet::NONE);
+    ps.set_pressure_operator(fs);
+    ps.set_pressure_rhs(fs, div, dt);
+    ps.solve(resP, &residual, &num_iter);
     Igor::Info("HYPRE: residual = {:.6e}", residual);
     Igor::Info("HYPRE: num_iter = {}", num_iter);
   }
@@ -74,8 +80,11 @@ void run_bench() {
     Index num_iter;
     Float residual;
 
-    PS ps(fs, PS_TOL, PS_MAX_ITER, PSSolver::BiCGSTAB, PSPrecond::PFMG, PSDirichlet::NONE);
-    ps.solve(fs, div, dt, resP, &residual, &num_iter);
+    LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(
+        PS_TOL, PS_MAX_ITER, HypreSolver::BiCGSTAB, HyprePrecond::PFMG, PSDirichlet::NONE);
+    ps.set_pressure_operator(fs);
+    ps.set_pressure_rhs(fs, div, dt);
+    ps.solve(resP, &residual, &num_iter);
     Igor::Info("HYPRE: residual = {:.6e}", residual);
     Igor::Info("HYPRE: num_iter = {}", num_iter);
   }
@@ -85,8 +94,11 @@ void run_bench() {
     Index num_iter;
     Float residual;
 
-    PS ps(fs, PS_TOL, PS_MAX_ITER, PSSolver::BiCGSTAB, PSPrecond::SMG, PSDirichlet::NONE);
-    ps.solve(fs, div, dt, resP, &residual, &num_iter);
+    LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(
+        PS_TOL, PS_MAX_ITER, HypreSolver::BiCGSTAB, HyprePrecond::SMG, PSDirichlet::NONE);
+    ps.set_pressure_operator(fs);
+    ps.set_pressure_rhs(fs, div, dt);
+    ps.solve(resP, &residual, &num_iter);
     Igor::Info("HYPRE: residual = {:.6e}", residual);
     Igor::Info("HYPRE: num_iter = {}", num_iter);
   }
@@ -96,8 +108,10 @@ void run_bench() {
     Index num_iter;
     Float residual;
 
-    PS_Accelerate psa(fs, PS_TOL, PS_MAX_ITER);
-    psa.solve(fs, div, dt, resP, &residual, &num_iter);
+    LinearSolver_Accelerate<Float, NX, NY, NGHOST> psa(PS_TOL, PS_MAX_ITER);
+    psa.set_pressure_operator(fs);
+    psa.set_pressure_rhs(fs, div, dt);
+    psa.solve(resP, &residual, &num_iter);
     Igor::Info("Apple Accelerate: residual = {:.6e}", residual);
     Igor::Info("Apple Accelerate: num_iter = {}", num_iter);
   }

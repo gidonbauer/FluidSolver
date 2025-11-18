@@ -11,9 +11,9 @@
 #include "Curvature.hpp"
 #include "FS.hpp"
 #include "IO.hpp"
+#include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
-#include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "VOF.hpp"
 
@@ -220,7 +220,8 @@ auto main() -> int {
 
   calc_rho(vof.vf, fs);
   calc_visc(vof.vf, fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::RIGHT);
+  LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(
+      PRESSURE_TOL, PRESSURE_MAX_ITER, HypreSolver::PCG, HyprePrecond::PFMG, PSDirichlet::RIGHT);
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
@@ -301,7 +302,6 @@ auto main() -> int {
         Igor::Warn("t={}, subiter={}: Zero in rho_v_stag", t, sub_iter);
         return 1;
       }
-      ps.setup(fs);
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
@@ -354,9 +354,9 @@ auto main() -> int {
       // ===== Add capillary forces ================================================================
 
       Index local_p_iter = 0;
-      if (!ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter)) {
-        Igor::Warn("Pressure correction failed at t={}.", t);
-      }
+      ps.set_pressure_operator(fs);
+      ps.set_pressure_rhs(fs, div, dt);
+      ps.solve(delta_p, &p_res, &local_p_iter);
       p_iter += local_p_iter;
       if (std::isnan(p_res) || std::any_of(delta_p.get_data(),
                                            delta_p.get_data() + delta_p.size(),

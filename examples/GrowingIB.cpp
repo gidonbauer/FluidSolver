@@ -8,9 +8,9 @@
 
 #include "FS.hpp"
 #include "IO.hpp"
+#include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
-#include "PressureCorrection.hpp"
 #include "Quadrature.hpp"
 #include "Utility.hpp"
 
@@ -148,7 +148,7 @@ auto main() -> int {
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
   calc_rho(fs);
   calc_visc(fs);
-  PS ps(fs, PRESSURE_TOL, PRESSURE_MAX_ITER, PSSolver::PCG, PSPrecond::PFMG, PSDirichlet::NONE);
+  LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(PRESSURE_TOL, PRESSURE_MAX_ITER);
 
   Matrix<Float, NX, NY, NGHOST> Ui{};
   Matrix<Float, NX, NY, NGHOST> Vi{};
@@ -350,8 +350,9 @@ auto main() -> int {
       calc_divergence_ib(ib, fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       // = Apply pressure correction ===============================================================
       Index local_p_iter = 0;
-      ps.setup(fs);
-      ps.solve(fs, div, dt, delta_p, &p_res, &local_p_iter);
+      ps.set_pressure_operator(fs);
+      ps.set_pressure_rhs(fs, div, dt);
+      ps.solve(delta_p, &p_res, &local_p_iter);
       p_iter += local_p_iter;
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);

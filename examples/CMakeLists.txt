@@ -6,7 +6,6 @@ set(executables
   DiffuseInterfaceIB
   SharpInterfaceIB
   GrowingIB
-  PhaseChange
   RisingBubble
   DivFreeExtrapolation
   Wave

@@ -186,7 +186,10 @@ enum IBBoundary : uint32_t {
     }
   };
 
-  const auto [normal_x, normal_y] = normal_immersed_wall(xs(i), ys(j));
+  // const auto [normal_x, normal_y] = normal_immersed_wall(xs(i), ys(j));
+  const auto normal = normal_immersed_wall(xs(i), ys(j));
+  const auto normal_x = normal[X];
+  const auto normal_y = normal[Y];
   const auto direction            = [&]() {
     if (std::abs(normal_x) > std::abs(normal_y)) {
       return normal_x > 0.0 ? IBBoundary::RIGHT : IBBoundary::LEFT;

@@ -2,6 +2,7 @@
 #define DFG_BENCHMARK_SETUP_HPP_
 
 #define DFG_BENCHMARK 1
+// #define SYMMETRIC
 
 #if !(DFG_BENCHMARK == 1 || DFG_BENCHMARK == 2 || DFG_BENCHMARK == 3)
 #error "DFG_BENCHMARK must be 1, 2, or 3"
@@ -23,10 +24,14 @@ using Float           = double;
 constexpr Float X_MIN = 0.0;
 constexpr Float X_MAX = 2.2;
 constexpr Float Y_MIN = 0.0;
+#ifdef SYMMETRIC
+constexpr Float Y_MAX = 0.4;
+#else
 constexpr Float Y_MAX = 0.41;
+#endif  // SYMMETRIC
 enum : size_t { X, Y };
 
-constexpr Index NY           = 64;
+constexpr Index NY           = 128;
 constexpr Index NX           = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
 constexpr Index NGHOST       = 1;
 
@@ -92,12 +97,72 @@ constexpr FlowBConds<Float> bconds{
 };
 // = Config ========================================================================================
 
+#if 1
+template <typename Float_, Index NX_, Index NY_, Index NGHOST_>
+constexpr auto eval_field_at(const Vector<Float_, NX_, NGHOST_>& xm,
+                             const Vector<Float_, NY_, NGHOST_>& ym,
+                             const Matrix<Float_, NX_, NY_, NGHOST_>& field,
+                             Float_ x,
+                             Float_ y) -> Float_ {
+  const auto dx    = xm(1) - xm(0);
+  const auto dy    = ym(1) - ym(0);
+
+  auto get_indices = []<Index N>(Float pos,
+                                 const Vector<Float, N, NGHOST>& grid,
+                                 Float delta) -> std::pair<Index, Index> {
+    if (pos <= grid(0)) { return {0, 0}; }
+    if (pos >= grid(N - 1)) { return {N - 1, N - 1}; }
+    const auto prev = static_cast<Index>(std::floor((pos - grid(0)) / delta));
+    const auto next = static_cast<Index>(std::floor((pos - grid(0)) / delta + 1.0));
+    return {prev, next};
+  };
+
+  const auto i_idxs = get_indices(x, xm, dx);
+  const auto j_idxs = get_indices(y, ym, dy);
+
+  const std::array<std::pair<Index, Index>, 4> idx_pairs{
+      std::pair<Index, Index>{i_idxs.first, j_idxs.first},
+      std::pair<Index, Index>{i_idxs.first, j_idxs.second},
+      std::pair<Index, Index>{i_idxs.second, j_idxs.first},
+      std::pair<Index, Index>{i_idxs.second, j_idxs.second},
+  };
+  Float min_dist  = std::numeric_limits<Float>::max();
+  size_t pair_idx = idx_pairs.size();
+  for (size_t pi = 0; pi < idx_pairs.size(); ++pi) {
+    const auto px    = xm(idx_pairs[pi].first);
+    const auto py    = ym(idx_pairs[pi].second);
+    const Float dist = Igor::sqr(x - px) + Igor::sqr(y - py);
+    if (dist < min_dist && immersed_wall(px, py) < 1.0) {
+      min_dist = dist;
+      pair_idx = pi;
+    }
+  }
+
+  IGOR_ASSERT(pair_idx < idx_pairs.size(),
+              "Did not find any suitable field values outside of the immersed wall.");
+  return field(idx_pairs[pair_idx].first, idx_pairs[pair_idx].second);
+}
+#else
+template <typename Float_, Index NX_, Index NY_, Index NGHOST_>
+constexpr auto eval_field_at(const Vector<Float_, NX_, NGHOST_>& xm,
+                             const Vector<Float_, NY_, NGHOST_>& ym,
+                             const Matrix<Float_, NX_, NY_, NGHOST_>& field,
+                             Float_ x,
+                             Float_ y) -> Float_ {
+  return bilinear_interpolate(xm, ym, field, x, y);
+}
+#endif
+
 // -------------------------------------------------------------------------------------------------
 constexpr auto calc_p_diff(const FS<Float, NX, NY, NGHOST>& fs) -> Float {
   constexpr std::array<Float, 2> a1 = {0.15, 0.2};
   constexpr std::array<Float, 2> a2 = {0.25, 0.2};
   static_assert(a1[Y] == a2[Y]);
 
+#if 1
+  const auto p1 = eval_field_at(fs.xm, fs.ym, fs.p, a1[X], a1[Y]);
+  const auto p2 = eval_field_at(fs.xm, fs.ym, fs.p, a2[X], a2[Y]);
+#else
   const auto jprev = static_cast<Index>(std::floor((a1[Y] - fs.ym(0)) / fs.dy));
   const auto jnext = jprev + 1;
   IGOR_ASSERT(fs.ym(jprev) <= a1[Y] && a1[Y] <= fs.ym(jnext),
@@ -113,38 +178,39 @@ constexpr auto calc_p_diff(const FS<Float, NX, NY, NGHOST>& fs) -> Float {
   const auto i2 = static_cast<Index>(std::floor((a2[X] - fs.xm(0)) / fs.dx + 1.0));
   const auto p2 =
       (fs.p(i2, jnext) - fs.p(i2, jprev)) / fs.dy * (a1[Y] - fs.ym(jprev)) + fs.p(i2, jprev);
+#endif
 
   return p1 - p2;
 }
 
 // -------------------------------------------------------------------------------------------------
-constexpr auto calc_Re(Float t) -> Float { return U_mean(t) * L / VISC; }
+constexpr auto calc_Re(Float t) -> Float { return RHO * U_mean(t) * L / VISC; }
 
 // -------------------------------------------------------------------------------------------------
 constexpr auto calc_coefficient(auto&& f, const FS<Float, NX, NY, NGHOST>& fs, Float t) -> Float {
-  // const auto force = quadrature<64>(f, 0.0, std::numbers::pi) +
-  //                     quadrature<64>(f, std::numbers::pi, 2.0 * std::numbers::pi);
+#if 1
+  const auto force = quadrature<64>(f, 0.0, std::numbers::pi) +
+                     quadrature<64>(f, std::numbers::pi, 2.0 * std::numbers::pi);
+#else
   const auto force = quadrature<16>(f, 0.0, 2.0 * std::numbers::pi);
+#endif
 
   return (2.0 * force) / (fs.rho_gas * Igor::sqr(U_mean(t)) * L);
 }
 
-constexpr auto calc_C_L(const FS<Float, NX, NY, NGHOST>& fs,
-                        const Matrix<Float, NX, NY, NGHOST>& interface,
-                        Float t) {
-#if 0
+constexpr auto calc_C_L(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
   auto f = [&](Float theta) {
     const auto normal_x = std::cos(theta);
     const auto normal_y = std::sin(theta);
     const auto x        = CX + normal_x * R0;
     const auto y        = CY + normal_y * R0;
 
-    const auto p        = bilinear_interpolate(fs.xm, fs.ym, fs.p, x, y);
+    const auto p        = eval_field_at(fs.xm, fs.ym, fs.p, x, y);
 
     const auto delta    = std::min(fs.dx, fs.dy) / 2.0;
     auto calc_Ut        = [&](Float x, Float y) {
-      const auto u = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, x, y);
-      const auto v = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, x, y);
+      const auto u = eval_field_at(fs.x, fs.ym, fs.curr.U, x, y);
+      const auto v = eval_field_at(fs.xm, fs.y, fs.curr.V, x, y);
       return u * normal_y - v * normal_x;
     };
     const auto Ut_1 = calc_Ut(x, y);
@@ -155,65 +221,24 @@ constexpr auto calc_C_L(const FS<Float, NX, NY, NGHOST>& fs,
   };
 
   return calc_coefficient(f, fs, t);
-#else
-  Float lift_force = 0.0;
-  for_each_i(interface, [&](Index i, Index j) {
-    if (interface(i, j) < 1.0) { return; }
-
-    const auto normal = normal_immersed_wall(fs.xm(i), fs.ym(j));
-    const auto p      = fs.p(i, j);
-
-    const auto delta  = std::min(fs.dx, fs.dy) / 2.0;
-    auto calc_Ut      = [&](Float x, Float y) {
-      const auto u = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, x, y);
-      const auto v = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, x, y);
-      return u * normal[Y] - v * normal[X];
-    };
-    const auto Ut_1  = calc_Ut(fs.xm(i), fs.ym(i));
-    const auto Ut_2  = calc_Ut(fs.xm(i) + delta * normal[X], fs.ym(i) + delta * normal[Y]);
-    const auto dudn  = (Ut_2 - Ut_1) / delta;
-
-    lift_force      += (-p * normal[Y] - fs.rho_gas * fs.visc_gas * dudn * normal[X]) * fs.dy;
-  });
-
-  return (2.0 * lift_force) / (fs.rho_gas * Igor::sqr(U_mean(t)) * L);
-#endif
 }
 
-constexpr auto calc_C_D(const FS<Float, NX, NY, NGHOST>& fs,
-                        const Matrix<Float, NX, NY, NGHOST>& interface,
-                        Float t) {
-#if 0
-  static_cast<void>(interface);
+constexpr auto calc_C_D(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
   auto f = [&](Float theta) {
     const auto normal_x = std::cos(theta);
     const auto normal_y = std::sin(theta);
     const auto x        = CX + normal_x * R0;
     const auto y        = CY + normal_y * R0;
 
-    // const auto p        = bilinear_interpolate(fs.xm, fs.ym, fs.p, x, y);
-    Index i;
-    Index j;
-    if (normal_x < 0.0) {
-      i = static_cast<Index>(std::floor((x - fs.xm(0)) / fs.dx));
-    } else {
-      i = static_cast<Index>(std::floor((x - fs.xm(0)) / fs.dx + 1.0));
-    }
-    if (normal_y < 0.0) {
-      j = static_cast<Index>(std::floor((y - fs.ym(0)) / fs.dy));
-    } else {
-      j = static_cast<Index>(std::floor((y - fs.ym(0)) / fs.dy + 1.0));
-    }
-    const auto p = fs.p(i, j);
-    IGOR_ASSERT(immersed_wall(fs.xm(i), fs.ym(j)) < 1.0,
-                "Expected ({:.6e}, {:.6e}) to be outside of wall.",
-                fs.xm(i),
-                fs.ym(j));
+    const auto p        = eval_field_at(fs.xm, fs.ym, fs.p, x, y);
 
+#if 0
+    return -p * normal_x;
+#else
     const auto delta = std::min(fs.dx, fs.dy) / 2.0;
     auto calc_Ut     = [&](Float x, Float y) {
-      const auto u = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, x, y);
-      const auto v = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, x, y);
+      const auto u = eval_field_at(fs.x, fs.ym, fs.curr.U, x, y);
+      const auto v = eval_field_at(fs.xm, fs.y, fs.curr.V, x, y);
       return u * normal_y - v * normal_x;
     };
     const auto Ut_1 = calc_Ut(x, y);
@@ -221,33 +246,10 @@ constexpr auto calc_C_D(const FS<Float, NX, NY, NGHOST>& fs,
     const auto dudn = (Ut_2 - Ut_1) / delta;
 
     return -p * normal_x + fs.rho_gas * fs.visc_gas * dudn * normal_y;
+#endif
   };
 
   return calc_coefficient(f, fs, t);
-#else
-  Float drag_force = 0.0;
-  for_each_i(interface, [&](Index i, Index j) {
-    if (interface(i, j) < 1.0) { return; }
-    IGOR_ASSERT(immersed_wall(fs.xm(i), fs.ym(j)) < 1.0, "Expect to be outside of immersed wall.");
-
-    const auto normal = normal_immersed_wall(fs.xm(i), fs.ym(j));
-    const auto p      = fs.p(i, j);
-
-    const auto delta  = std::min(fs.dx, fs.dy) / 2.0;
-    auto calc_Ut      = [&](Float x, Float y) {
-      const auto u = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, x, y);
-      const auto v = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, x, y);
-      return u * normal[Y] - v * normal[X];
-    };
-    const auto Ut_1  = calc_Ut(fs.xm(i), fs.ym(i));
-    const auto Ut_2  = calc_Ut(fs.xm(i) + delta * normal[X], fs.ym(i) + delta * normal[Y]);
-    const auto dudn  = (Ut_2 - Ut_1) / delta;
-
-    drag_force      += (-p * normal[X] + fs.rho_gas * fs.visc_gas * dudn * normal[Y]) * fs.dx;
-  });
-
-  return (2.0 * drag_force) / (fs.rho_gas * Igor::sqr(U_mean(t)) * L);
-#endif
 }
 
 #endif  // DFG_BENCHMARK_SETUP_HPP_

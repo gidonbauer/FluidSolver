@@ -87,7 +87,6 @@ auto main() -> int {
   Matrix<Float, NX, NY, NGHOST> ib{};
   Matrix<Float, NX + 1, NY, NGHOST> ib_u_stag{};
   Matrix<Float, NX, NY + 1, NGHOST> ib_v_stag{};
-  Matrix<Float, NX, NY, NGHOST> interface{};
 
   // Observation variables
   Float t       = 0.0;
@@ -118,7 +117,6 @@ auto main() -> int {
   data_writer.add_scalar("divergence", &div);
   data_writer.add_vector("velocity", &Ui, &Vi);
   data_writer.add_scalar("Immersed-wall", &ib);
-  data_writer.add_scalar("Interface", &interface);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -163,14 +161,6 @@ auto main() -> int {
     ib(i, j) =
         quadrature(immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
-  for_each_a<Exec::Parallel>(interface, [&](Index i, Index j) {
-    constexpr Float TOL = 1e-8;
-    const auto grad_x   = immersed_wall(fs.xm(i) + fs.dx / 2.0, fs.ym(j)) -
-                        immersed_wall(fs.xm(i) - fs.dx / 2.0, fs.ym(j));
-    const auto grad_y = immersed_wall(fs.xm(i), fs.ym(j) + fs.dy / 2.0) -
-                        immersed_wall(fs.xm(i), fs.ym(j) - fs.dy / 2.0);
-    interface(i, j) = std::abs(grad_x) > TOL || std::abs(grad_y) > TOL ? 1.0 : 0.0;
-  });
   // interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
   // = Initialize immersed boundaries ==============================================================
 
@@ -188,8 +178,8 @@ auto main() -> int {
   p_max   = max(fs.p);
   p_diff  = calc_p_diff(fs);
   Re      = calc_Re(t);
-  C_L     = calc_C_L(fs, interface, t);
-  C_D     = calc_C_D(fs, interface, t);
+  C_L     = calc_C_L(fs, t);
+  C_D     = calc_C_D(fs, t);
   calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
@@ -269,8 +259,8 @@ auto main() -> int {
     p_max   = max(fs.p);
     p_diff  = calc_p_diff(fs);
     Re      = calc_Re(t);
-    C_L     = calc_C_L(fs, interface, t);
-    C_D     = calc_C_D(fs, interface, t);
+    C_L     = calc_C_L(fs, t);
+    C_D     = calc_C_D(fs, t);
     calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }

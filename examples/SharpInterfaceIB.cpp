@@ -187,10 +187,10 @@ enum IBBoundary : uint32_t {
   };
 
   // const auto [normal_x, normal_y] = normal_immersed_wall(xs(i), ys(j));
-  const auto normal = normal_immersed_wall(xs(i), ys(j));
-  const auto normal_x = normal[X];
-  const auto normal_y = normal[Y];
-  const auto direction            = [&]() {
+  const auto normal    = normal_immersed_wall(xs(i), ys(j));
+  const auto normal_x  = normal[X];
+  const auto normal_y  = normal[Y];
+  const auto direction = [&]() {
     if (std::abs(normal_x) > std::abs(normal_y)) {
       return normal_x > 0.0 ? IBBoundary::RIGHT : IBBoundary::LEFT;
     } else {
@@ -308,12 +308,15 @@ auto main() -> int {
   Float V_max   = 0.0;
 
   Float div_max = 0.0;
-  // Float div_L1        = 0.0;
 
-  // Float p_max         = 0.0;
-  Float p_res  = 0.0;
-  Index p_iter = 0;
-  Float p_diff = 0.0;
+  Float p_max   = 0.0;
+  Float p_res   = 0.0;
+  Index p_iter  = 0;
+
+  Float Re      = calc_Re(t);
+  Float p_diff  = 0.0;
+  Float C_L     = 0.0;
+  Float C_D     = 0.0;
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -331,16 +334,21 @@ auto main() -> int {
   monitor.add_variable(&V_max, "max(V)");
 
   monitor.add_variable(&div_max, "max(div)");
-  // monitor.add_variable(&div_L1, "L1(div)");
 
-  // monitor.add_variable(&p_max, "max(p)");
+  monitor.add_variable(&p_max, "max(p)");
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
-  monitor.add_variable(&p_diff, "p_diff");
 
   monitor.add_variable(&mass, "mass");
   monitor.add_variable(&mom_x, "momentum (x)");
   monitor.add_variable(&mom_y, "momentum (y)");
+
+  Monitor<Float> monitor_dfg(Igor::detail::format("{}/monitor_dfg.log", OUTPUT_DIR));
+  monitor_dfg.add_variable(&t, "time");
+  monitor_dfg.add_variable(&Re, "Re");
+  monitor_dfg.add_variable(&p_diff, "p_diff");
+  monitor_dfg.add_variable(&C_L, "C_L");
+  monitor_dfg.add_variable(&C_D, "C_D");
   // = Output ======================================================================================
 
   // = Initialize immersed boundaries ==============================================================
@@ -364,10 +372,15 @@ auto main() -> int {
   U_max   = max(fs.curr.U);
   V_max   = max(fs.curr.V);
   div_max = max(div);
+  p_max   = max(fs.p);
   p_diff  = calc_p_diff(fs);
+  Re      = calc_Re(t);
+  C_L     = calc_C_L(fs, t);
+  C_D     = calc_C_D(fs, t);
   calc_conserved_quantities_ib(fs, mass, mom_x, mom_y);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
+  monitor_dfg.write();
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
@@ -454,12 +467,17 @@ auto main() -> int {
     U_max   = max(fs.curr.U);
     V_max   = max(fs.curr.V);
     div_max = max(div);
+    p_max   = max(fs.p);
     p_diff  = calc_p_diff(fs);
+    Re      = calc_Re(t);
+    C_L     = calc_C_L(fs, t);
+    C_D     = calc_C_D(fs, t);
     calc_conserved_quantities_ib(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }
     monitor.write();
+    monitor_dfg.write();
   }
 
   Igor::Info("Solver finished successfully.");

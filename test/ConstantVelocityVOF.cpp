@@ -168,7 +168,7 @@ auto main() -> int {
     // Don't save last state because we don't have a reconstruction for that and it messes with the
     // visualization
     if (iter < NITER - 1) {
-      if (!data_writer.write(iter + 1)) { return 1; }
+      if (!data_writer.write(static_cast<double>(iter + 1))) { return 1; }
     }
     if (max_volume_error > 1e-12) {
       Igor::Warn("Advected cells expanded: max. volume error = {:.6e}", max_volume_error);

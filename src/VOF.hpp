@@ -153,8 +153,8 @@ void reconstruct_interface(const FS<Float, NX, NY, NGHOST>& fs,
     std::array<Float, NEIGHBORHOOD_SIZE> cells_vf{};
 
     size_t counter = 0;
-    for (Index di = -1; di <= 1; ++di) {
-      for (Index dj = -1; dj <= 1; ++dj) {
+    for (int di = -1; di <= 1; ++di) {
+      for (int dj = -1; dj <= 1; ++dj) {
         const Float x_lo = fs.x(i + di);
         const Float x_hi = fs.x(i + di + 1);
         const Float y_lo = fs.y(j + dj);

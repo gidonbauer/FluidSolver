@@ -33,7 +33,7 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] auto test_reduce_vec() -> bool {
   Vector<double, 10, 2> vec{};
-  for_each_i(vec, [&](Index i) { vec(i) = i % 2 == 0 ? i : -i; });
+  for_each_i(vec, [&](Index i) { vec(i) = static_cast<double>(i % 2 == 0 ? i : -i); });
   vec(-2)                  = -100.0;
   vec(-1)                  = -100.0;
   vec(10)                  = -100.0;
@@ -87,7 +87,7 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
 [[nodiscard]] auto test_reduce_mat() -> bool {
   Matrix<double, 10, 10, 2> mat{};
   fill(mat, -100.0);
-  for_each_i(mat, [&](Index i, Index j) { mat(i, j) = i % 2 == 0 ? i : -i; });
+  for_each_i(mat, [&](Index i, Index j) { mat(i, j) = static_cast<double>(i % 2 == 0 ? i : -i); });
 
   const auto min_i_exp     = -9.0;
   const auto min_a_exp     = -100.0;

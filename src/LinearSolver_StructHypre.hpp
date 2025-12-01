@@ -64,10 +64,10 @@ class LinearSolver_StructHypre {
   // -----------------------------------------------------------------------------------------------
   constexpr LinearSolver_StructHypre(const LinearSolver_StructHypre& other) noexcept = delete;
   constexpr LinearSolver_StructHypre(LinearSolver_StructHypre&& other) noexcept      = delete;
-  constexpr auto operator=(const LinearSolver_StructHypre& other) noexcept
-      -> LinearSolver_StructHypre& = delete;
-  constexpr auto operator=(LinearSolver_StructHypre&& other) noexcept
-      -> LinearSolver_StructHypre& = delete;
+  constexpr auto
+  operator=(const LinearSolver_StructHypre& other) noexcept -> LinearSolver_StructHypre& = delete;
+  constexpr auto
+  operator=(LinearSolver_StructHypre&& other) noexcept -> LinearSolver_StructHypre& = delete;
 
   // -----------------------------------------------------------------------------------------------
   constexpr ~LinearSolver_StructHypre() noexcept {
@@ -93,11 +93,12 @@ class LinearSolver_StructHypre {
 
     std::array<HYPRE_Int, LS::NDIMS> ilower = {-NGHOST, -NGHOST};
     std::array<HYPRE_Int, LS::NDIMS> iupper = {NX + NGHOST - 1, NY + NGHOST - 1};
+    static_assert(sizeof(HYPRE_Int) == sizeof(Index));
     HYPRE_StructMatrixSetBoxValues(m_matrix,
                                    ilower.data(),
                                    iupper.data(),
                                    LS::STENCIL_SIZE,
-                                   lin_sys.stencil_indices.data(),
+                                   reinterpret_cast<HYPRE_Int*>(lin_sys.stencil_indices.data()),
                                    lin_sys.op.get_data()->data());
     HYPRE_StructMatrixAssemble(m_matrix);
 
@@ -302,8 +303,9 @@ class LinearSolver_StructHypre {
     // = Create stencil ============================================================================
     HYPRE_StructStencilCreate(LS::NDIMS, LS::STENCIL_SIZE, &m_stencil);
     for (HYPRE_Int i = 0; i < LS::STENCIL_SIZE; ++i) {
-      HYPRE_StructStencilSetElement(
-          m_stencil, i, lin_sys.stencil_offsets[static_cast<size_t>(i)].data());  // NOLINT
+      static_assert(sizeof(HYPRE_Int) == sizeof(Index));
+      auto offset = lin_sys.stencil_offsets[static_cast<size_t>(i)];
+      HYPRE_StructStencilSetElement(m_stencil, i, reinterpret_cast<HYPRE_Int*>(offset.data()));
     }
 
     // = Create struct matrix ======================================================================

@@ -12,7 +12,7 @@
 #include <Igor/Logging.hpp>
 
 #ifndef FS_INDEX_TYPE
-using Index = int;
+using Index = std::int64_t;
 #else
 static_assert(std::is_integral_v<FS_INDEX_TYPE> && std::is_signed_v<FS_INDEX_TYPE>,
               "FS_INDEX_TYPE must be a signed integer type.");

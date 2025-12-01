@@ -195,10 +195,10 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   // Early exit of loop iteration if we are entirely inside or outside of liquid phase
   {
     Float neighborhood_vf_sum = 0.0;
-    for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
+    for (Index ii = std::max<Index>(i - NEIGHBORHOOD_OFFSET, 0);
          ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
          ++ii) {
-      for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
+      for (Index jj = std::max<Index>(j - NEIGHBORHOOD_OFFSET, 0);
            jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
            ++jj) {
         neighborhood_vf_sum += vof.vf_old(ii, jj);
@@ -290,10 +290,10 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   volume_error      = std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume());
 
   Float overlap_vol = 0.0;
-  for (Index ii = std::max(i - NEIGHBORHOOD_OFFSET, 0);
+  for (Index ii = std::max<Index>(i - NEIGHBORHOOD_OFFSET, 0);
        ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
        ++ii) {
-    for (Index jj = std::max(j - NEIGHBORHOOD_OFFSET, 0);
+    for (Index jj = std::max<Index>(j - NEIGHBORHOOD_OFFSET, 0);
          jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
          ++jj) {
       if (vof.vf_old(ii, jj) > VF_LOW) {

@@ -23,19 +23,19 @@ constexpr Index NX              = 256;
 constexpr Index NY              = 256;
 constexpr Index NGHOST          = 1;
 
-constexpr Float SCALE           = 0.25;
+constexpr Float SCALE           = 0.01;  // 0.25;
 constexpr Float X_MIN           = -1.0 * SCALE;
 constexpr Float X_MAX           = 1.0 * SCALE;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 2.0 * SCALE;
 
-constexpr Float T_END           = 5.0;
-constexpr Float DT_MAX          = 1e-3;
+constexpr Float T_END           = 0.1;  // 5.0;
+constexpr Float DT_MAX          = 1e-4;
 constexpr Float CFL_MAX         = 0.25;
-constexpr Float DT_WRITE        = 1e-2;
+constexpr Float DT_WRITE        = 1e-4;
 
 constexpr Float V_IN            = 0.0;
-constexpr Float GRAVITY         = -1e-1;
+constexpr Float GRAVITY         = -9.80665;
 
 constexpr Float VISC_G          = 1e-6;  // 1e-4;
 constexpr Float RHO_G           = 1e0;   // 8e-2;

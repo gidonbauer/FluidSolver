@@ -1,14 +1,19 @@
 set(executables
   IncompSolver
-  VOF
-  Curvature
   TwoPhaseSolver
+  RisingBubble
+  LidDrivenFlow
+  Wave
+
   DiffuseInterfaceIB
   SharpInterfaceIB
+  VerifyDFGBenchmarkSetup
+
+  VOF
+  Curvature
+
   GrowingIB
-  RisingBubble
   DivFreeExtrapolation
-  Wave
 )
 
 foreach(exec ${executables})

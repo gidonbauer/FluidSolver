@@ -20,22 +20,22 @@
 using Float                     = double;
 
 constexpr Index NX              = 256;
-constexpr Index NY              = 256;
+constexpr Index NY              = 2 * NX;
 constexpr Index NGHOST          = 1;
 
 constexpr Float SCALE           = 0.01;  // 0.25;
 constexpr Float X_MIN           = -1.0 * SCALE;
 constexpr Float X_MAX           = 1.0 * SCALE;
 constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 2.0 * SCALE;
+constexpr Float Y_MAX           = 4.0 * SCALE;
 
-constexpr Float T_END           = 0.1;  // 5.0;
+constexpr Float T_END           = 0.2;  // 5.0;
 constexpr Float DT_MAX          = 1e-4;
 constexpr Float CFL_MAX         = 0.25;
-constexpr Float DT_WRITE        = 1e-4;
+constexpr Float DT_WRITE        = 5e-4;
 
 constexpr Float V_IN            = 0.0;
-constexpr Float GRAVITY         = -9.80665;
+constexpr Float GRAVITY         = -5.0;  // -9.80665;
 
 constexpr Float VISC_G          = 1e-6;  // 1e-4;
 constexpr Float RHO_G           = 1e0;   // 8e-2;
@@ -52,24 +52,61 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
 
-// Eötvös number
-constexpr Float Eo = RHO_L * Igor::abs(GRAVITY) * Igor::sqr(R0) / SURFACE_TENSION;
-// constexpr Float Eo = (RHO_L - RHO_G) * Igor::abs(GRAVITY) * Igor::sqr(2.0 * R0) /
-// SURFACE_TENSION;
-// Galilei number
-constexpr Float Ga = Igor::sqrt((RHO_L * Igor::abs(GRAVITY) * R0 * R0 * R0) / Igor::sqr(VISC_L));
-// Density ratio
-constexpr Float Rho_r = RHO_L / RHO_G;
-// Viscosity ratio
-constexpr Float Visc_r = VISC_L / VISC_G;
+namespace DA {
 
-// Weber number
-constexpr Float We = RHO_G * Igor::sqr(V_IN) * 2.0 * R0 / SURFACE_TENSION;
-// Morton number
-constexpr Float Mo = Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * (RHO_L - RHO_G) /
-                     (Igor::sqr(RHO_G) * Igor::sqr(SURFACE_TENSION) * SURFACE_TENSION);
-// See: Mechanism study of bubble dynamics under the buoyancy effects, Huang
-constexpr Float Bu = (RHO_L - RHO_G) / RHO_G;
+constexpr auto L = 2.0 * R0;
+
+// = Eötvös number = Bond number =======
+constexpr Float Eo() {
+  if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
+  return RHO_L * Igor::abs(GRAVITY) * Igor::sqr(L) / SURFACE_TENSION;
+}
+
+// = Galilei number ====================
+constexpr Float Ga() {
+  return Igor::sqrt((RHO_L * Igor::abs(GRAVITY) * L * L * L) / Igor::sqr(VISC_L));
+}
+
+// = Weber number ======================
+constexpr Float We(Float U) {
+  if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
+  return RHO_L * Igor::sqr(U) * L / SURFACE_TENSION;
+}
+
+// = Reynolds number ===================
+constexpr Float Re(Float U) { return RHO_L * U * L / VISC_L; }
+
+// = Morton number =====================
+constexpr Float Mo() {
+  if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
+  return Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * RHO_L /
+         (RHO_L * SURFACE_TENSION * SURFACE_TENSION * SURFACE_TENSION);
+  // return Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * (RHO_L - RHO_G) /
+  //        (Igor::sqr(RHO_G) * Igor::sqr(SURFACE_TENSION) * SURFACE_TENSION);
+}
+
+// = Capillary number ==================
+constexpr Float Ca(Float U) {
+  if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
+  return VISC_L * U / SURFACE_TENSION;
+}
+
+// = Density ratio =====================
+constexpr Float Rho_ratio() { return RHO_L / RHO_G; }
+
+// = Viscosity ratio ===================
+constexpr Float Visc_ratio() { return VISC_L / VISC_G; }
+
+// = See: Mechanism study of bubble dynamics under the buoyancy effects, Huang
+constexpr Float Rho_rel_diff() { return (RHO_L - RHO_G) / RHO_G; }
+
+// = Characteristic velocity ===========
+constexpr Float U_inf() {
+  return Igor::sqrt(Igor::abs(GRAVITY) * L);
+  // return 1.0 / 12.0 * RHO_L * Igor::abs(GRAVITY) * Igor::sqr(L) / VISC_L;
+}
+
+}  // namespace DA
 
 constexpr FlowBConds<Float> bconds{
     .left   = Neumann{},
@@ -78,6 +115,11 @@ constexpr FlowBConds<Float> bconds{
     .top    = Neumann{},
 };
 // = Config ========================================================================================
+
+// -------------------------------------------------------------------------------------------------
+struct Vector2 {
+  Float x, y;
+};
 
 // -------------------------------------------------------------------------------------------------
 void calc_vof_stats(const FS<Float, NX, NY, NGHOST>& fs,
@@ -114,7 +156,7 @@ auto calc_center_of_mass(Float dx,
                          Float dy,
                          const Vector<Float, NX, NGHOST>& xm,
                          const Vector<Float, NY, NGHOST>& ym,
-                         const Matrix<Float, NX, NY, NGHOST>& vf) -> std::array<Float, 2> {
+                         const Matrix<Float, NX, NY, NGHOST>& vf) -> Vector2 {
   const auto vol   = integrate(dx, dy, vf);
 
   Float weighted_x = 0.0;
@@ -126,18 +168,38 @@ auto calc_center_of_mass(Float dx,
   weighted_x *= dx * dy;
   weighted_y *= dx * dy;
 
-  return {weighted_x / vol, weighted_y / vol};
+  return {.x = weighted_x / vol, .y = weighted_y / vol};
 }
+
+// -------------------------------------------------------------------------------------------------
+constexpr auto calc_avg_bubble_velocity(const FS<Float, NX, NY, NGHOST>& fs,
+                                        const VOF<Float, NX, NY, NGHOST>& vof) -> Vector2 {
+  Float int_vf = 0.0;
+  Float int_u  = 0.0;
+  Float int_v  = 0.0;
+  for_each_a(vof.vf, [&](Index i, Index j) {
+    int_vf += vof.vf(i, j);
+    int_u  += vof.vf(i, j) * (fs.curr.U(i, j) + fs.curr.U(i + 1, j)) / 2.0;
+    int_v  += vof.vf(i, j) * (fs.curr.V(i, j) + fs.curr.V(i, j + 1)) / 2.0;
+  });
+  return {.x = int_u / int_vf, .y = int_v / int_vf};
+}
+
 // -------------------------------------------------------------------------------------------------
 auto main(int argc, char** argv) -> int {
-  Igor::Info("Eo = {:.6e}", Eo);
-  Igor::Info("Ga = {:.6e}", Ga);
-  Igor::Info("rho ratio  = {:.6e}", Rho_r);
-  Igor::Info("visc ratio = {:.6e}", Visc_r);
+  std::cout << "------------------------------------------------------------\n";
+  Igor::Info("We = {:.6e} (inertia vs. surface tension)", DA::We(DA::U_inf()));
+  Igor::Info("Eo = {:.6e} (gravity vs. surface tension)", DA::Eo());
+  Igor::Info("Ca = {:.6e} (viscosity vs. surface tension)", DA::Ca(DA::U_inf()));
   std::cout << '\n';
-  Igor::Info("Mo = {:.6e}", Mo);
-  Igor::Info("Bu = {:.6e}", Bu);
-  Igor::Info("We = {:.6e}", We);
+  Igor::Info("Ga = {:.6e} (gravity vs. viscosity)", DA::Ga());
+  Igor::Info("Re = {:.6e} (inertia vs. viscosity)", DA::Re(DA::U_inf()));
+  Igor::Info("Mo = {:.6e} ", DA::Mo());
+  std::cout << '\n';
+  Igor::Info("rho ratio      = {:.6e}", DA::Rho_ratio());
+  Igor::Info("rel. diff. rho = {:.6e}", DA::Rho_rel_diff());
+  Igor::Info("visc ratio     = {:.6e}", DA::Visc_ratio());
+  std::cout << "------------------------------------------------------------\n";
 
   // = Create output directory =====================================================================
   const auto OUTPUT_DIR = get_output_directory();
@@ -168,18 +230,17 @@ auto main(int argc, char** argv) -> int {
   Matrix<Float, NX, NY + 1, NGHOST> delta_p_jump_v_stag{};
 
   // Observation variables
-  Float t       = 0.0;
-  Float dt      = DT_MAX;
+  Float t             = 0.0;
+  Float dt            = DT_MAX;
 
-  Float mass    = 0.0;
-  Float mom_x   = 0.0;
-  Float mom_y   = 0.0;
+  Float mass          = 0.0;
+  Float mom_x         = 0.0;
+  Float mom_y         = 0.0;
 
-  Float U_max   = 0.0;
-  Float V_max   = 0.0;
+  Float U_max         = 0.0;
+  Float V_max         = 0.0;
 
-  Float div_max = 0.0;
-  // Float div_L1        = 0.0;
+  Float div_max       = 0.0;
 
   Float curv_min      = 0.0;
   Float curv_max      = 0.0;
@@ -190,12 +251,24 @@ auto main(int argc, char** argv) -> int {
   Float vof_loss      = 0.0;
   Float vof_vol_error = 0.0;
 
-  // Float p_max         = 0.0;
-  Float p_res                  = 0.0;
-  Index p_iter                 = 0;
+  Float p_res         = 0.0;
+  Index p_iter        = 0;
 
-  [[maybe_unused]] Float com_x = 0.0;
-  Float com_y                  = 0.0;
+  Vector2 center_of_mass{};
+  Vector2 Ub_avg{};
+  Float Ub_avg_mag{};
+
+  // - Dimensional analysis ------------
+  Float We           = DA::We(DA::U_inf());
+  Float Eo           = DA::Eo();
+  Float Ca           = DA::Ca(DA::U_inf());
+  Float Ga           = DA::Ga();
+  Float Re           = DA::Re(DA::U_inf());
+  Float Mo           = DA::Mo();
+  Float rho_ratio    = DA::Rho_ratio();
+  Float rho_rel_diff = DA::Rho_rel_diff();
+  Float visc_ratio   = DA::Visc_ratio();
+
   // = Allocate memory =============================================================================
 
   // = Output ======================================================================================
@@ -216,9 +289,7 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&V_max, "max(V)");
 
   monitor.add_variable(&div_max, "max(div)");
-  // monitor.add_variable(&div_L1, "L1(div)");
 
-  // monitor.add_variable(&p_max, "max(p)");
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
@@ -227,21 +298,26 @@ auto main(int argc, char** argv) -> int {
 
   monitor.add_variable(&vof_min, "min(vof)");
   monitor.add_variable(&vof_max, "max(vof)");
-  // monitor.add_variable(&vof_integral, "int(vof)");
   monitor.add_variable(&vof_loss, "loss(vof)");
-  // monitor.add_variable(&vof_vol_error, "max(vol. error)");
 
   // monitor.add_variable(&mass, "mass");
   // monitor.add_variable(&mom_x, "momentum (x)");
   // monitor.add_variable(&mom_y, "momentum (y)");
 
-  // monitor.add_variable(&We, "We");
-  // monitor.add_variable(&Eo, "Eo");
-  // monitor.add_variable(&Mo, "Mo");
-  // monitor.add_variable(&Bu, "Bu");
-
-  // monitor.add_variable(&com_x, "com_x");
-  monitor.add_variable(&com_y, "com_y");
+  Monitor<Float> monitor_da(Igor::detail::format("{}/monitor_da.log", OUTPUT_DIR));
+  monitor_da.add_variable(&t, "t");
+  monitor_da.add_variable(&We, "We");
+  monitor_da.add_variable(&Eo, "Eo");
+  monitor_da.add_variable(&Ca, "Ca");
+  monitor_da.add_variable(&Ga, "Ga");
+  monitor_da.add_variable(&Re, "Re");
+  monitor_da.add_variable(&Mo, "Mo");
+  monitor_da.add_variable(&rho_ratio, "rho_ratio");
+  monitor_da.add_variable(&rho_rel_diff, "rho_rel_diff");
+  monitor_da.add_variable(&visc_ratio, "visc_ratio");
+  monitor_da.add_variable(&Ub_avg_mag, "U_bubble");
+  monitor_da.add_variable(&center_of_mass.x, "x_bubble");
+  monitor_da.add_variable(&center_of_mass.y, "y_bubble");
   // = Output ======================================================================================
 
   // = Initialize VOF field ========================================================================
@@ -317,11 +393,23 @@ auto main(int argc, char** argv) -> int {
   // p_max = max(fs.p);
   calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
-  auto com = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
-  com_x    = com[0];
-  com_y    = com[1];
+  center_of_mass = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
+
+  Ub_avg         = calc_avg_bubble_velocity(fs, vof);
+  Ub_avg_mag     = DA::U_inf();
+  We             = DA::We(Ub_avg_mag);
+  Eo             = DA::Eo();
+  Ca             = DA::Ca(Ub_avg_mag);
+  Ga             = DA::Ga();
+  Re             = DA::Re(Ub_avg_mag);
+  Mo             = DA::Mo();
+  rho_ratio      = DA::Rho_ratio();
+  rho_rel_diff   = DA::Rho_rel_diff();
+  visc_ratio     = DA::Visc_ratio();
+
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
+  monitor_da.write();
   // = Initialize flow field =======================================================================
 
   Igor::ScopeTimer timer("Solver");
@@ -449,12 +537,24 @@ auto main(int argc, char** argv) -> int {
     // p_max = max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
-    com   = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
-    com_x = com[0];
-    com_y = com[1];
+    center_of_mass = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);
+
+    Ub_avg         = calc_avg_bubble_velocity(fs, vof);
+    Ub_avg_mag     = std::sqrt(Igor::sqr(Ub_avg.x) + Igor::sqr(Ub_avg.y));
+    We             = DA::We(Ub_avg_mag);
+    Eo             = DA::Eo();
+    Ca             = DA::Ca(Ub_avg_mag);
+    Ga             = DA::Ga();
+    Re             = DA::Re(Ub_avg_mag);
+    Mo             = DA::Mo();
+    rho_ratio      = DA::Rho_ratio();
+    rho_rel_diff   = DA::Rho_rel_diff();
+    visc_ratio     = DA::Visc_ratio();
+
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }
+    monitor_da.write();
     monitor.write();
   }
 

@@ -64,7 +64,7 @@ constexpr Float Eo() {
 
 // = Galilei number ====================
 constexpr Float Ga() {
-  return Igor::sqrt((RHO_L * Igor::abs(GRAVITY) * L * L * L) / Igor::sqr(VISC_L));
+  return Igor::abs(GRAVITY) * L * L * L * Igor::sqr(RHO_L) / Igor::sqr(VISC_L);
 }
 
 // = Weber number ======================
@@ -79,7 +79,7 @@ constexpr Float Re(Float U) { return RHO_L * U * L / VISC_L; }
 // = Morton number =====================
 constexpr Float Mo() {
   if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
-  return Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * RHO_L /
+  return Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) /
          (RHO_L * SURFACE_TENSION * SURFACE_TENSION * SURFACE_TENSION);
   // return Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) * (RHO_L - RHO_G) /
   //        (Igor::sqr(RHO_G) * Igor::sqr(SURFACE_TENSION) * SURFACE_TENSION);

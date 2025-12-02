@@ -17,17 +17,20 @@
 #include "VOF.hpp"
 
 // = Config ========================================================================================
+// Fluid properties from Meulenbroek, A.M., Vreman, A.W., Deen, N.G., 2021. Competing Marangoni
+// effects form a stagnant cap on the interface of a hydrogen bubble attached to a microelectrode.
+// Electrochimica Acta 385, 138298. https://doi.org/10.1016/j.electacta.2021.138298
+
 using Float                     = double;
 
-constexpr Index NX              = 256;
+constexpr Index NX              = 128;
 constexpr Index NY              = 2 * NX;
 constexpr Index NGHOST          = 1;
 
-constexpr Float SCALE           = 0.01;  // 0.25;
-constexpr Float X_MIN           = -1.0 * SCALE;
-constexpr Float X_MAX           = 1.0 * SCALE;
+constexpr Float X_MIN           = -5e-3;
+constexpr Float X_MAX           = 5e-3;
 constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 4.0 * SCALE;
+constexpr Float Y_MAX           = 2e-2;
 
 constexpr Float T_END           = 0.2;  // 5.0;
 constexpr Float DT_MAX          = 1e-4;
@@ -35,17 +38,17 @@ constexpr Float CFL_MAX         = 0.25;
 constexpr Float DT_WRITE        = 5e-4;
 
 constexpr Float V_IN            = 0.0;
-constexpr Float GRAVITY         = -5.0;  // -9.80665;
+constexpr Float GRAVITY         = -9.80665;  // -5.0;
 
-constexpr Float VISC_G          = 1e-6;  // 1e-4;
-constexpr Float RHO_G           = 1e0;   // 8e-2;
-constexpr Float VISC_L          = 1e-2;  // 1e-7;
-constexpr Float RHO_L           = 1e3;   // 1e3;
+constexpr Float VISC_G          = 8.8e-4;
+constexpr Float VISC_L          = 1.002e-3;
+constexpr Float RHO_G           = 9e-2;
+constexpr Float RHO_L           = 1e3;
 
-constexpr Float SURFACE_TENSION = 1.0 / 20.0;
+constexpr Float SURFACE_TENSION = 0.072;
 constexpr Float CX              = 0.0;
-constexpr Float CY              = 0.25 * SCALE;
-constexpr Float R0              = 0.125 * SCALE;
+constexpr Float R0              = 5.6e-4;
+constexpr Float CY              = 2.0 * R0;
 
 constexpr int PRESSURE_MAX_ITER = 100;
 constexpr Float PRESSURE_TOL    = 1e-6;

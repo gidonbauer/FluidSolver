@@ -27,18 +27,20 @@ constexpr Index NX              = 128;
 constexpr Index NY              = 2 * NX;
 constexpr Index NGHOST          = 1;
 
-constexpr Float X_MIN           = -5e-3;
-constexpr Float X_MAX           = 5e-3;
-constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 2e-2;
+constexpr Float R0              = 5.6e-4;
 
-constexpr Float T_END           = 0.2;  // 5.0;
+constexpr Float X_MIN           = -5.0 * R0;
+constexpr Float X_MAX           = 5.0 * R0;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 20 * R0;
+
+constexpr Float T_END           = 1e-2;  // 0.2;
 constexpr Float DT_MAX          = 1e-4;
 constexpr Float CFL_MAX         = 0.25;
-constexpr Float DT_WRITE        = 5e-4;
+constexpr Float DT_WRITE        = 1e-4;
 
 constexpr Float V_IN            = 0.0;
-constexpr Float GRAVITY         = -9.80665;  // -5.0;
+constexpr Float GRAVITY         = -9.80665;
 
 constexpr Float VISC_G          = 8.8e-4;
 constexpr Float VISC_L          = 1.002e-3;
@@ -47,7 +49,6 @@ constexpr Float RHO_L           = 1e3;
 
 constexpr Float SURFACE_TENSION = 0.072;
 constexpr Float CX              = 0.0;
-constexpr Float R0              = 5.6e-4;
 constexpr Float CY              = 2.0 * R0;
 
 constexpr int PRESSURE_MAX_ITER = 100;
@@ -59,28 +60,28 @@ namespace DA {
 
 constexpr auto L = 2.0 * R0;
 
-// = Eötvös number = Bond number =======
-constexpr Float Eo() {
+// = Eötvös number (Bond number) =======
+constexpr auto Eo() -> Float {
   if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
   return RHO_L * Igor::abs(GRAVITY) * Igor::sqr(L) / SURFACE_TENSION;
 }
 
 // = Galilei number ====================
-constexpr Float Ga() {
+constexpr auto Ga() -> Float {
   return Igor::abs(GRAVITY) * L * L * L * Igor::sqr(RHO_L) / Igor::sqr(VISC_L);
 }
 
 // = Weber number ======================
-constexpr Float We(Float U) {
+constexpr auto We(Float U) -> Float {
   if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
   return RHO_L * Igor::sqr(U) * L / SURFACE_TENSION;
 }
 
 // = Reynolds number ===================
-constexpr Float Re(Float U) { return RHO_L * U * L / VISC_L; }
+constexpr auto Re(Float U) -> Float { return RHO_L * U * L / VISC_L; }
 
 // = Morton number =====================
-constexpr Float Mo() {
+constexpr auto Mo() -> Float {
   if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
   return Igor::abs(GRAVITY) * Igor::sqr(Igor::sqr(VISC_G)) /
          (RHO_L * SURFACE_TENSION * SURFACE_TENSION * SURFACE_TENSION);
@@ -89,22 +90,22 @@ constexpr Float Mo() {
 }
 
 // = Capillary number ==================
-constexpr Float Ca(Float U) {
+constexpr auto Ca(Float U) -> Float {
   if (SURFACE_TENSION == 0.0) { return std::numeric_limits<Float>::max(); }
   return VISC_L * U / SURFACE_TENSION;
 }
 
 // = Density ratio =====================
-constexpr Float Rho_ratio() { return RHO_L / RHO_G; }
+constexpr auto Rho_ratio() -> Float { return RHO_L / RHO_G; }
 
 // = Viscosity ratio ===================
-constexpr Float Visc_ratio() { return VISC_L / VISC_G; }
+constexpr auto Visc_ratio() -> Float { return VISC_L / VISC_G; }
 
 // = See: Mechanism study of bubble dynamics under the buoyancy effects, Huang
-constexpr Float Rho_rel_diff() { return (RHO_L - RHO_G) / RHO_G; }
+constexpr auto Rho_rel_diff() -> Float { return (RHO_L - RHO_G) / RHO_G; }
 
 // = Characteristic velocity ===========
-constexpr Float U_inf() {
+constexpr auto U_inf() -> Float {
   return Igor::sqrt(Igor::abs(GRAVITY) * L);
   // return 1.0 / 12.0 * RHO_L * Igor::abs(GRAVITY) * Igor::sqr(L) / VISC_L;
 }
@@ -190,6 +191,26 @@ constexpr auto calc_avg_bubble_velocity(const FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 auto main(int argc, char** argv) -> int {
+  const int vof0_config = [argc, argv]() {
+    auto usage = [prog = argv[0]]() {
+      std::cerr << "Usage: " << prog << " [bubble config]\n";
+      std::cerr << "       bubble config:  0 - Single bubble (default)\n";
+      std::cerr << "                       1 - Two bubbles side by side\n";
+      std::cerr << "                       2 - Two bubbles above each other\n";
+    };
+
+    if (argc < 2) {
+      usage();
+      return 0;
+    }
+    switch (argv[1][0]) {
+      case '0': return 0;
+      case '1': return 1;
+      case '2': return 2;
+      default:  usage(); return 0;
+    }
+  }();
+
   std::cout << "------------------------------------------------------------\n";
   Igor::Info("We = {:.6e} (inertia vs. surface tension)", DA::We(DA::U_inf()));
   Igor::Info("Eo = {:.6e} (gravity vs. surface tension)", DA::Eo());
@@ -205,7 +226,7 @@ auto main(int argc, char** argv) -> int {
   std::cout << "------------------------------------------------------------\n";
 
   // = Create output directory =====================================================================
-  const auto OUTPUT_DIR = get_output_directory();
+  const auto OUTPUT_DIR = get_output_directory() + "/" + std::to_string(vof0_config) + "/";
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
@@ -324,26 +345,6 @@ auto main(int argc, char** argv) -> int {
   // = Output ======================================================================================
 
   // = Initialize VOF field ========================================================================
-  const int vof0_config = [argc, argv]() {
-    auto usage = [prog = argv[0]]() {
-      std::cerr << "Usage: " << prog << " [bubble config]\n";
-      std::cerr << "       bubble config:  0 - Single bubble (default)\n";
-      std::cerr << "                       1 - Two bubbles side by side\n";
-      std::cerr << "                       2 - Two bubbles above each other\n";
-    };
-
-    if (argc < 2) {
-      usage();
-      return 0;
-    }
-    switch (argv[1][0]) {
-      case '0': return 0;
-      case '1': return 1;
-      case '2': return 2;
-      default:  usage(); return 0;
-    }
-  }();
-
   auto vof0 = [vof0_config](Float x, Float y) -> Float {
     switch (vof0_config) {
       // Single bubble
@@ -426,8 +427,6 @@ auto main(int argc, char** argv) -> int {
 
     // = Update VOF field ==========================================================================
     reconstruct_interface(fs, vof.vf_old, vof.ir);
-    // calc_surface_length(fs, ir, interface_length);
-    // TODO: Calculate viscosity from new VOF field
     calc_rho(vof.vf_old, fs);
     save_old_density(fs.curr, fs.old);
 
@@ -536,8 +535,6 @@ auto main(int argc, char** argv) -> int {
     div_max  = abs_max(div);
     curv_min = min(vof.curv);
     curv_max = max(vof.curv);
-    // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
-    // p_max = max(fs.p);
     calc_vof_stats(fs, vof.vf, init_vf_integral, vof_min, vof_max, vof_integral, vof_loss);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     center_of_mass = calc_center_of_mass(fs.dx, fs.dy, fs.xm, fs.ym, vof.vf);

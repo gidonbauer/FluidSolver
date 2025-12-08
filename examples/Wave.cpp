@@ -19,7 +19,7 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 5 * 128;
+constexpr Index NX              = 5LL * 128;
 constexpr Index NY              = 128;
 constexpr Index NGHOST          = 1;
 
@@ -29,7 +29,7 @@ constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
 constexpr Float T_END           = 30.0;
-constexpr Float DT_MAX          = 5e-4;
+constexpr Float DT_MAX          = 1e-1;  // 5e-4;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 5e-2;
 
@@ -209,8 +209,11 @@ auto main() -> int {
 
   Igor::ScopeTimer timer("Solver");
   while (t < T_END) {
-    dt = adjust_dt(fs, CFL_MAX, DT_MAX);
-    dt = std::min(dt, T_END - t);
+    dt                      = adjust_dt(fs, CFL_MAX, DT_MAX);
+    const auto cfl_gravitiy = 1.0 / std::sqrt(fs.dy / std::abs(GRAVITY));
+    const auto dt_gravitiy  = CFL_MAX / cfl_gravitiy;
+    dt                      = std::min(dt, dt_gravitiy);
+    dt                      = std::min(dt, T_END - t);
 
     // Save previous state
     save_old_velocity(fs.curr, fs.old);

@@ -418,8 +418,10 @@ auto main(int argc, char** argv) -> int {
 
   Igor::ScopeTimer timer("Solver");
   while (t < T_END) {
-    dt = adjust_dt(fs, CFL_MAX, DT_MAX);
-    dt = std::min(dt, T_END - t);
+    dt                     = adjust_dt(fs, CFL_MAX, DT_MAX);
+    const auto dt_gravitiy = CFL_MAX * std::sqrt(fs.dy / std::abs(GRAVITY));
+    dt                     = std::min(dt, dt_gravitiy);
+    dt                     = std::min(dt, T_END - t);
 
     // Save previous state
     save_old_velocity(fs.curr, fs.old);

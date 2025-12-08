@@ -251,4 +251,32 @@ constexpr void apply_neumann_bconds(Matrix<Float, NX, NY, NGHOST>& field) noexce
   });
 }
 
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+constexpr void apply_dirichlet_bconds(Matrix<Float, NX, NY, NGHOST>& field, Float value) noexcept {
+  static_assert(NGHOST > 0, "Expected at least one ghost cell.");
+
+  for_each<-NGHOST, NY + NGHOST, Exec::Parallel>([&](Index j) {
+    // LEFT
+    for (Index i = -NGHOST; i < 0; ++i) {
+      field(i, j) = value;
+    }
+    // RIGHT
+    for (Index i = NX; i < NX + NGHOST; ++i) {
+      field(i, j) = value;
+    }
+  });
+
+  for_each<-NGHOST, NX + NGHOST, Exec::Parallel>([&](Index i) {
+    // BOTTOM
+    for (Index j = -NGHOST; j < 0; ++j) {
+      field(i, j) = value;
+    }
+    // TOP
+    for (Index j = NY; j < NY + NGHOST; ++j) {
+      field(i, j) = value;
+    }
+  });
+}
+
 #endif  // FLUID_SOLVER_BOUNDARY_CONDITIONS_HPP_

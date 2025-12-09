@@ -6,7 +6,7 @@
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
 
-#define FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
+// #define FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
 #include "Container.hpp"
 #include "Curvature.hpp"
 #include "FS.hpp"

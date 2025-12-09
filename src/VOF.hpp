@@ -11,10 +11,13 @@
 #include "Operators.hpp"
 #include "Utility.hpp"
 
+inline constexpr double Z_LO = -0.5;
+inline constexpr double Z_HI = 0.5;
+
 template <typename Float, Index NX, Index NY, Index NGHOST>
 requires(NGHOST > 0)
 struct VOF {
-  InterfaceReconstruction<NX, NY> ir{};
+  InterfaceReconstruction<NX, NY, NGHOST> ir{};
 
   Matrix<Float, NX, NY, NGHOST> vf_old{};
   Matrix<Float, NX, NY, NGHOST> vf{};
@@ -66,6 +69,7 @@ constexpr auto advect_point(const IRL::Pt& pt,
                             const Matrix<Float, NX, NY, NGHOST>& Ui,
                             const Matrix<Float, NX, NY, NGHOST>& Vi,
                             Float dt) -> IRL::Pt {
+  // Runge-Kutta-4
   const auto [u1, v1] = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0], pt[1]);
   const auto [u2, v2] =
       eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0] - 0.5 * dt * u1, pt[1] - 0.5 * dt * v1);
@@ -84,6 +88,7 @@ constexpr auto advect_point(const IRL::Pt& pt,
 template <typename Float, Index NX, Index NY, Index NGHOST>
 constexpr auto advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY, NGHOST>& fs, Float dt)
     -> IRL::Pt {
+  // Runge-Kutta-4
   const auto u1 = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, pt[0], pt[1]);
   const auto v1 = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, pt[0], pt[1]);
 
@@ -111,8 +116,8 @@ constexpr auto advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY, NGHOST>&
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void localize_cells(const Vector<Float, NX + 1, NGHOST>& x,
                     const Vector<Float, NY + 1, NGHOST>& y,
-                    InterfaceReconstruction<NX, NY>& ir) {
-  for_each_i<Exec::Parallel>(ir.cell_localizer, [&](Index i, Index j) {
+                    InterfaceReconstruction<NX, NY, NGHOST>& ir) {
+  for_each_a<Exec::Parallel>(ir.cell_localizer, [&](Index i, Index j) {
     // Localize the cell for volume calculation
     constexpr std::array<IRL::Normal, 6> plane_normals = {
         IRL::Normal(-1.0, 0.0, 0.0),
@@ -128,8 +133,8 @@ void localize_cells(const Vector<Float, NX + 1, NGHOST>& x,
     l[1] = IRL::Plane(plane_normals[1], x(i + 1));
     l[2] = IRL::Plane(plane_normals[2], -y(j));
     l[3] = IRL::Plane(plane_normals[3], y(j + 1));
-    l[4] = IRL::Plane(plane_normals[4], 0.5);
-    l[5] = IRL::Plane(plane_normals[5], 0.5);
+    l[4] = IRL::Plane(plane_normals[4], -Z_LO);
+    l[5] = IRL::Plane(plane_normals[5], Z_HI);
   });
 }
 
@@ -137,7 +142,7 @@ void localize_cells(const Vector<Float, NX + 1, NGHOST>& x,
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void reconstruct_interface(const FS<Float, NX, NY, NGHOST>& fs,
                            const Matrix<Float, NX, NY, NGHOST>& vf,
-                           InterfaceReconstruction<NX, NY>& ir) {
+                           InterfaceReconstruction<NX, NY, NGHOST>& ir) {
   constexpr IRL::UnsignedIndex_t NEIGHBORHOOD_SIZE = 9;
 
   // Reset ir.interface
@@ -155,17 +160,15 @@ void reconstruct_interface(const FS<Float, NX, NY, NGHOST>& fs,
     size_t counter = 0;
     for (int di = -1; di <= 1; ++di) {
       for (int dj = -1; dj <= 1; ++dj) {
-        const Float x_lo = fs.x(i + di);
-        const Float x_hi = fs.x(i + di + 1);
-        const Float y_lo = fs.y(j + dj);
-        const Float y_hi = fs.y(j + dj + 1);
-        const Float z_lo = -0.5;
-        const Float z_hi = 0.5;
+        const Float x_lo  = fs.x(i + di);
+        const Float x_hi  = fs.x(i + di + 1);
+        const Float y_lo  = fs.y(j + dj);
+        const Float y_hi  = fs.y(j + dj + 1);
+        const Float z_lo  = Z_LO;
+        const Float z_hi  = Z_HI;
 
-        cells[counter]   = IRL::RectangularCuboid::fromBoundingPts(IRL::Pt{x_lo, y_lo, z_lo},
+        cells[counter]    = IRL::RectangularCuboid::fromBoundingPts(IRL::Pt{x_lo, y_lo, z_lo},
                                                                  IRL::Pt{x_hi, y_hi, z_hi});
-        // TODO: Assume that vf is always zero outside of the domain, i.e. Dirichlet Boundary
-        //       conditions
         cells_vf[counter] = vf(i + di, j + dj);
         neighborhood.setMember(&cells[counter], &cells_vf[counter], di, dj);
         counter += 1;
@@ -195,16 +198,15 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   // Early exit of loop iteration if we are entirely inside or outside of liquid phase
   {
     Float neighborhood_vf_sum = 0.0;
-    for (Index ii = std::max<Index>(i - NEIGHBORHOOD_OFFSET, 0);
-         ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
-         ++ii) {
-      for (Index jj = std::max<Index>(j - NEIGHBORHOOD_OFFSET, 0);
-           jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
-           ++jj) {
+    for (Index ii = i - NEIGHBORHOOD_OFFSET; ii < i + NEIGHBORHOOD_OFFSET + 1; ++ii) {
+      for (Index jj = j - NEIGHBORHOOD_OFFSET; jj < j + NEIGHBORHOOD_OFFSET + 1; ++jj) {
         neighborhood_vf_sum += vof.vf_old(ii, jj);
       }
     }
-    if (neighborhood_vf_sum < VF_LOW) { return volume_error; }
+    if (neighborhood_vf_sum < VF_LOW) {
+      vof.vf(i, j) = 0.0;
+      return volume_error;
+    }
     if (neighborhood_vf_sum >= Igor::sqr(2.0 * NEIGHBORHOOD_OFFSET + 1.0) * VF_HIGH) {
       vof.vf(i, j) = 1.0;
       return volume_error;
@@ -218,10 +220,10 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 #endif
 
   auto offset_to_pt = [i, j, &fs](Index di, Index dj, Index dk) {
-    return IRL::Pt{fs.x(i + di), fs.y(j + dj), dk == 1 ? 0.5 : -0.5};
+    return IRL::Pt{fs.x(i + di), fs.y(j + dj), dk == 1 ? Z_HI : Z_LO};
   };
 
-  // = Set cuboid vertices =====================================================================
+  // = Set cuboid vertices =========================================================================
   for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < CUBOID_OFFSETS.size(); ++cell_idx) {
     const auto [di, dj, dk] = CUBOID_OFFSETS[cell_idx];
 #ifndef FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
@@ -232,7 +234,7 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   }
 
 #ifndef VOF_NO_CORRECTION
-  // = Set other vertices to barycenter ========================================================
+  // = Set other vertices to barycenter ============================================================
   for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < FACE_VERTICES.size(); ++cell_idx) {
     const auto& vertices = FACE_VERTICES[cell_idx];
     IRL::Pt barycenter   = IRL::Pt::fromScalarConstant(0.0);
@@ -244,10 +246,10 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   }
 #endif  // VOF_NO_CORRECTION
 
-  const auto original_cell_vol = (fs.x(i + 1) - fs.x(i)) * (fs.y(j + 1) - fs.y(j));
+  const auto original_cell_vol = (fs.x(i + 1) - fs.x(i)) * (fs.y(j + 1) - fs.y(j)) * (Z_HI - Z_LO);
 
 #ifndef VOF_NO_CORRECTION
-  // = Adjust other vertices to have correct cell volume =======================================
+  // = Adjust other vertices to have correct cell volume ===========================================
   for (IRL::UnsignedIndex_t cell_idx = 0; cell_idx < FACE_VERTICES.size(); ++cell_idx) {
     const auto& vertices = FACE_VERTICES[cell_idx];
     // We have a two dimensional problem, therefore we do not adjust the vertices in z-direction
@@ -290,12 +292,8 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   volume_error      = std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume());
 
   Float overlap_vol = 0.0;
-  for (Index ii = std::max<Index>(i - NEIGHBORHOOD_OFFSET, 0);
-       ii < std::min(i + NEIGHBORHOOD_OFFSET + 1, NX);
-       ++ii) {
-    for (Index jj = std::max<Index>(j - NEIGHBORHOOD_OFFSET, 0);
-         jj < std::min(j + NEIGHBORHOOD_OFFSET + 1, NY);
-         ++jj) {
+  for (Index ii = i - NEIGHBORHOOD_OFFSET; ii < i + NEIGHBORHOOD_OFFSET + 1; ++ii) {
+    for (Index jj = j - NEIGHBORHOOD_OFFSET; jj < j + NEIGHBORHOOD_OFFSET + 1; ++jj) {
       if (vof.vf_old(ii, jj) > VF_LOW) {
         overlap_vol += IRL::getVolumeMoments<IRL::Volume, IRL::RecursiveSimplexCutting>(
             advected_cell,
@@ -420,7 +418,7 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 auto save_interface(const std::string& filename,
                     const Vector<Float, NX + 1, NGHOST>& x,
                     const Vector<Float, NY + 1, NGHOST>& y,
-                    const Matrix<IRL::PlanarSeparator, NX, NY>& interface) -> bool {
+                    const Matrix<IRL::PlanarSeparator, NX, NY, NGHOST>& interface) -> bool {
 
   auto interpret_as_big_endian_bytes = []<typename T>(T value)->std::array<const char, sizeof(T)> {
     static_assert(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8),

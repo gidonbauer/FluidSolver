@@ -7,18 +7,18 @@
 
 #include "Container.hpp"
 
-template <Index NX, Index NY>
+template <Index NX, Index NY, Index NGHOST>
 struct InterfaceReconstruction {
-  Matrix<IRL::PlanarSeparator, NX, NY> interface;
-  Matrix<IRL::PlanarLocalizer, NX, NY> cell_localizer;
+  Matrix<IRL::PlanarSeparator, NX, NY, NGHOST> interface;
+  Matrix<IRL::PlanarLocalizer, NX, NY, NGHOST> cell_localizer;
 };
 
 inline constexpr double VF_LOW  = 1e-8;
 inline constexpr double VF_HIGH = 1.0 - VF_LOW;
 
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr auto
-has_interface(const Matrix<Float, NX, NY, NGHOST>& vf, Index i, Index j) noexcept -> bool {
+constexpr auto has_interface(const Matrix<Float, NX, NY, NGHOST>& vf, Index i, Index j) noexcept
+    -> bool {
   return VF_LOW < vf(i, j) && vf(i, j) < VF_HIGH;
 }
 

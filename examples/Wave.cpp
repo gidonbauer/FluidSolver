@@ -29,7 +29,7 @@ constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
 constexpr Float T_END           = 30.0;
-constexpr Float DT_MAX          = 1e-1;  // 5e-4;
+constexpr Float DT_MAX          = 5e-4;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 5e-2;
 

@@ -34,10 +34,10 @@ constexpr Float X_MAX           = 5.0 * R0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 20 * R0;
 
-constexpr Float T_END           = 1e-2;  // 0.2;
-constexpr Float DT_MAX          = 1e-4;
+constexpr Float T_END           = 1e-2;
+constexpr Float DT_MAX          = 1e-6;
 constexpr Float CFL_MAX         = 0.25;
-constexpr Float DT_WRITE        = 1e-4;
+constexpr Float DT_WRITE        = 1e-6;
 
 constexpr Float V_IN            = 0.0;
 constexpr Float GRAVITY         = -9.80665;
@@ -323,6 +323,7 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&vof_min, "min(vof)");
   monitor.add_variable(&vof_max, "max(vof)");
   monitor.add_variable(&vof_loss, "loss(vof)");
+  monitor.add_variable(&vof_vol_error, "vol_err(vof)");
 
   // monitor.add_variable(&mass, "mass");
   // monitor.add_variable(&mom_x, "momentum (x)");

@@ -7,7 +7,6 @@
 #include <Igor/StaticVector.hpp>
 #include <Igor/Timer.hpp>
 
-// #define FS_CURV_NO_INTERPOLATION
 #include "Curvature.hpp"
 #include "FS.hpp"
 #include "IO.hpp"
@@ -22,10 +21,11 @@ using Float                   = double;
 constexpr Index N             = 64;
 constexpr Index NGHOST        = 1;
 
-constexpr Float X_MIN         = 0.0;
-constexpr Float X_MAX         = 1.0;
-constexpr Float Y_MIN         = 0.0;
-constexpr Float Y_MAX         = 1.0;
+constexpr Float SCALE         = 1e-4;
+constexpr Float X_MIN         = -1.0 * SCALE;
+constexpr Float X_MAX         = 1.0 * SCALE;
+constexpr Float Y_MIN         = -1.0 * SCALE;
+constexpr Float Y_MAX         = 1.0 * SCALE;
 constexpr Float DX            = (X_MAX - X_MIN) / static_cast<Float>(N);
 constexpr Float DY            = (Y_MAX - Y_MIN) / static_cast<Float>(N);
 
@@ -174,7 +174,7 @@ auto main() -> int {
   // = Allocate memory =============================================================================
 
   static std::mt19937 generator(std::random_device{}());
-  std::uniform_real_distribution c_dist(0.35, 0.65);
+  std::uniform_real_distribution c_dist(-0.65 * SCALE, 0.65 * SCALE);
   std::uniform_real_distribution r_dist(2 * std::min(DX, DY), 20 * std::min(DX, DY));
   std::uniform_int_distribution<Index> i_dist(0, 1);
 

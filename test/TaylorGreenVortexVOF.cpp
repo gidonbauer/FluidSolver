@@ -6,7 +6,9 @@
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
 
+#define FS_VOF_ADVECT_WITH_STAGGERED_VELOCITY
 #include "Container.hpp"
+#include "Curvature.hpp"
 #include "FS.hpp"
 #include "IO.hpp"
 #include "Monitor.hpp"
@@ -22,12 +24,11 @@ constexpr Index NX       = 128;
 constexpr Index NY       = 128;
 constexpr Index NGHOST   = 1;
 
+Float SCALE              = 1.0;  // NOLINT
 constexpr Float X_MIN    = 0.0;
 constexpr Float X_MAX    = 2.0 * std::numbers::pi_v<Float>;
 constexpr Float Y_MIN    = 0.0;
 constexpr Float Y_MAX    = 2.0 * std::numbers::pi_v<Float>;
-constexpr auto DX        = (X_MAX - X_MIN) / static_cast<Float>(NX);
-constexpr auto DY        = (Y_MAX - Y_MIN) / static_cast<Float>(NY);
 
 constexpr Float VISC     = 1e-1;
 constexpr Float RHO      = 0.9;
@@ -49,6 +50,8 @@ void get_vof_stats(const Matrix<Float, NX, NY, NGHOST>& vf,
                    Float& loss_prct) noexcept {
   const auto [min_it, max_it] = std::minmax_element(vf.get_data(), vf.get_data() + vf.size());
 
+  const auto DX               = (X_MAX * SCALE - X_MIN) / static_cast<Float>(NX);
+  const auto DY               = (Y_MAX * SCALE - Y_MIN) / static_cast<Float>(NY);
   min                         = *min_it;
   max                         = *max_it;
   integral                    = integrate<true>(DX, DY, vf);
@@ -58,18 +61,20 @@ void get_vof_stats(const Matrix<Float, NX, NY, NGHOST>& vf,
 
 // -------------------------------------------------------------------------------------------------
 auto check_vof(Float vof_min, Float vof_max, Float vof_integral, Float max_volume_error) -> bool {
-  if (std::abs(vof_min) > 1e-12) {
+  bool res = true;
+
+  if (std::abs(vof_min) > VF_LOW) {
     Igor::Warn("Expected minimum VOF value to be 0 but is {:.6e}: error = {:.6e}",
                vof_min,
                std::abs(vof_min));
-    return false;
+    res = false;
   }
 
-  if (std::abs(vof_max - 1.0) > 1e-12) {
+  if (std::abs(vof_max - 1.0) > VF_LOW) {
     Igor::Warn("Expected maximum VOF value to be 1 but is {:.6e}: error = {:.6e}",
                vof_max,
                std::abs(vof_max - 1.0));
-    return false;
+    res = false;
   }
 
   if (std::abs(vof_integral - INIT_VF_INT) > 1e-10) {
@@ -77,22 +82,24 @@ auto check_vof(Float vof_min, Float vof_max, Float vof_integral, Float max_volum
                INIT_VF_INT,
                vof_integral,
                std::abs(vof_integral - INIT_VF_INT));
-    return false;
+    res = false;
   }
+
   if (max_volume_error > 1e-15) {
     Igor::Warn("Exceeded max. allowed volume error ({:.6e})", max_volume_error);
-    return false;
+    res = false;
   }
-  return true;
+
+  return res;
 }
 
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] constexpr auto F(Float t) -> Float { return std::exp(-2.0 * VISC / RHO * t); }
 [[nodiscard]] constexpr auto u_analytical(Float x, Float y, Float t) -> Float {
-  return std::sin(x) * std::cos(y) * F(t);
+  return SCALE * std::sin(x / SCALE) * std::cos(y / SCALE) * F(t);
 }
 [[nodiscard]] constexpr auto v_analytical(Float x, Float y, Float t) -> Float {
-  return -std::cos(x) * std::sin(y) * F(t);
+  return SCALE * -std::cos(x / SCALE) * std::sin(y / SCALE) * F(t);
 }
 
 void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
@@ -107,11 +114,40 @@ void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto main() -> int {
+auto adjust_dt_convective_only(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max)
+    -> Float {
+  Float CFLc_x = 0.0;
+  Float CFLc_y = 0.0;
+
+  for_each_i(fs.visc, [&](Index i, Index j) {
+    CFLc_x = std::max(CFLc_x, (fs.curr.U(i, j) + fs.curr.U(i + 1, j)) / 2 / fs.dx);
+    CFLc_y = std::max(CFLc_y, (fs.curr.V(i, j) + fs.curr.V(i, j + 1)) / 2 / fs.dy);
+  });
+
+  return std::min(cfl_max / std::max(CFLc_x, CFLc_y), dt_max);
+}
+
+// -------------------------------------------------------------------------------------------------
+auto main(int argc, char** argv) -> int {
   omp_set_num_threads(4);
 
+  // = Parse command line arguments ================================================================
+  if (argc < 2) {
+    Igor::Error("Usage: {} <scale>", argv[0]);
+    Igor::Error("       Did not provide scale.");
+    return 1;
+  }
+
+  const char* scale_cstr = argv[1];
+  char* cstr_end         = nullptr;
+  SCALE                  = std::strtod(scale_cstr, &cstr_end);
+  if (SCALE == HUGE_VAL || static_cast<size_t>(cstr_end - scale_cstr) != std::strlen(scale_cstr)) {
+    Igor::Error("Could not parse c-string `{}` as double.", scale_cstr);
+    return 1;
+  }
+
   // = Create output directory =====================================================================
-  const auto OUTPUT_DIR = get_output_directory("test/output");
+  const auto OUTPUT_DIR = get_output_directory("test/output") + std::to_string(SCALE);
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
@@ -128,12 +164,13 @@ auto main() -> int {
   data_writer.add_scalar("VOF", &vof.vf);
   data_writer.add_scalar("div", &div);
   data_writer.add_vector("velocity", &Ui, &Vi);
+  data_writer.add_scalar("curvature", &vof.curv);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   // = Allocate memory =============================================================================
 
   // = Setup grid and cell localizers ==============================================================
-  init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
+  init_grid(X_MIN, X_MAX * SCALE, NX, Y_MIN, Y_MAX * SCALE, NY, fs);
 
   // Localize the cells
   localize_cells(fs.x, fs.y, vof.ir);
@@ -142,7 +179,8 @@ auto main() -> int {
   // = Setup velocity and vof field ================================================================
   for_each_a<Exec::Parallel>(vof.vf, [&](Index i, Index j) {
     auto is_in = [](Float x, Float y) -> Float {
-      return Igor::sqr(x - std::numbers::pi) + Igor::sqr(y - 1.5 * std::numbers::pi) <=
+      return Igor::sqr(x / SCALE - std::numbers::pi) +
+                 Igor::sqr(y / SCALE - 1.5 * std::numbers::pi) <=
              Igor::sqr(0.5);
     };
 
@@ -185,14 +223,16 @@ auto main() -> int {
   if (!check_vof(vof_min, vof_max, vof_integral, max_volume_error)) { return 1; }
 
   Index counter = 0;
-  Igor::ScopeTimer timer("TaylorGreenVortexVOF");
+  Igor::ScopeTimer timer(Igor::detail::format("TaylorGreenVortexVOF (scale={:.6e})", SCALE));
+  bool any_test_failed = false;
   while (t < T_END) {
-    dt = adjust_dt(fs, CFL_MAX, DT_MAX);
+    dt = adjust_dt_convective_only(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
     std::copy_n(vof.vf.get_data(), vof.vf.size(), vof.vf_old.get_data());
 
     // = Reconstruct the interface =================================================================
     reconstruct_interface(fs, vof.vf, vof.ir);
+    calc_curvature_quad_volume_matching(fs, vof);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!save_interface(Igor::detail::format("{}/interface_{:06d}.vtk", OUTPUT_DIR, counter),
                           fs.x,
@@ -223,7 +263,9 @@ auto main() -> int {
       counter += 1;
     }
     get_vof_stats(vof.vf, vof_min, vof_max, vof_integral, vof_loss, vof_loss_prct);
-    if (!check_vof(vof_min, vof_max, vof_integral, max_volume_error)) { return 1; }
+    if (!check_vof(vof_min, vof_max, vof_integral, max_volume_error)) { any_test_failed = true; }
     monitor.write();
   }
+
+  return any_test_failed ? 1 : 0;
 }

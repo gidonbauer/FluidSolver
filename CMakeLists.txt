@@ -5,6 +5,7 @@ project(FluidSolver LANGUAGES CXX)
 option(FS_BUILD_TEST "Build tests" ON)
 option(FS_BUILD_BENCH "Build benchmarks" OFF)
 option(FS_FAST "Enable unsafe optimizations." OFF)
+option(FS_SANITIZE "Enable sanitizers." OFF)
 option(FS_USE_SCOREP "Enable profiling using Score-P." OFF)
 
 # = Add dependencies ===============================================================================

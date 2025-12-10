@@ -8,7 +8,10 @@ if (${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
   endif()
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} -g")
   set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-  # CXX_SANITIZER_FLAGS = -fsanitize=address,undefined
+  if (FS_SANITIZE)
+    # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread,undefined")
+  endif()
 
 elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
 
@@ -20,7 +23,9 @@ elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
   endif()
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} -g")
   set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-  # CXX_SANITIZER_FLAGS = -fsanitize=address,undefined
+  if (FS_SANITIZE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined")
+  endif()
 
 elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "IntelLLVM")
 
@@ -32,7 +37,9 @@ elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "IntelLLVM")
   endif()
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} -g")
   set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-  # CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
+  if (FS_SANITIZE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,leak,undefined")
+  endif()
 
 elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "NVHPC")
 
@@ -46,7 +53,9 @@ elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "NVHPC")
   endif()
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} -g")
   set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-  # CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
+  if (FS_SANITIZE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,leak,undefined")
+  endif()
 
 else()
 

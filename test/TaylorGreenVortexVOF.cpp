@@ -95,10 +95,10 @@ auto check_vof(Float vof_min, Float vof_max, Float vof_integral, Float max_volum
 
 // -------------------------------------------------------------------------------------------------
 [[nodiscard]] constexpr auto F(Float t) -> Float { return std::exp(-2.0 * VISC / RHO * t); }
-[[nodiscard]] constexpr auto u_analytical(Float x, Float y, Float t) -> Float {
+[[nodiscard]] auto u_analytical(Float x, Float y, Float t) -> Float {
   return SCALE * std::sin(x / SCALE) * std::cos(y / SCALE) * F(t);
 }
-[[nodiscard]] constexpr auto v_analytical(Float x, Float y, Float t) -> Float {
+[[nodiscard]] auto v_analytical(Float x, Float y, Float t) -> Float {
   return SCALE * -std::cos(x / SCALE) * std::sin(y / SCALE) * F(t);
 }
 
@@ -114,8 +114,9 @@ void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto adjust_dt_convective_only(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max)
-    -> Float {
+auto adjust_dt_convective_only(const FS<Float, NX, NY, NGHOST>& fs,
+                               Float cfl_max,
+                               Float dt_max) -> Float {
   Float CFLc_x = 0.0;
   Float CFLc_y = 0.0;
 

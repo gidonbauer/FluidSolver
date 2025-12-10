@@ -37,7 +37,7 @@ constexpr Float Y_MAX           = 20 * R0;
 constexpr Float T_END           = 1e-2;
 constexpr Float DT_MAX          = 1e-6;
 constexpr Float CFL_MAX         = 0.25;
-constexpr Float DT_WRITE        = 1e-6;
+constexpr Float DT_WRITE        = 1e-4;
 
 constexpr Float V_IN            = 0.0;
 constexpr Float GRAVITY         = -9.80665;

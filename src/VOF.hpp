@@ -289,20 +289,28 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
   }
 #endif  // VOF_NO_CORRECTION
 
-  volume_error      = std::abs(original_cell_vol - advected_cell.calculateAbsoluteVolume());
+#ifdef FS_VOF_SIMPLEX_CUTTING
+  using CuttingMethod = IRL::RecursiveSimplexCutting;
+#else
+  // This might require this fix:
+  // https://github.com/Homebrew/homebrew-core/issues/235411#issuecomment-3314586517
+  using CuttingMethod = IRL::HalfEdgeCutting;
+#endif  // FS_VOF_SIMPLEX_CUTTING
 
-  Float overlap_vol = 0.0;
+  const Float advected_vol = advected_cell.calculateAbsoluteVolume();
+  volume_error             = std::abs(original_cell_vol - advected_vol);
+
+  Float overlap_vol        = 0.0;
   for (Index ii = i - NEIGHBORHOOD_OFFSET; ii < i + NEIGHBORHOOD_OFFSET + 1; ++ii) {
     for (Index jj = j - NEIGHBORHOOD_OFFSET; jj < j + NEIGHBORHOOD_OFFSET + 1; ++jj) {
       if (vof.vf_old(ii, jj) > VF_LOW) {
-        overlap_vol += IRL::getVolumeMoments<IRL::Volume, IRL::RecursiveSimplexCutting>(
+        overlap_vol += IRL::getVolumeMoments<IRL::Volume, CuttingMethod>(
             advected_cell,
             IRL::LocalizedSeparator(&vof.ir.cell_localizer(ii, jj), &vof.ir.interface(ii, jj)));
       }
     }
   }
-
-  vof.vf(i, j) = overlap_vol / advected_cell.calculateAbsoluteVolume();
+  vof.vf(i, j) = overlap_vol / advected_vol;
 
   return volume_error;
 }

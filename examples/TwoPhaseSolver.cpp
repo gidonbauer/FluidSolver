@@ -28,7 +28,7 @@ constexpr Float X_MAX           = 2.2;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 0.41;
 
-constexpr Float T_END           = 1.0;
+constexpr Float T_END           = 2.0;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.9;
 constexpr Float DT_WRITE        = 1e-2;
@@ -266,7 +266,7 @@ auto main() -> int {
     save_old_density(fs.curr, fs.old);
 
     advect_cells(fs, Ui, Vi, dt, vof, &vof_vol_error);
-    apply_neumann_bconds(vof.vf);
+    // apply_neumann_bconds(vof.vf);
     calc_visc(vof.vf, fs);
 
     p_iter = 0;

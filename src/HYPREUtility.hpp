@@ -9,9 +9,9 @@
 
 #ifndef FS_HYPRE_PARALLEL_THRESHOLD
 #ifdef __APPLE__
-constexpr Index FS_HYPRE_PARALLEL_GRID_SIZE_THRESHOLD = 1000 * 1000;
+constexpr Index FS_HYPRE_PARALLEL_GRID_SIZE_THRESHOLD = 1000LL * 1000LL;
 #else
-constexpr Index FS_HYPRE_PARALLEL_GRID_SIZE_THRESHOLD = 500 * 500;
+constexpr Index FS_HYPRE_PARALLEL_GRID_SIZE_THRESHOLD = 500LL * 500LL;
 #endif
 #else
 static_assert(
@@ -45,6 +45,7 @@ void initialize_hypre() {
 }
 
 void finalize_hypre() {
+  IGOR_ASSERT(hypre_use_count > 0, "HYPRE has not been initialized before calling finalize.");
   hypre_use_count -= 1;
   if (hypre_use_count == 0) { HYPRE_Finalize(); }
 }

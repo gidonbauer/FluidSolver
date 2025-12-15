@@ -2,6 +2,7 @@ set(executables
   IncompSolver
   TwoPhaseSolver
   RisingBubble
+  WallBubble
   LidDrivenFlow
   Wave
 

@@ -208,9 +208,9 @@ constexpr auto calc_C_L(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
     const auto p        = eval_field_at(fs.xm, fs.ym, fs.p, x, y);
 
     const auto delta    = std::min(fs.dx, fs.dy) / 2.0;
-    auto calc_Ut        = [&](Float x, Float y) {
-      const auto u = eval_field_at(fs.x, fs.ym, fs.curr.U, x, y);
-      const auto v = eval_field_at(fs.xm, fs.y, fs.curr.V, x, y);
+    auto calc_Ut        = [&](Float local_x, Float local_y) {
+      const auto u = eval_field_at(fs.x, fs.ym, fs.curr.U, local_x, local_y);
+      const auto v = eval_field_at(fs.xm, fs.y, fs.curr.V, local_x, local_y);
       return u * normal_y - v * normal_x;
     };
     const auto Ut_1 = calc_Ut(x, y);
@@ -236,9 +236,9 @@ constexpr auto calc_C_D(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
     return -p * normal_x;
 #else
     const auto delta = std::min(fs.dx, fs.dy) / 2.0;
-    auto calc_Ut     = [&](Float x, Float y) {
-      const auto u = eval_field_at(fs.x, fs.ym, fs.curr.U, x, y);
-      const auto v = eval_field_at(fs.xm, fs.y, fs.curr.V, x, y);
+    auto calc_Ut     = [&](Float local_x, Float local_y) {
+      const auto u = eval_field_at(fs.x, fs.ym, fs.curr.U, local_x, local_y);
+      const auto v = eval_field_at(fs.xm, fs.y, fs.curr.V, local_x, local_y);
       return u * normal_y - v * normal_x;
     };
     const auto Ut_1 = calc_Ut(x, y);

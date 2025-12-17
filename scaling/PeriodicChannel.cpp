@@ -286,7 +286,7 @@ auto main(int argc, char** argv) -> int {
     }
     U_error += simpsons_rule_1d(diff, Y_MIN, Y_MAX);
   });
-  U_error /= fs.x.extent(0);
+  U_error /= static_cast<Float>(fs.x.extent(0));
 
   // - Test V profile --------
   Float V_error = 0.0;

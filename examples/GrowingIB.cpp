@@ -28,8 +28,9 @@ constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-2;
 
-constexpr Float VISC            = 1e-3;
-constexpr Float RHO             = 1.0;
+constexpr Float VISC_L          = 1e-3;
+constexpr Float RHO_L           = 1e3;
+constexpr Float RHO_G           = 1.0;
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -39,9 +40,8 @@ constexpr Index NUM_SUBITER     = 5;
 constexpr Float CX              = 0.0;
 constexpr Float CY              = 0.0;
 constexpr Float R0              = 0.1;
-// constexpr auto drdt(Float t) { return 0.05 * t * t; }
-// constexpr auto r(Float t) { return R0 + 1.0 / 3.0 * 0.05 * t * t * t; }
-constexpr auto immersed_wall(Float x, Float y, Float r) -> Float {
+constexpr Float M_DOT           = 0.1;
+constexpr auto circle(Float x, Float y, Float r) -> Float {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(r));
 }
 
@@ -62,6 +62,11 @@ constexpr FlowBConds<Float> bconds{
 };
 #endif
 // = Config ========================================================================================
+
+// -------------------------------------------------------------------------------------------------
+constexpr auto calc_drdt(Float r) -> Float {
+  return M_DOT / (2.0 * std::numbers::pi_v<Float> * r * RHO_G);
+}
 
 // -------------------------------------------------------------------------------------------------
 void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
@@ -88,12 +93,6 @@ struct IB {
 };
 
 // -------------------------------------------------------------------------------------------------
-auto ib_kernel(Float ib_value) -> Float {
-  return 1.0 - ib_value;
-  // return static_cast<Float>(ib_value < 1e-1);
-}
-
-// -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void calc_divergence_ib(const Field2D<Float, NX, NY, NGHOST>& wall,
                         const Field2D<Float, NX + 1, NY, NGHOST>& U,
@@ -102,43 +101,53 @@ void calc_divergence_ib(const Field2D<Float, NX, NY, NGHOST>& wall,
                         Float dy,
                         Field2D<Float, NX, NY, NGHOST>& div) {
   for_each_a<Exec::Parallel>(div, [&](Index i, Index j) {
-    div(i, j) =
-        ((U(i + 1, j) - U(i, j)) / dx + (V(i, j + 1) - V(i, j)) / dy) * ib_kernel(wall(i, j));
+    div(i, j) = ((U(i + 1, j) - U(i, j)) / dx + (V(i, j + 1) - V(i, j)) / dy) * (1.0 - wall(i, j));
   });
 }
 
 // -------------------------------------------------------------------------------------------------
+struct Conserved {
+  Float m, rhoU, rhoV;
+};
 void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
                                   const IB& ib,
-                                  Float& mass,
-                                  Float& momentum_x,
-                                  Float& momentum_y) noexcept {
-  mass       = 0.0;
-  momentum_x = 0.0;
-  momentum_y = 0.0;
+                                  Conserved& liquid,
+                                  Conserved& gas) noexcept {
+  liquid.m    = 0.0;
+  liquid.rhoU = 0.0;
+  liquid.rhoV = 0.0;
+  gas.m       = 0.0;
+  gas.rhoU    = 0.0;
+  gas.rhoV    = 0.0;
 
   for_each<0, NX, 0, NY>([&](Index i, Index j) {
-    mass += (ib_kernel(ib.wall_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) +
-             ib_kernel(ib.wall_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) +
-             ib_kernel(ib.wall_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) +
-             ib_kernel(ib.wall_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1)) /
-            4.0 * fs.dx * fs.dy;
+    liquid.m += ((1.0 - ib.wall_u_stag(i, j)) + (1.0 - ib.wall_u_stag(i + 1, j)) +
+                 (1.0 - ib.wall_v_stag(i, j)) + (1.0 - ib.wall_v_stag(i, j + 1))) /
+                4.0 * RHO_L * fs.dx * fs.dy;
+    gas.m += (ib.wall_u_stag(i, j) + ib.wall_u_stag(i + 1, j) + ib.wall_v_stag(i, j) +
+              ib.wall_v_stag(i, j + 1)) /
+             4.0 * RHO_G * fs.dx * fs.dy;
 
-    momentum_x +=
-        (ib_kernel(ib.wall_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
-         ib_kernel(ib.wall_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
-        2.0 * fs.dx * fs.dy;
-    momentum_y +=
-        (ib_kernel(ib.wall_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
-         ib_kernel(ib.wall_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
-        2.0 * fs.dx * fs.dy;
+    liquid.rhoU += ((1.0 - ib.wall_u_stag(i, j)) * fs.curr.U(i, j) +
+                    (1.0 - ib.wall_u_stag(i + 1, j)) * fs.curr.U(i + 1, j)) /
+                   2.0 * RHO_L * fs.dx * fs.dy;
+    gas.rhoU +=
+        (ib.wall_u_stag(i, j) * fs.curr.U(i, j) + ib.wall_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
+        2.0 * RHO_G * fs.dx * fs.dy;
+
+    liquid.rhoV += ((1.0 - ib.wall_v_stag(i, j)) * fs.curr.V(i, j) +
+                    (1.0 - ib.wall_v_stag(i, j + 1)) * fs.curr.V(i, j + 1)) /
+                   2.0 * RHO_L * fs.dx * fs.dy;
+    gas.rhoV +=
+        (ib.wall_v_stag(i, j) * fs.curr.V(i, j) + ib.wall_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
+        2.0 * RHO_G * fs.dx * fs.dy;
   });
 }
 
 // -------------------------------------------------------------------------------------------------
 void calc_ib(const FS<Float, NX, NY, NGHOST>& fs, Float r, IB& ib) {
   for_each_a<Exec::Parallel>(ib.wall_u_stag, [&](Index i, Index j) {
-    ib.wall_u_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
+    ib.wall_u_stag(i, j) = quadrature([&](Float x, Float y) { return circle(x, y, r); },
                                       fs.x(i) - fs.dx / 2.0,
                                       fs.x(i) + fs.dx / 2.0,
                                       fs.y(j),
@@ -146,7 +155,7 @@ void calc_ib(const FS<Float, NX, NY, NGHOST>& fs, Float r, IB& ib) {
                            (fs.dx * fs.dy);
   });
   for_each_a<Exec::Parallel>(ib.wall_v_stag, [&](Index i, Index j) {
-    ib.wall_v_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
+    ib.wall_v_stag(i, j) = quadrature([&](Float x, Float y) { return circle(x, y, r); },
                                       fs.x(i),
                                       fs.x(i + 1),
                                       fs.y(j) - fs.dy / 2.0,
@@ -154,7 +163,7 @@ void calc_ib(const FS<Float, NX, NY, NGHOST>& fs, Float r, IB& ib) {
                            (fs.dx * fs.dy);
   });
   for_each_a<Exec::Parallel>(ib.wall, [&](Index i, Index j) {
-    ib.wall(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
+    ib.wall(i, j) = quadrature([&](Float x, Float y) { return circle(x, y, r); },
                                fs.x(i),
                                fs.x(i + 1),
                                fs.y(j),
@@ -171,7 +180,7 @@ auto main() -> int {
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{
-      .visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
+      .visc_gas = VISC_L, .visc_liquid = VISC_L, .rho_gas = RHO_L, .rho_liquid = RHO_L};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
   calc_rho(fs);
   calc_visc(fs);
@@ -190,15 +199,14 @@ auto main() -> int {
   Field2D<Float, NX, NY, NGHOST> fVi{};
 
   // Observation variables
-  Float t       = 0.0;
-  Float dt      = DT_MAX;
+  Float t    = 0.0;
+  Float dt   = DT_MAX;
 
-  Float r       = R0;
-  Float drdt    = 0.0;
+  Float r    = R0;
+  Float drdt = 0.0;
 
-  Float mass    = 0.0;
-  Float mom_x   = 0.0;
-  Float mom_y   = 0.0;
+  Conserved liquid{};
+  Conserved gas{};
 
   Float U_max   = 0.0;
   Float V_max   = 0.0;
@@ -232,9 +240,12 @@ auto main() -> int {
   monitor.add_variable(&r, "r");
   monitor.add_variable(&drdt, "dr/dt");
 
-  monitor.add_variable(&mass, "mass");
-  monitor.add_variable(&mom_x, "momentum (x)");
-  monitor.add_variable(&mom_y, "momentum (y)");
+  monitor.add_variable(&liquid.m, "m_liquid");
+  monitor.add_variable(&gas.m, "m_gas");
+  monitor.add_variable(&liquid.rhoU, "rhoU_liquid");
+  monitor.add_variable(&gas.rhoU, "rhoU_gas");
+  monitor.add_variable(&liquid.rhoV, "rhoV_liquid");
+  monitor.add_variable(&gas.rhoV, "rhoV_gas");
   // = Output ======================================================================================
 
   // = Initialize immersed boundaries ==============================================================
@@ -255,7 +266,7 @@ auto main() -> int {
   V_max = abs_max(fs.curr.V);
   calc_divergence_ib(ib.wall, fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   div_max = abs_max(div);
-  calc_conserved_quantities_ib(fs, ib, mass, mom_x, mom_y);
+  calc_conserved_quantities_ib(fs, ib, liquid, gas);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -265,18 +276,21 @@ auto main() -> int {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
 
-    // = Update IB field ===========================================================================
-    drdt = 0.05 * t;  // * t;
-    calc_ib(fs, r, ib);
-    // = Update IB field ===========================================================================
-
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
+    const Float r_old = r;
 
-    p_iter = 0;
+    p_iter            = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
+
+      // = Update IB field =========================================================================
+      r = (r + r_old) / 2.0;
+      calc_ib(fs, r, ib);
+      drdt = calc_drdt(r);
+      r    = r_old + dt * drdt;
+      // = Update IB field =========================================================================
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
@@ -336,15 +350,14 @@ auto main() -> int {
 #endif  // CHANNEL_FLOW
       // = Correct the outflow =====================================================================
 
+      // = Do pressure correction ==================================================================
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-
       // = Adjust div for bubble growth ============================================================
       // See: Sepahi, F., Verzicco, R., Lohse, D., Krug, D., 2024. Mass transport at gas-evolving
       // electrodes. Journal of Fluid Mechanics 983, A19. https://doi.org/10.1017/jfm.2024.51
       for_each_i<Exec::Parallel>(
           div, [&](Index i, Index j) { div(i, j) -= ib.wall(i, j) * 3.0 / r * drdt; });
 
-      // = Apply pressure correction ===============================================================
       Index local_p_iter = 0;
       ps.set_pressure_operator(fs);
       ps.set_pressure_rhs(fs, div, dt);
@@ -357,21 +370,18 @@ auto main() -> int {
 
       // Correct velocity
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        const auto dpdx = (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx;
-        const auto rho  = fs.curr.rho_u_stag(i, j);
-        // fs.curr.U(i, j) -= (dpdx * dt / rho) * (1.0 - ib.wall_u_stag(i, j));
+        const auto dpdx  = (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx;
+        const auto rho   = fs.curr.rho_u_stag(i, j);
         fs.curr.U(i, j) -= (dpdx * dt / rho);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        const auto dpdy = (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy;
-        const auto rho  = fs.curr.rho_v_stag(i, j);
-        // fs.curr.V(i, j) -= (dpdy * dt / rho) * (1.0 - ib.wall_v_stag(i, j));
+        const auto dpdy  = (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy;
+        const auto rho   = fs.curr.rho_v_stag(i, j);
         fs.curr.V(i, j) -= (dpdy * dt / rho);
       });
-      // = Apply pressure correction ===============================================================
+      // = Do pressure correction ==================================================================
     }
 
-    r += drdt * dt;
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
@@ -382,7 +392,7 @@ auto main() -> int {
     V_max = abs_max(fs.curr.V);
     calc_divergence_ib(ib.wall, fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     div_max = abs_max(div);
-    calc_conserved_quantities_ib(fs, ib, mass, mom_x, mom_y);
+    calc_conserved_quantities_ib(fs, ib, liquid, gas);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }

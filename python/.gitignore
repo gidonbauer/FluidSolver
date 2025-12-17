@@ -8,3 +8,4 @@
 !verify_couette_xdmf.py
 !vis_fs.py
 !vis_curv_error.py
+!plot_growing_ib.py

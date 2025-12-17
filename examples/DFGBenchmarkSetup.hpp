@@ -99,16 +99,16 @@ constexpr FlowBConds<Float> bconds{
 
 #if 1
 template <typename Float_, Index NX_, Index NY_, Index NGHOST_>
-constexpr auto eval_field_at(const Vector<Float_, NX_, NGHOST_>& xm,
-                             const Vector<Float_, NY_, NGHOST_>& ym,
-                             const Matrix<Float_, NX_, NY_, NGHOST_>& field,
+constexpr auto eval_field_at(const Field1D<Float_, NX_, NGHOST_>& xm,
+                             const Field1D<Float_, NY_, NGHOST_>& ym,
+                             const Field2D<Float_, NX_, NY_, NGHOST_>& field,
                              Float_ x,
                              Float_ y) -> Float_ {
   const auto dx    = xm(1) - xm(0);
   const auto dy    = ym(1) - ym(0);
 
   auto get_indices = []<Index N>(Float pos,
-                                 const Vector<Float, N, NGHOST>& grid,
+                                 const Field1D<Float, N, NGHOST>& grid,
                                  Float delta) -> std::pair<Index, Index> {
     if (pos <= grid(0)) { return {0, 0}; }
     if (pos >= grid(N - 1)) { return {N - 1, N - 1}; }
@@ -144,9 +144,9 @@ constexpr auto eval_field_at(const Vector<Float_, NX_, NGHOST_>& xm,
 }
 #else
 template <typename Float_, Index NX_, Index NY_, Index NGHOST_>
-constexpr auto eval_field_at(const Vector<Float_, NX_, NGHOST_>& xm,
-                             const Vector<Float_, NY_, NGHOST_>& ym,
-                             const Matrix<Float_, NX_, NY_, NGHOST_>& field,
+constexpr auto eval_field_at(const Field1D<Float_, NX_, NGHOST_>& xm,
+                             const Field1D<Float_, NY_, NGHOST_>& ym,
+                             const Field2D<Float_, NX_, NY_, NGHOST_>& field,
                              Float_ x,
                              Float_ y) -> Float_ {
   return bilinear_interpolate(xm, ym, field, x, y);

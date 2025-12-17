@@ -87,13 +87,13 @@ auto main() -> int {
   calc_rho(fs);
   calc_visc(fs);
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
 
-  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
-  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
-  Matrix<Float, NX, NY, NGHOST> delta_p{};
+  Field2D<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Field2D<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Field2D<Float, NX, NY, NGHOST> delta_p{};
 
   Float t          = 0.0;
   Float dt         = DT_MAX;
@@ -298,7 +298,7 @@ auto main() -> int {
   {
     constexpr Float TOL = 2e-3;
     auto u_analytical   = [&](Float y) -> Float { return DPDX / (2 * VISC) * (y * y - y); };
-    Vector<Float, NY + 2 * NGHOST, 0> diff{};
+    Field1D<Float, NY + 2 * NGHOST, 0> diff{};
 
     static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
     for_each_i(fs.x, [&](Index i) {

@@ -42,7 +42,7 @@ constexpr Float DT_WRITE = 5e-2;
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-void get_vof_stats(const Matrix<Float, NX, NY, NGHOST>& vf,
+void get_vof_stats(const Field2D<Float, NX, NY, NGHOST>& vf,
                    Float& min,
                    Float& max,
                    Float& integral,
@@ -102,13 +102,13 @@ auto check_vof(Float vof_min, Float vof_max, Float vof_integral, Float max_volum
   return SCALE * -std::cos(x / SCALE) * std::sin(y / SCALE) * F(t);
 }
 
-void constexpr set_velocity(const Vector<Float, NX + 1, NGHOST>& x,
-                            const Vector<Float, NY + 1, NGHOST>& y,
-                            const Vector<Float, NX, NGHOST>& xm,
-                            const Vector<Float, NY, NGHOST>& ym,
+void constexpr set_velocity(const Field1D<Float, NX + 1, NGHOST>& x,
+                            const Field1D<Float, NY + 1, NGHOST>& y,
+                            const Field1D<Float, NX, NGHOST>& xm,
+                            const Field1D<Float, NY, NGHOST>& ym,
                             Float t,
-                            Matrix<Float, NX + 1, NY, NGHOST>& U,
-                            Matrix<Float, NX, NY + 1, NGHOST>& V) {
+                            Field2D<Float, NX + 1, NY, NGHOST>& U,
+                            Field2D<Float, NX, NY + 1, NGHOST>& V) {
   for_each_a<Exec::Parallel>(U, [&](Index i, Index j) { U(i, j) = u_analytical(x(i), ym(j), t); });
   for_each_a<Exec::Parallel>(V, [&](Index i, Index j) { V(i, j) = v_analytical(xm(i), y(j), t); });
 }
@@ -155,9 +155,9 @@ auto main(int argc, char** argv) -> int {
   FS<Float, NX, NY, NGHOST> fs{
       .visc_gas = VISC, .visc_liquid = VISC, .rho_gas = RHO, .rho_liquid = RHO};
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
 
   VOF<Float, NX, NY, NGHOST> vof{};
 

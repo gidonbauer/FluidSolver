@@ -1,6 +1,7 @@
 .DS_Store
 .cache/
 .vscode/
+.idea/
 compile_commands.json
 
 *.swp

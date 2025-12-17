@@ -225,7 +225,7 @@ void apply_velocity_bconds(FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void apply_neumann_bconds(Matrix<Float, NX, NY, NGHOST>& field) noexcept {
+constexpr void apply_neumann_bconds(Field2D<Float, NX, NY, NGHOST>& field) noexcept {
   static_assert(NGHOST > 0, "Expected at least one ghost cell.");
 
   for_each<-NGHOST, NY + NGHOST, Exec::Parallel>([&](Index j) {
@@ -253,7 +253,7 @@ constexpr void apply_neumann_bconds(Matrix<Float, NX, NY, NGHOST>& field) noexce
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void apply_dirichlet_bconds(Matrix<Float, NX, NY, NGHOST>& field, Float value) noexcept {
+constexpr void apply_dirichlet_bconds(Field2D<Float, NX, NY, NGHOST>& field, Float value) noexcept {
   static_assert(NGHOST > 0, "Expected at least one ghost cell.");
 
   for_each<-NGHOST, NY + NGHOST, Exec::Parallel>([&](Index j) {

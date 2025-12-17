@@ -286,15 +286,15 @@ auto main() -> int {
   LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(PRESSURE_TOL, PRESSURE_MAX_ITER);
   ps.set_pressure_operator(fs);
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
 
-  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
-  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
-  Matrix<Float, NX, NY, NGHOST> delta_p{};
+  Field2D<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Field2D<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Field2D<Float, NX, NY, NGHOST> delta_p{};
 
-  Matrix<Float, NX, NY, NGHOST> ib{};
+  Field2D<Float, NX, NY, NGHOST> ib{};
 
   // Observation variables
   Float t       = 0.0;

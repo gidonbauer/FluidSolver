@@ -15,14 +15,14 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 class VTKWriter {
   std::string m_output_dir;
 
-  const Vector<Float, NX + 1, NGHOST>* m_x;
-  const Vector<Float, NY + 1, NGHOST>* m_y;
+  const Field1D<Float, NX + 1, NGHOST>* m_x;
+  const Field1D<Float, NY + 1, NGHOST>* m_y;
 
   std::vector<std::string> m_scalar_names;
-  std::vector<const Matrix<Float, NX, NY, NGHOST>*> m_scalar_values{};
+  std::vector<const Field2D<Float, NX, NY, NGHOST>*> m_scalar_values{};
 
   std::vector<std::string> m_vector_names;
-  std::vector<std::array<const Matrix<Float, NX, NY, NGHOST>*, 2>> m_vector_values{};
+  std::vector<std::array<const Field2D<Float, NX, NY, NGHOST>*, 2>> m_vector_values{};
 
   template <typename T>
   requires(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8))
@@ -63,7 +63,7 @@ class VTKWriter {
 
   // -----------------------------------------------------------------------------------------------
   void write_scalar(std::ofstream& out,
-                    const Matrix<Float, NX, NY, NGHOST>& scalar,
+                    const Field2D<Float, NX, NY, NGHOST>& scalar,
                     const std::string& name) {
     out << "SCALARS " << name << " double 1\n";
     out << "LOOKUP_TABLE default\n";
@@ -77,8 +77,8 @@ class VTKWriter {
 
   // -----------------------------------------------------------------------------------------------
   void write_vector(std::ofstream& out,
-                    const Matrix<Float, NX, NY, NGHOST>& x_comp,
-                    const Matrix<Float, NX, NY, NGHOST>& y_comp,
+                    const Field2D<Float, NX, NY, NGHOST>& x_comp,
+                    const Field2D<Float, NX, NY, NGHOST>& y_comp,
                     const std::string& name) {
     out << "VECTORS " << name << " double\n";
     for (Index j = 0; j < x_comp.extent(1); ++j) {
@@ -94,8 +94,8 @@ class VTKWriter {
 
  public:
   constexpr VTKWriter(std::string output_dir,
-                      const Vector<Float, NX + 1, NGHOST>* x,
-                      const Vector<Float, NY + 1, NGHOST>* y)
+                      const Field1D<Float, NX + 1, NGHOST>* x,
+                      const Field1D<Float, NY + 1, NGHOST>* y)
       : m_output_dir(std::move(output_dir)),
         m_x(x),
         m_y(y) {
@@ -109,15 +109,15 @@ class VTKWriter {
   constexpr auto operator=(VTKWriter&& other) noexcept -> VTKWriter&      = delete;
   constexpr ~VTKWriter() noexcept                                         = default;
 
-  constexpr void add_scalar(std::string name, const Matrix<Float, NX, NY, NGHOST>* value) {
+  constexpr void add_scalar(std::string name, const Field2D<Float, NX, NY, NGHOST>* value) {
     IGOR_ASSERT(value != nullptr, "value cannot be a nullptr.");
     m_scalar_names.emplace_back(std::move(name));
     m_scalar_values.push_back(value);
   }
 
   constexpr void add_vector(std::string name,
-                            const Matrix<Float, NX, NY, NGHOST>* x_value,
-                            const Matrix<Float, NX, NY, NGHOST>* y_value) {
+                            const Field2D<Float, NX, NY, NGHOST>* x_value,
+                            const Field2D<Float, NX, NY, NGHOST>* y_value) {
     IGOR_ASSERT(x_value != nullptr, "x_value cannot be a nullptr.");
     IGOR_ASSERT(y_value != nullptr, "y_value cannot be a nullptr.");
     m_vector_names.emplace_back(std::move(name));

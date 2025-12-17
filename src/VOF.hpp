@@ -19,11 +19,11 @@ requires(NGHOST > 0)
 struct VOF {
   InterfaceReconstruction<NX, NY, NGHOST> ir{};
 
-  Matrix<Float, NX, NY, NGHOST> vf_old{};
-  Matrix<Float, NX, NY, NGHOST> vf{};
+  Field2D<Float, NX, NY, NGHOST> vf_old{};
+  Field2D<Float, NX, NY, NGHOST> vf{};
 
-  Matrix<Float, NX, NY, NGHOST> curv{};
-  Matrix<Float, NX, NY, NGHOST> interface_length{};
+  Field2D<Float, NX, NY, NGHOST> curv{};
+  Field2D<Float, NX, NY, NGHOST> interface_length{};
 };
 
 static constexpr std::array CUBOID_OFFSETS{
@@ -66,8 +66,8 @@ static_assert(CUBOID_OFFSETS.size() + FACE_VERTICES.size() ==
 template <typename Float, Index NX, Index NY, Index NGHOST>
 constexpr auto advect_point(const IRL::Pt& pt,
                             const FS<Float, NX, NY, NGHOST>& fs,
-                            const Matrix<Float, NX, NY, NGHOST>& Ui,
-                            const Matrix<Float, NX, NY, NGHOST>& Vi,
+                            const Field2D<Float, NX, NY, NGHOST>& Ui,
+                            const Field2D<Float, NX, NY, NGHOST>& Vi,
                             Float dt) -> IRL::Pt {
   // Runge-Kutta-4
   const auto [u1, v1] = eval_flow_field_at(fs.xm, fs.ym, Ui, Vi, pt[0], pt[1]);
@@ -114,8 +114,8 @@ constexpr auto advect_point2(const IRL::Pt& pt, const FS<Float, NX, NY, NGHOST>&
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void localize_cells(const Vector<Float, NX + 1, NGHOST>& x,
-                    const Vector<Float, NY + 1, NGHOST>& y,
+void localize_cells(const Field1D<Float, NX + 1, NGHOST>& x,
+                    const Field1D<Float, NY + 1, NGHOST>& y,
                     InterfaceReconstruction<NX, NY, NGHOST>& ir) {
   for_each_a<Exec::Parallel>(ir.cell_localizer, [&](Index i, Index j) {
     // Localize the cell for volume calculation
@@ -141,7 +141,7 @@ void localize_cells(const Vector<Float, NX + 1, NGHOST>& x,
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void reconstruct_interface(const FS<Float, NX, NY, NGHOST>& fs,
-                           const Matrix<Float, NX, NY, NGHOST>& vf,
+                           const Field2D<Float, NX, NY, NGHOST>& vf,
                            InterfaceReconstruction<NX, NY, NGHOST>& ir) {
   constexpr IRL::UnsignedIndex_t NEIGHBORHOOD_SIZE = 9;
 
@@ -188,8 +188,8 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 [[nodiscard]] auto advect_single_cell(Index i,
                                       Index j,
                                       const FS<Float, NX, NY, NGHOST>& fs,
-                                      [[maybe_unused]] const Matrix<Float, NX, NY, NGHOST>& Ui,
-                                      [[maybe_unused]] const Matrix<Float, NX, NY, NGHOST>& Vi,
+                                      [[maybe_unused]] const Field2D<Float, NX, NY, NGHOST>& Ui,
+                                      [[maybe_unused]] const Field2D<Float, NX, NY, NGHOST>& Vi,
                                       Float dt,
                                       VOF<Float, NX, NY, NGHOST>& vof) -> Float {
   constexpr Index NEIGHBORHOOD_OFFSET = 1;
@@ -318,8 +318,8 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void advect_cells(const FS<Float, NX, NY, NGHOST>& fs,
-                  [[maybe_unused]] const Matrix<Float, NX, NY, NGHOST>& Ui,
-                  [[maybe_unused]] const Matrix<Float, NX, NY, NGHOST>& Vi,
+                  [[maybe_unused]] const Field2D<Float, NX, NY, NGHOST>& Ui,
+                  [[maybe_unused]] const Field2D<Float, NX, NY, NGHOST>& Vi,
                   Float dt,
                   VOF<Float, NX, NY, NGHOST>& vof,
                   Float* max_volume_error = nullptr) {
@@ -335,8 +335,8 @@ void advect_cells(const FS<Float, NX, NY, NGHOST>& fs,
 template <typename Float, Index NX, Index NY, Index NGHOST>
 [[nodiscard]] constexpr auto get_interface_length(Index i,
                                                   Index j,
-                                                  const Vector<Float, NX + 1, NGHOST>& x,
-                                                  const Vector<Float, NY + 1, NGHOST>& y,
+                                                  const Field1D<Float, NX + 1, NGHOST>& x,
+                                                  const Field1D<Float, NY + 1, NGHOST>& y,
                                                   const IRL::Plane& plane) noexcept -> Float {
   const auto [p1, p2] = get_intersections_with_cell<Float, NX, NY>(i, j, x, y, plane);
   IGOR_ASSERT(
@@ -368,8 +368,8 @@ constexpr void calc_interface_length(const FS<Float, NX, NY, NGHOST>& fs,
 template <typename Float, Index NX, Index NY, Index NGHOST>
 [[nodiscard]] constexpr auto get_intersections_with_cell(Index i,
                                                          Index j,
-                                                         const Vector<Float, NX + 1, NGHOST>& x,
-                                                         const Vector<Float, NY + 1, NGHOST>& y,
+                                                         const Field1D<Float, NX + 1, NGHOST>& x,
+                                                         const Field1D<Float, NY + 1, NGHOST>& y,
                                                          const IRL::Plane& plane)
     -> std::array<IRL::Pt, 2> {
   Igor::StaticVector<IRL::Pt, 4> trial_points{};
@@ -424,9 +424,9 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 auto save_interface(const std::string& filename,
-                    const Vector<Float, NX + 1, NGHOST>& x,
-                    const Vector<Float, NY + 1, NGHOST>& y,
-                    const Matrix<IRL::PlanarSeparator, NX, NY, NGHOST>& interface) -> bool {
+                    const Field1D<Float, NX + 1, NGHOST>& x,
+                    const Field1D<Float, NY + 1, NGHOST>& y,
+                    const Field2D<IRL::PlanarSeparator, NX, NY, NGHOST>& interface) -> bool {
 
   auto interpret_as_big_endian_bytes = []<typename T>(T value)->std::array<const char, sizeof(T)> {
     static_assert(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8),

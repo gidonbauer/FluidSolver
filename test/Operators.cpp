@@ -28,8 +28,8 @@ auto test_eval_grid_at() noexcept -> bool {
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{};
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
   // = Allocate memory =============================================================================
 
   // = Initialize grid =============================================================================
@@ -97,13 +97,13 @@ auto test_gradient_centered_points() noexcept -> bool {
   FS<Float, NX, NY, NGHOST + 4> fs{};
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
 
-  Matrix<Float, NX, NY, NGHOST + 4> f{};
-  Matrix<Float, NX, NY, NGHOST + 4> dfdx{};
-  Matrix<Float, NX, NY, NGHOST + 4> dfdy{};
-  Matrix<Float, NX, NY, NGHOST + 4> dfdxx{};
-  Matrix<Float, NX, NY, NGHOST + 4> dfdyy{};
-  Matrix<Float, NX, NY, NGHOST + 4> dfdxy{};
-  Matrix<Float, NX, NY, NGHOST + 4> dfdyx{};
+  Field2D<Float, NX, NY, NGHOST + 4> f{};
+  Field2D<Float, NX, NY, NGHOST + 4> dfdx{};
+  Field2D<Float, NX, NY, NGHOST + 4> dfdy{};
+  Field2D<Float, NX, NY, NGHOST + 4> dfdxx{};
+  Field2D<Float, NX, NY, NGHOST + 4> dfdyy{};
+  Field2D<Float, NX, NY, NGHOST + 4> dfdxy{};
+  Field2D<Float, NX, NY, NGHOST + 4> dfdyx{};
 
   for_each_a<Exec::Parallel>(f, [&](Index i, Index j) {
     const Float x = fs.xm(i) - 0.5;
@@ -286,7 +286,7 @@ auto test_staggered_integral() -> bool {
 auto test_atomics() -> bool {
   Igor::ScopeTimer timer("Atomics");
 
-  Matrix<Float, 2048, 2048, 0> field;
+  Field2D<Float, 2048, 2048, 0> field;
   static std::mt19937 rng(std::random_device{}());
   std::uniform_real_distribution<Float> dist(-10.0, 10.0);
   std::generate_n(field.get_data(), field.size(), [&]() { return dist(rng); });

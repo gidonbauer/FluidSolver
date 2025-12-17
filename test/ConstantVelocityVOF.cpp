@@ -37,7 +37,7 @@ constexpr Index NITER  = 120;
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-auto check_vof(const Matrix<Float, NX, NY, NGHOST>& vf) noexcept -> bool {
+auto check_vof(const Field2D<Float, NX, NY, NGHOST>& vf) noexcept -> bool {
   const auto [min, max] = std::minmax_element(vf.get_data(), vf.get_data() + vf.size());
   const auto integral   = integrate<true>(DX, DY, vf);
 
@@ -64,9 +64,9 @@ auto check_vof(const Matrix<Float, NX, NY, NGHOST>& vf) noexcept -> bool {
 }
 
 // -------------------------------------------------------------------------------------------------
-auto calc_center_of_mass(const Vector<Float, NX, NGHOST>& xm,
-                         const Vector<Float, NY, NGHOST>& ym,
-                         const Matrix<Float, NX, NY, NGHOST>& vf) -> std::array<Float, 2> {
+auto calc_center_of_mass(const Field1D<Float, NX, NGHOST>& xm,
+                         const Field1D<Float, NY, NGHOST>& ym,
+                         const Field2D<Float, NX, NY, NGHOST>& vf) -> std::array<Float, 2> {
   const auto mass  = integrate(DX, DY, vf);
 
   Float weighted_x = 0.0;
@@ -91,8 +91,8 @@ auto main() -> int {
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{};
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
 
   VOF<Float, NX, NY, NGHOST> vof{};
   // = Allocate memory =============================================================================

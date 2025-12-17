@@ -82,13 +82,13 @@ auto main() -> int {
   calc_rho(fs);
   calc_visc(fs);
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
 
-  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
-  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
-  Matrix<Float, NX, NY, NGHOST> delta_p{};
+  Field2D<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Field2D<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Field2D<Float, NX, NY, NGHOST> delta_p{};
 
   Float t          = 0.0;
   Float dt         = DT_MAX;
@@ -224,7 +224,7 @@ auto main() -> int {
   // = Perform tests ===============================================================================
   {
     auto u_analytical = [&](Float y) -> Float { return U_TOP * y; };
-    Vector<Float, NY + 2 * NGHOST> diff{};
+    Field1D<Float, NY + 2 * NGHOST> diff{};
 
     constexpr Index N_CHECKS                       = 3;
     constexpr std::array<size_t, N_CHECKS> i_check = {NX / 4, NX / 2, 3 * NX / 4};

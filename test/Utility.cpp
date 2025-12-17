@@ -31,8 +31,8 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
 }
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto test_reduce_vec() -> bool {
-  Vector<double, 10, 2> vec{};
+[[nodiscard]] auto test_reduce_field_1d() -> bool {
+  Field1D<double, 10, 2> vec{};
   for_each_i(vec, [&](Index i) { vec(i) = static_cast<double>(i % 2 == 0 ? i : -i); });
   vec(-2)                  = -100.0;
   vec(-1)                  = -100.0;
@@ -84,8 +84,8 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
 }
 
 // -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto test_reduce_mat() -> bool {
-  Matrix<double, 10, 10, 2> mat{};
+[[nodiscard]] auto test_reduce_field_2d() -> bool {
+  Field2D<double, 10, 10, 2> mat{};
   fill(mat, -100.0);
   for_each_i(mat, [&](Index i, Index j) { mat(i, j) = static_cast<double>(i % 2 == 0 ? i : -i); });
 
@@ -139,8 +139,8 @@ auto main() -> int {
 
   bool any_test_failed = false;
 
-  any_test_failed      = !test_reduce_vec() || any_test_failed;
-  any_test_failed      = !test_reduce_mat() || any_test_failed;
+  any_test_failed      = !test_reduce_field_1d() || any_test_failed;
+  any_test_failed      = !test_reduce_field_2d() || any_test_failed;
 
   {
     Matrix<double, 3, 3> A{};

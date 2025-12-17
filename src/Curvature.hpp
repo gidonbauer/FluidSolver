@@ -18,10 +18,10 @@ namespace detail {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void smooth_vf_field(const Vector<Float, NX, NGHOST>& xm,
-                     const Vector<Float, NY, NGHOST>& ym,
-                     const Matrix<Float, NX, NY, NGHOST>& vf,
-                     Matrix<Float, NX, NY, NGHOST>& vf_smooth) noexcept {
+void smooth_vf_field(const Field1D<Float, NX, NGHOST>& xm,
+                     const Field1D<Float, NY, NGHOST>& ym,
+                     const Field2D<Float, NX, NY, NGHOST>& vf,
+                     Field2D<Float, NX, NY, NGHOST>& vf_smooth) noexcept {
   // They used 4 in the paper but 16 seems to work better for me
   constexpr Index NUM_SMOOTHING_CELLS = 4;  // 16;
   const Float SMOOTHING_LENGTH = NUM_SMOOTHING_CELLS * std::max(xm(1) - xm(0), ym(1) - ym(0));
@@ -324,13 +324,13 @@ void calc_curvature_convolved_vf(const FS<Float, NX, NY, NGHOST>& fs,
   // Fluid-StructureFrontier of MultiPhase Flow Analysis and Fluid-Structure 83.6 (2005), pp.
   // 425–434.
 
-  static Matrix<Float, NX, NY, NGHOST> dvfdx{};
-  static Matrix<Float, NX, NY, NGHOST> dvfdy{};
-  static Matrix<Float, NX, NY, NGHOST> dvfdxx{};
-  static Matrix<Float, NX, NY, NGHOST> dvfdyy{};
-  static Matrix<Float, NX, NY, NGHOST> dvfdxy{};
-  static Matrix<Float, NX, NY, NGHOST> vf_smooth{};
-  static Matrix<Float, NX, NY, NGHOST> curv_centered{};
+  static Field2D<Float, NX, NY, NGHOST> dvfdx{};
+  static Field2D<Float, NX, NY, NGHOST> dvfdy{};
+  static Field2D<Float, NX, NY, NGHOST> dvfdxx{};
+  static Field2D<Float, NX, NY, NGHOST> dvfdyy{};
+  static Field2D<Float, NX, NY, NGHOST> dvfdxy{};
+  static Field2D<Float, NX, NY, NGHOST> vf_smooth{};
+  static Field2D<Float, NX, NY, NGHOST> curv_centered{};
 
   detail::smooth_vf_field(fs.xm, fs.ym, vof.vf_old, vf_smooth);
 
@@ -372,7 +372,7 @@ void calc_curvature_convolved_vf(const FS<Float, NX, NY, NGHOST>& fs,
 // template <typename Float, Index NX, Index NY, Index NGHOST>
 // void calc_surface_length(const FS<Float, NX, NY>& fs,
 //                          const InterfaceReconstruction<NX, NY, NGHOST>& ir,
-//                          Matrix<Float, NX, NY>& surface_length) noexcept {
+//                          Field2D<Float, NX, NY>& surface_length) noexcept {
 //   for (Index i = 0; i < NX; ++i) {
 //     for (Index j = 0; j < NY; ++j) {
 //       const auto& interface = ir.interface(i, j);

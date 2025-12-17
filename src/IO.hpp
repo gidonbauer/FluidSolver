@@ -175,7 +175,7 @@ get_output_directory(std::string_view subdir   = "output",
 
 // -------------------------------------------------------------------------------------------------
 template <std::floating_point Float, Index N, Index NGHOST>
-[[nodiscard]] auto to_npy(const std::string& filename, const Vector<Float, N, NGHOST>& vector)
+[[nodiscard]] auto to_npy(const std::string& filename, const Field1D<Float, N, NGHOST>& vector)
     -> bool {
   std::ofstream out(filename, std::ios::binary | std::ios::out);
   if (!out) {
@@ -203,7 +203,7 @@ template <std::floating_point Float, Index N, Index NGHOST>
 // -------------------------------------------------------------------------------------------------
 template <std::floating_point Float, Index M, Index N, Index NGHOST, Layout LAYOUT>
 [[nodiscard]] auto to_npy(const std::string& filename,
-                          const Matrix<Float, M, N, NGHOST, LAYOUT>& matrix) -> bool {
+                          const Field2D<Float, M, N, NGHOST, LAYOUT>& matrix) -> bool {
   std::ofstream out(filename, std::ios::binary | std::ios::out);
   if (!out) {
     Igor::Warn("Could not open file `{}`: {}", filename, std::strerror(errno));

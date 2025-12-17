@@ -25,8 +25,8 @@ class LinearSystem {
   };
   std::array<Index, STENCIL_SIZE> stencil_indices{S_CENTER, S_LEFT, S_RIGHT, S_BOTTOM, S_TOP};
 
-  Matrix<std::array<Float, STENCIL_SIZE>, NX, NY, NGHOST, LAYOUT> op{};
-  Matrix<Float, NX, NY, NGHOST, LAYOUT> rhs{};
+  Field2D<std::array<Float, STENCIL_SIZE>, NX, NY, NGHOST, LAYOUT> op{};
+  Field2D<Float, NX, NY, NGHOST, LAYOUT> rhs{};
 
   // -----------------------------------------------------------------------------------------------
   void fill_pressure_operator(const FS<Float, NX, NY, NGHOST>& fs,
@@ -123,7 +123,7 @@ class LinearSystem {
 
   // -----------------------------------------------------------------------------------------------
   void fill_pressure_rhs(const FS<Float, NX, NY, NGHOST>& fs,
-                         const Matrix<Float, NX, NY, NGHOST>& div,
+                         const Field2D<Float, NX, NY, NGHOST>& div,
                          Float dt,
                          PSDirichlet dirichlet_bc = PSDirichlet::NONE) noexcept {
     const auto vol = fs.dx * fs.dy;

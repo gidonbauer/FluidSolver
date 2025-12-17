@@ -24,47 +24,33 @@ enum class Layout : uint8_t { C, F };
 // =================================================================================================
 template <typename Contained, Index N, Index NGHOST = 0>
 requires(N > 0 && NGHOST >= 0)
-class Vector {
+class Field1D {
   static constexpr auto ARRAY_SIZE = static_cast<size_t>(N + 2 * NGHOST);
 
- public:
-  static constexpr bool is_small = N <= 5 && ARRAY_SIZE * sizeof(Contained) < 1024UZ;
-
  private:
-  using StorageType = std::conditional_t<is_small,
-                                         std::array<Contained, ARRAY_SIZE>,
-                                         std::unique_ptr<std::array<Contained, ARRAY_SIZE>>>;
-  StorageType m_data{};
+  std::unique_ptr<std::array<Contained, ARRAY_SIZE>> m_data{};
 
   [[nodiscard]] constexpr auto get_idx(Index raw_idx) const noexcept -> Index {
     return raw_idx + NGHOST;
   }
 
  public:
-  Vector() noexcept
-  requires(is_small)
-  {
-    if constexpr (std::is_arithmetic_v<Contained>) {
-      std::fill_n(m_data.data(), size(), Contained{0});
-    }
-  }
-  Vector() noexcept
-  requires(!is_small)
+  Field1D() noexcept
       : m_data(new std::array<Contained, ARRAY_SIZE>) {
     IGOR_ASSERT(m_data != nullptr, "Allocation failed.");
     if constexpr (std::is_arithmetic_v<Contained>) {
       std::fill_n(m_data->data(), size(), Contained{0});
     }
   }
-  Vector(const Vector& other) noexcept                              = delete;
-  Vector(Vector&& other) noexcept                                   = delete;
-  constexpr auto operator=(const Vector& other) noexcept -> Vector& = delete;
-  constexpr auto operator=(Vector&& other) noexcept -> Vector&      = delete;
-  ~Vector() noexcept                                                = default;
+  Field1D(const Field1D& other) noexcept                              = delete;
+  Field1D(Field1D&& other) noexcept                                   = delete;
+  constexpr auto operator=(const Field1D& other) noexcept -> Field1D& = delete;
+  constexpr auto operator=(Field1D&& other) noexcept -> Field1D&      = delete;
+  ~Field1D() noexcept                                                 = default;
 
   [[nodiscard]] constexpr auto operator()(Index idx) noexcept -> Contained& {
     IGOR_ASSERT(idx >= -NGHOST && idx < N + NGHOST,
-                "Index {} is out of bounds for Vector with dimension {}:{}",
+                "Index {} is out of bounds for Field1D with dimension {}:{}",
                 idx,
                 -NGHOST,
                 N + NGHOST);
@@ -73,26 +59,16 @@ class Vector {
 
   [[nodiscard]] constexpr auto operator()(Index idx) const noexcept -> const Contained& {
     IGOR_ASSERT(idx >= -NGHOST && idx < N + NGHOST,
-                "Index {} is out of bounds for Vector with dimension {}:{}",
+                "Index {} is out of bounds for Field1D with dimension {}:{}",
                 idx,
                 -NGHOST,
                 N + NGHOST);
     return *(get_data() + get_idx(idx));
   }
 
-  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* {
-    if constexpr (is_small) {
-      return m_data.data();
-    } else {
-      return m_data->data();
-    }
-  }
+  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* { return m_data->data(); }
   [[nodiscard]] constexpr auto get_data() const noexcept -> const Contained* {
-    if constexpr (is_small) {
-      return m_data.data();
-    } else {
-      return m_data->data();
-    }
+    return m_data->data();
   }
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index { return ARRAY_SIZE; }
@@ -100,7 +76,7 @@ class Vector {
   [[nodiscard]] constexpr auto n_ghost() const noexcept -> Index { return NGHOST; }
 
   [[nodiscard]] constexpr auto extent([[maybe_unused]] Index r) const noexcept -> Index {
-    IGOR_ASSERT(r >= 0 && r < 1, "Dimension {} is out of bounds for Vector", r);
+    IGOR_ASSERT(r >= 0 && r < 1, "Dimension {} is out of bounds for Field1D", r);
     return N;
   }
 
@@ -119,17 +95,11 @@ class Vector {
 // =================================================================================================
 template <typename Contained, Index M, Index N, Index NGHOST = 0, Layout LAYOUT = Layout::C>
 requires(M > 0 && N > 0 && NGHOST >= 0)
-class Matrix {
+class Field2D {
   static constexpr auto ARRAY_SIZE = (M + 2 * NGHOST) * (N + 2 * NGHOST);
 
- public:
-  static constexpr bool is_small = M <= 5 && N <= 5 && ARRAY_SIZE * sizeof(Contained) < 1024UZ;
-
  private:
-  using StorageType = std::conditional_t<is_small,
-                                         std::array<Contained, ARRAY_SIZE>,
-                                         std::unique_ptr<std::array<Contained, ARRAY_SIZE>>>;
-  StorageType m_data{};
+  std::unique_ptr<std::array<Contained, ARRAY_SIZE>> m_data{};
 
  public:
   [[nodiscard]] constexpr auto get_idx(Index i, Index j) const noexcept -> Index {
@@ -140,30 +110,22 @@ class Matrix {
     }
   }
 
-  Matrix() noexcept
-  requires(is_small)
-  {
-    if constexpr (std::is_arithmetic_v<Contained>) {
-      std::fill_n(m_data.data(), size(), Contained{0});
-    }
-  }
-  Matrix() noexcept
-  requires(!is_small)
+  Field2D() noexcept
       : m_data(new std::array<Contained, ARRAY_SIZE>) {
     IGOR_ASSERT(m_data != nullptr, "Allocation failed.");
     if constexpr (std::is_arithmetic_v<Contained>) {
       std::fill_n(m_data->data(), size(), Contained{0});
     }
   }
-  Matrix(const Matrix& other) noexcept                              = delete;
-  Matrix(Matrix&& other) noexcept                                   = delete;
-  constexpr auto operator=(const Matrix& other) noexcept -> Matrix& = delete;
-  constexpr auto operator=(Matrix&& other) noexcept -> Matrix&      = delete;
-  ~Matrix() noexcept                                                = default;
+  Field2D(const Field2D& other) noexcept                              = delete;
+  Field2D(Field2D&& other) noexcept                                   = delete;
+  constexpr auto operator=(const Field2D& other) noexcept -> Field2D& = delete;
+  constexpr auto operator=(Field2D&& other) noexcept -> Field2D&      = delete;
+  ~Field2D() noexcept                                                 = default;
 
   constexpr auto operator()(Index i, Index j) noexcept -> Contained& {
     IGOR_ASSERT(i >= -NGHOST && i < M + NGHOST && j >= -NGHOST && j < N + NGHOST,
-                "Index ({}, {}) is out of bounds for Matrix of size {}:{}x{}:{}",
+                "Index ({}, {}) is out of bounds for Field2D of size {}:{}x{}:{}",
                 i,
                 j,
                 -NGHOST,
@@ -175,7 +137,7 @@ class Matrix {
 
   constexpr auto operator()(Index i, Index j) const noexcept -> const Contained& {
     IGOR_ASSERT(i >= -NGHOST && i < M + NGHOST && j >= -NGHOST && j < N + NGHOST,
-                "Index ({}, {}) is out of bounds for Matrix of size {}:{}x{}:{}",
+                "Index ({}, {}) is out of bounds for Field2D of size {}:{}x{}:{}",
                 i,
                 j,
                 -NGHOST,
@@ -185,26 +147,16 @@ class Matrix {
     return *(get_data() + get_idx(i, j));
   }
 
-  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* {
-    if constexpr (is_small) {
-      return m_data.data();
-    } else {
-      return m_data->data();
-    }
-  }
+  [[nodiscard]] constexpr auto get_data() noexcept -> Contained* { return m_data->data(); }
   [[nodiscard]] constexpr auto get_data() const noexcept -> const Contained* {
-    if constexpr (is_small) {
-      return m_data.data();
-    } else {
-      return m_data->data();
-    }
+    return m_data->data();
   }
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index { return ARRAY_SIZE; }
   [[nodiscard]] constexpr auto n_ghost() const noexcept -> Index { return NGHOST; }
 
   [[nodiscard]] constexpr auto extent(Index r) const noexcept -> Index {
-    IGOR_ASSERT(r >= 0 && r < 2, "Dimension {} is out of bounds for Vector", r);
+    IGOR_ASSERT(r >= 0 && r < 2, "Dimension {} is out of bounds for Field1D", r);
     return r == 0 ? M : N;
   }
 

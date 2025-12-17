@@ -22,15 +22,15 @@ class XDMFWriter {
   hid_t m_data_file_id;
 
   std::vector<std::string> m_scalar_names;
-  std::vector<const Matrix<Float, NX, NY, NGHOST>*> m_scalar_values{};
+  std::vector<const Field2D<Float, NX, NY, NGHOST>*> m_scalar_values{};
 
   std::vector<std::string> m_vector_names;
-  std::vector<std::array<const Matrix<Float, NX, NY, NGHOST>*, 2>> m_vector_values{};
+  std::vector<std::array<const Field2D<Float, NX, NY, NGHOST>*, 2>> m_vector_values{};
 
-  Matrix<Float, NX, NY, 0, Layout::F> m_local_storage{};
+  Field2D<Float, NX, NY, 0, Layout::F> m_local_storage{};
 
   void save_scalar_hdf5(Index write_index,
-                        const Matrix<Float, NX, NY, NGHOST>& scalar,
+                        const Field2D<Float, NX, NY, NGHOST>& scalar,
                         const std::string& name) {
     // Make sure that data is in Fortan order, this is incorrect for HDF5 but XDMF wants it...
     for_each_i(scalar, [&](Index i, Index j) { m_local_storage(i, j) = scalar(i, j); });
@@ -44,7 +44,7 @@ class XDMFWriter {
 
   // -----------------------------------------------------------------------------------------------
   void write_scalar(Index write_index,
-                    const Matrix<Float, NX, NY, NGHOST>& scalar,
+                    const Field2D<Float, NX, NY, NGHOST>& scalar,
                     const std::string& name) {
     // - Write meta-data ---------------------------------------------------------------------------
     m_xdmf_out << Igor::detail::format(
@@ -65,8 +65,8 @@ class XDMFWriter {
 
   // -----------------------------------------------------------------------------------------------
   void write_vector(Index write_index,
-                    const Matrix<Float, NX, NY, NGHOST>& x_comp,
-                    const Matrix<Float, NX, NY, NGHOST>& y_comp,
+                    const Field2D<Float, NX, NY, NGHOST>& x_comp,
+                    const Field2D<Float, NX, NY, NGHOST>& y_comp,
                     const std::string& name) {
     const auto x_name = Igor::detail::format("{}_x", name);
     const auto y_name = Igor::detail::format("{}_y", name);
@@ -109,8 +109,8 @@ class XDMFWriter {
 
  public:
   XDMFWriter(const std::string& output_path,
-             const Vector<Float, NX + 1, NGHOST>* x,
-             const Vector<Float, NY + 1, NGHOST>* y)
+             const Field1D<Float, NX + 1, NGHOST>* x,
+             const Field1D<Float, NY + 1, NGHOST>* y)
       : XDMFWriter(Igor::detail::format("{}/solution.xdmf2", output_path),
                    Igor::detail::format("{}/solution.h5", output_path),
                    x,
@@ -119,8 +119,8 @@ class XDMFWriter {
   // -----------------------------------------------------------------------------------------------
   XDMFWriter(std::string xdmf_path,
              std::string data_path,
-             const Vector<Float, NX + 1, NGHOST>* x,
-             const Vector<Float, NY + 1, NGHOST>* y)
+             const Field1D<Float, NX + 1, NGHOST>* x,
+             const Field1D<Float, NY + 1, NGHOST>* y)
       : m_xdmf_path(std::move(xdmf_path)),
         m_data_path(std::move(data_path)),
         m_data_filename(Igor::detail::strip_path(m_data_path)),
@@ -173,7 +173,7 @@ class XDMFWriter {
   }
 
   // -----------------------------------------------------------------------------------------------
-  void add_scalar(std::string name, const Matrix<Float, NX, NY, NGHOST>* value) {
+  void add_scalar(std::string name, const Field2D<Float, NX, NY, NGHOST>* value) {
     IGOR_ASSERT(value != nullptr, "value cannot be a nullptr.");
     m_scalar_names.emplace_back(std::move(name));
     m_scalar_values.push_back(value);
@@ -181,8 +181,8 @@ class XDMFWriter {
 
   // -----------------------------------------------------------------------------------------------
   void add_vector(std::string name,
-                  const Matrix<Float, NX, NY, NGHOST>* x_value,
-                  const Matrix<Float, NX, NY, NGHOST>* y_value) {
+                  const Field2D<Float, NX, NY, NGHOST>* x_value,
+                  const Field2D<Float, NX, NY, NGHOST>* y_value) {
     IGOR_ASSERT(x_value != nullptr, "x_value cannot be a nullptr.");
     IGOR_ASSERT(y_value != nullptr, "y_value cannot be a nullptr.");
     m_vector_names.emplace_back(std::move(name));
@@ -268,18 +268,18 @@ class XDMFWriter {
  public:
   XDMFWriter(std::string,
              std::string,
-             const Vector<Float, NX + 1, NGHOST>*,
-             const Vector<Float, NY + 1, NGHOST>*);
+             const Field1D<Float, NX + 1, NGHOST>*,
+             const Field1D<Float, NY + 1, NGHOST>*);
   XDMFWriter(const XDMFWriter& other)                    = delete;
   XDMFWriter(XDMFWriter&& other)                         = delete;
   auto operator=(const XDMFWriter& other) -> XDMFWriter& = delete;
   auto operator=(XDMFWriter&& other) -> XDMFWriter&      = delete;
   ~XDMFWriter();
 
-  void add_scalar(std::string, const Matrix<Float, NX, NY, NGHOST>*);
+  void add_scalar(std::string, const Field2D<Float, NX, NY, NGHOST>*);
   void add_vector(std::string name,
-                  const Matrix<Float, NX, NY, NGHOST>* x_value,
-                  const Matrix<Float, NX, NY, NGHOST>* y_value);
+                  const Field2D<Float, NX, NY, NGHOST>* x_value,
+                  const Field2D<Float, NX, NY, NGHOST>* y_value);
   auto write(Float t) -> bool;
 };
 

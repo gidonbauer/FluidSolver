@@ -107,7 +107,7 @@ class LinearSolver_StructHypre {
 
   // -----------------------------------------------------------------------------------------------
   void set_pressure_rhs(const FS<Float, NX, NY, NGHOST>& fs,
-                        const Matrix<Float, NX, NY, NGHOST>& div,
+                        const Field2D<Float, NX, NY, NGHOST>& div,
                         Float dt) {
     lin_sys.fill_pressure_rhs(fs, div, dt, m_dirichlet_bc);
     std::array<HYPRE_Int, LS::NDIMS> ilower = {-NGHOST, -NGHOST};
@@ -117,7 +117,7 @@ class LinearSolver_StructHypre {
 
   // -----------------------------------------------------------------------------------------------
   void
-  solve(Matrix<Float, NX, NY, NGHOST>& sol, Float* residual = nullptr, Index* num_iter = nullptr) {
+  solve(Field2D<Float, NX, NY, NGHOST>& sol, Float* residual = nullptr, Index* num_iter = nullptr) {
     IGOR_ASSERT(m_is_setup, "Solver has not been properly setup.");
 
     FS_HYPRE_MAKE_SINGLE_THREADED_IF_NECESSARY

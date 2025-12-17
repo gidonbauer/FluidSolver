@@ -15,7 +15,7 @@ template <bool INCLUDE_GHOST = false,
           Index NGHOST,
           typename BinaryFunc,
           typename UnaryFunc>
-[[nodiscard]] constexpr auto transform_reduce(const Vector<Float, N, NGHOST>& vec,
+[[nodiscard]] constexpr auto transform_reduce(const Field1D<Float, N, NGHOST>& vec,
                                               Float init,
                                               BinaryFunc&& reduce,
                                               UnaryFunc&& transform) noexcept -> Float {
@@ -49,7 +49,7 @@ template <bool INCLUDE_GHOST = false,
           Layout LAYOUT,
           typename BinaryFunc,
           typename UnaryFunc>
-[[nodiscard]] constexpr auto transform_reduce(const Matrix<Float, NX, NY, NGHOST, LAYOUT>& mat,
+[[nodiscard]] constexpr auto transform_reduce(const Field2D<Float, NX, NY, NGHOST, LAYOUT>& mat,
                                               Float init,
                                               BinaryFunc&& reduce,
                                               UnaryFunc&& transform) noexcept -> Float {
@@ -118,15 +118,58 @@ void update_maximum_atomic(std::atomic<T>& maximum_value, T const& value) noexce
 }
 
 // -------------------------------------------------------------------------------------------------
-template <typename Float, Index N>
-void solve_linear_system(const Matrix<Float, N, N>& lhs_,
-                         const Vector<Float, N>& rhs_,
-                         Vector<Float, N>& sol) noexcept {
-  Matrix<Float, N, N> lhs{};
-  std::copy_n(lhs_.get_data(), lhs_.size(), lhs.get_data());
-  Vector<Float, N> rhs{};
-  std::copy_n(rhs_.get_data(), rhs_.size(), rhs.get_data());
+template <std::floating_point Float, Index M, Index N>
+class Matrix {
+  std::array<Float, M * N> m_data{};
 
+  [[nodiscard]] constexpr auto get_idx(Index i, Index j) const noexcept -> size_t {
+    return static_cast<size_t>(j + i * N);
+  }
+
+ public:
+  constexpr auto operator()(Index i, Index j) noexcept -> Float& {
+    IGOR_ASSERT(i >= 0 && i < M && j >= 0 && j < N,
+                "Index ({}, {}) is out of bounds for Matrix of size {}x{}",
+                i,
+                j,
+                M,
+                N);
+    return m_data[get_idx(i, j)];
+  }
+
+  constexpr auto operator()(Index i, Index j) const noexcept -> const Float& {
+    IGOR_ASSERT(i >= 0 && i < M && j >= 0 && j < N,
+                "Index ({}, {}) is out of bounds for Matrix of size {}x{}",
+                i,
+                j,
+                M,
+                N);
+    return m_data[get_idx(i, j)];
+  }
+};
+
+// -------------------------------------------------------------------------------------------------
+template <std::floating_point Float, Index N>
+class Vector {
+  std::array<Float, N> m_data{};
+
+ public:
+  constexpr auto operator()(Index i) noexcept -> Float& {
+    IGOR_ASSERT(i >= 0 && i < N, "Index {} is out of bounds for Vector of size {}", i, N);
+    return m_data[static_cast<size_t>(i)];
+  }
+
+  constexpr auto operator()(Index i) const noexcept -> const Float& {
+    IGOR_ASSERT(i >= 0 && i < N, "Index {} is out of bounds for Vector of size {}", i, N);
+    return m_data[static_cast<size_t>(i)];
+  }
+};
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index N>
+void solve_linear_system(Matrix<Float, N, N> lhs,
+                         Vector<Float, N> rhs,
+                         Vector<Float, N>& sol) noexcept {
   auto swap_rows = [&lhs, &rhs](Index a, Index b) {
     if (a == b) { return; }
     for (Index j = 0; j < N; ++j) {
@@ -171,10 +214,10 @@ void solve_linear_system(const Matrix<Float, N, N>& lhs_,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float>
-void solve_linear_system_explicit(const Matrix<Float, 3, 3>& lhs,
-                                  const Vector<Float, 3>& rhs,
-                                  Vector<Float, 3>& sol) noexcept {
-  Matrix<Float, 3, 3> inv_lhs{};
+void solve_linear_system_explicit(const Field2D<Float, 3, 3>& lhs,
+                                  const Field1D<Float, 3>& rhs,
+                                  Field1D<Float, 3>& sol) noexcept {
+  Field2D<Float, 3, 3> inv_lhs{};
   inv_lhs(0, 0) = (lhs(1, 1) * lhs(2, 2) - lhs(1, 2) * lhs(2, 1));
   inv_lhs(1, 0) = -(lhs(1, 0) * lhs(2, 2) - lhs(1, 2) * lhs(2, 0));
   inv_lhs(2, 0) = (lhs(1, 0) * lhs(2, 1) - lhs(1, 1) * lhs(2, 0));

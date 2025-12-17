@@ -40,15 +40,15 @@ auto is_equal(Float a, Float b) -> bool {
 }
 
 template <typename Float, Index N, Index NGHOST>
-auto is_equal(const Vector<Float, N, NGHOST>& a, const Vector<Float, N, NGHOST>& b) -> bool {
+auto is_equal(const Field1D<Float, N, NGHOST>& a, const Field1D<Float, N, NGHOST>& b) -> bool {
   bool equal = true;
   for_each_i(a, [&](Index i) { equal = std::abs(a(i) - b(i)) < TOL; });
   return equal;
 }
 
 template <typename Float, Index M, Index N, Index NGHOST, Layout LAYOUT>
-auto is_equal(const Matrix<Float, M, N, NGHOST, LAYOUT>& A,
-              const Matrix<Float, M, N, NGHOST, LAYOUT>& B) -> bool {
+auto is_equal(const Field2D<Float, M, N, NGHOST, LAYOUT>& A,
+              const Field2D<Float, M, N, NGHOST, LAYOUT>& B) -> bool {
   bool equal = true;
   for_each_i(A, [&](Index i, Index j) { equal = std::abs(A(i, j) - B(i, j)) < TOL; });
   return equal;
@@ -57,19 +57,19 @@ auto is_equal(const Matrix<Float, M, N, NGHOST, LAYOUT>& A,
 // -------------------------------------------------------------------------------------------------
 auto vecadd() -> bool {
   struct {
-    Vector<Float, M, 0> A{};
-    Vector<Float, M, 0> B{};
-    Vector<Float, M, 0> C{};
-    Vector<Float, M, 0> C_ref{};
+    Field1D<Float, M, 0> A{};
+    Field1D<Float, M, 0> B{};
+    Field1D<Float, M, 0> C{};
+    Field1D<Float, M, 0> C_ref{};
   } data{};
   std::generate_n(data.A.get_data(), data.A.size(), rand_float);
   std::generate_n(data.B.get_data(), data.B.size(), rand_float);
 
-  IGOR_TIME_SCOPE("Vector addition: CPU solution") {
+  IGOR_TIME_SCOPE("Field1D addition: CPU solution") {
     for_each_i<Exec::Parallel>(data.C_ref, [&](Index i) { data.C_ref(i) = data.A(i) + data.B(i); });
   }
 
-  IGOR_TIME_SCOPE("Vector addition: GPU solution") {
+  IGOR_TIME_SCOPE("Field1D addition: GPU solution") {
     for_each_i<Exec::ParallelGPU>(data.C, [&](Index i) { data.C(i) = data.A(i) + data.B(i); });
   }
 
@@ -79,15 +79,15 @@ auto vecadd() -> bool {
 // -------------------------------------------------------------------------------------------------
 auto matmul() -> bool {
   struct {
-    Matrix<Float, M, K, 0> A{};
-    Matrix<Float, K, N, 0, Layout::F> B{};
-    Matrix<Float, M, N, 0> C{};
-    Matrix<Float, M, N, 0> C_ref{};
+    Field2D<Float, M, K, 0> A{};
+    Field2D<Float, K, N, 0, Layout::F> B{};
+    Field2D<Float, M, N, 0> C{};
+    Field2D<Float, M, N, 0> C_ref{};
   } data{};
   std::generate_n(data.A.get_data(), data.A.size(), rand_float);
   std::generate_n(data.B.get_data(), data.B.size(), rand_float);
 
-  IGOR_TIME_SCOPE("Matrix multiplication: CPU solution") {
+  IGOR_TIME_SCOPE("Field2D multiplication: CPU solution") {
     for_each_i<Exec::Parallel>(data.C_ref, [&](Index i, Index j) {
       for (Index k = 0; k < K; ++k) {
         data.C_ref(i, j) += data.A(i, k) * data.B(k, j);
@@ -95,7 +95,7 @@ auto matmul() -> bool {
     });
   }
 
-  IGOR_TIME_SCOPE("Matrix multiplication: GPU solution") {
+  IGOR_TIME_SCOPE("Field2D multiplication: GPU solution") {
     for_each_i<Exec::ParallelGPU>(data.C, [&](Index i, Index j) {
       for (Index k = 0; k < K; ++k) {
         data.C(i, j) += data.A(i, k) * data.B(k, j);
@@ -109,8 +109,8 @@ auto matmul() -> bool {
 // -------------------------------------------------------------------------------------------------
 auto dotprod() -> bool {
   struct {
-    Vector<Float, M, 0> A{};
-    Vector<Float, M> B{};
+    Field1D<Float, M, 0> A{};
+    Field1D<Float, M> B{};
     std::atomic<Float> C     = 0.0;
     std::atomic<Float> C_ref = 0.0;
   } data{};
@@ -130,7 +130,7 @@ auto dotprod() -> bool {
 
 // -------------------------------------------------------------------------------------------------
 auto max_reduce() -> bool {
-  Matrix<Float, M, N, 0> A{};
+  Field2D<Float, M, N, 0> A{};
   std::generate_n(A.get_data(), A.size(), rand_float);
 
   constexpr Float MAX_VALUE             = 4.2e12;
@@ -171,8 +171,8 @@ auto main() -> int {
       &max_reduce,
   };
   std::array names = {
-      "Vector addition",
-      "Matrix multiplication",
+      "Field1D addition",
+      "Field2D multiplication",
       "Dot-product",
       "Max-reduce",
   };

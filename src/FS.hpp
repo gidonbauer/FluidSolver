@@ -14,11 +14,11 @@
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 struct State {
-  Matrix<Float, NX + 1, NY, NGHOST> rho_u_stag{};
-  Matrix<Float, NX, NY + 1, NGHOST> rho_v_stag{};
+  Field2D<Float, NX + 1, NY, NGHOST> rho_u_stag{};
+  Field2D<Float, NX, NY + 1, NGHOST> rho_v_stag{};
 
-  Matrix<Float, NX + 1, NY, NGHOST> U{};
-  Matrix<Float, NX, NY + 1, NGHOST> V{};
+  Field2D<Float, NX + 1, NY, NGHOST> U{};
+  Field2D<Float, NX, NY + 1, NGHOST> V{};
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -31,21 +31,21 @@ struct FS {
   Float rho_gas{};
   Float rho_liquid{};
 
-  Vector<Float, NX + 1, NGHOST> x{};
-  Vector<Float, NX, NGHOST> xm{};
+  Field1D<Float, NX + 1, NGHOST> x{};
+  Field1D<Float, NX, NGHOST> xm{};
   Float dx{};
 
-  Vector<Float, NY + 1, NGHOST> y{};
-  Vector<Float, NY, NGHOST> ym{};
+  Field1D<Float, NY + 1, NGHOST> y{};
+  Field1D<Float, NY, NGHOST> ym{};
   Float dy{};
 
-  Matrix<Float, NX, NY, NGHOST> visc{};
+  Field2D<Float, NX, NY, NGHOST> visc{};
 
-  Matrix<Float, NX, NY, NGHOST> p{};
+  Field2D<Float, NX, NY, NGHOST> p{};
 
   Float sigma{};                                      // Surface tension
-  Matrix<Float, NX + 1, NY, NGHOST> p_jump_u_stag{};  // Pressure jump from surface tension
-  Matrix<Float, NX, NY + 1, NGHOST> p_jump_v_stag{};  // Pressure jump from surface tension
+  Field2D<Float, NX + 1, NY, NGHOST> p_jump_u_stag{};  // Pressure jump from surface tension
+  Field2D<Float, NX, NY + 1, NGHOST> p_jump_v_stag{};  // Pressure jump from surface tension
 
   State<Float, NX, NY, NGHOST> old{};
   State<Float, NX, NY, NGHOST> curr{};
@@ -155,16 +155,16 @@ constexpr auto calc_rho_eps(const FS<Float, NX, NY, NGHOST>& fs) noexcept -> Flo
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
-                 Matrix<Float, NX + 1, NY, NGHOST>& dmomUdt,
-                 Matrix<Float, NX, NY + 1, NGHOST>& dmomVdt) {
+                 Field2D<Float, NX + 1, NY, NGHOST>& dmomUdt,
+                 Field2D<Float, NX, NY + 1, NGHOST>& dmomVdt) {
 #ifndef FS_FUSE_MOM_ALL
-  static Matrix<Float, NX, NY, 1> FXU{};
-  static Matrix<Float, NX + 1, NY + 1, 0> FYU{};
+  static Field2D<Float, NX, NY, 1> FXU{};
+  static Field2D<Float, NX + 1, NY + 1, 0> FYU{};
   fill(FXU, std::numeric_limits<Float>::quiet_NaN());  // fill(FXU, 0.0);
   fill(FYU, std::numeric_limits<Float>::quiet_NaN());  // fill(FYU, 0.0);
 
-  static Matrix<Float, NX + 1, NY + 1, 0> FXV{};
-  static Matrix<Float, NX, NY, 1> FYV{};
+  static Field2D<Float, NX + 1, NY + 1, 0> FXV{};
+  static Field2D<Float, NX, NY, 1> FYV{};
   fill(FXV, std::numeric_limits<Float>::quiet_NaN());  // fill(FXV, 0.0);
   fill(FYV, std::numeric_limits<Float>::quiet_NaN());  // fill(FYV, 0.0);
 #endif                                                 // FS_FUSE_MOM_ALL
@@ -315,15 +315,15 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
-                 Matrix<Float, NX + 1, NY, NGHOST>& drho_u_stagdt,
-                 Matrix<Float, NX, NY + 1, NGHOST>& drho_v_stagdt) {
-  static Matrix<Float, NX, NY, 1> FXU{};
-  static Matrix<Float, NX + 1, NY + 1, 0> FYU{};
+                 Field2D<Float, NX + 1, NY, NGHOST>& drho_u_stagdt,
+                 Field2D<Float, NX, NY + 1, NGHOST>& drho_v_stagdt) {
+  static Field2D<Float, NX, NY, 1> FXU{};
+  static Field2D<Float, NX + 1, NY + 1, 0> FYU{};
   fill(FXU, std::numeric_limits<Float>::quiet_NaN());  // fill(FXU, 0.0);
   fill(FYU, std::numeric_limits<Float>::quiet_NaN());  // fill(FYU, 0.0);
 
-  static Matrix<Float, NX + 1, NY + 1, 0> FXV{};
-  static Matrix<Float, NX, NY, 1> FYV{};
+  static Field2D<Float, NX + 1, NY + 1, 0> FXV{};
+  static Field2D<Float, NX, NY, 1> FYV{};
   fill(FXV, std::numeric_limits<Float>::quiet_NaN());  // fill(FXV, 0.0);
   fill(FYV, std::numeric_limits<Float>::quiet_NaN());  // fill(FYV, 0.0);
 
@@ -405,9 +405,9 @@ void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_pressure_jump(const Matrix<Float, NX, NY, NGHOST>& vf,
-                        const Matrix<Float, NX, NY, NGHOST>& curv,
-                        const Matrix<Float, NX, NY, NGHOST>& interface_length,
+void calc_pressure_jump(const Field2D<Float, NX, NY, NGHOST>& vf,
+                        const Field2D<Float, NX, NY, NGHOST>& curv,
+                        const Field2D<Float, NX, NY, NGHOST>& interface_length,
                         FS<Float, NX, NY, NGHOST>& fs) noexcept {
   fill(fs.p_jump_u_stag, 0.0);
   fill(fs.p_jump_v_stag, 0.0);
@@ -460,7 +460,7 @@ constexpr void calc_visc(FS<Float, NX, NY, NGHOST>& fs) noexcept {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void calc_rho(const Matrix<Float, NX, NY, NGHOST>& vf,
+constexpr void calc_rho(const Field2D<Float, NX, NY, NGHOST>& vf,
                         FS<Float, NX, NY, NGHOST>& fs) noexcept {
   // = Density on U-staggered mesh =================================================================
   for_each_i<Exec::Parallel>(fs.curr.rho_u_stag, [&](Index i, Index j) {
@@ -481,7 +481,7 @@ constexpr void calc_rho(const Matrix<Float, NX, NY, NGHOST>& vf,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void calc_visc(const Matrix<Float, NX, NY, NGHOST>& vf,
+constexpr void calc_visc(const Field2D<Float, NX, NY, NGHOST>& vf,
                          FS<Float, NX, NY, NGHOST>& fs) noexcept {
 #ifdef FS_ARITHMETIC_VISC
   // = Arithmetic viscosity on centered mesh =======================================================

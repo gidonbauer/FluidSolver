@@ -78,7 +78,7 @@ constexpr FlowBConds<Float> bconds{
 
 // -------------------------------------------------------------------------------------------------
 void calc_vof_stats(const FS<Float, NX, NY, NGHOST>& fs,
-                    const Matrix<Float, NX, NY, NGHOST>& vf,
+                    const Field2D<Float, NX, NY, NGHOST>& vf,
                     const Float init_vf_integral,
                     Float& min,
                     Float& max,
@@ -129,19 +129,19 @@ auto main() -> int {
 
   VOF<Float, NX, NY, NGHOST> vof{};
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
-  Matrix<Float, NX, NY, NGHOST> rhoi{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> rhoi{};
 
-  Matrix<Float, NX + 1, NY, NGHOST> drho_u_stagdt{};
-  Matrix<Float, NX, NY + 1, NGHOST> drho_v_stagdt{};
-  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
-  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Field2D<Float, NX + 1, NY, NGHOST> drho_u_stagdt{};
+  Field2D<Float, NX, NY + 1, NGHOST> drho_v_stagdt{};
+  Field2D<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Field2D<Float, NX, NY + 1, NGHOST> drhoVdt{};
 
-  Matrix<Float, NX, NY, NGHOST> delta_p{};
-  Matrix<Float, NX + 1, NY, NGHOST> delta_p_jump_u_stag{};
-  Matrix<Float, NX, NY + 1, NGHOST> delta_p_jump_v_stag{};
+  Field2D<Float, NX, NY, NGHOST> delta_p{};
+  Field2D<Float, NX + 1, NY, NGHOST> delta_p_jump_u_stag{};
+  Field2D<Float, NX, NY + 1, NGHOST> delta_p_jump_v_stag{};
 
   // Observation variables
   Float t             = 0.0;

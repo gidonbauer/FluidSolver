@@ -45,10 +45,10 @@ auto main() -> int {
   init_grid(X_MIN, X_MAX, NX, Y_MIN, Y_MAX, NY, fs);
   calc_rho(fs);
   calc_visc(fs);
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
-  Matrix<Float, NX, NY, NGHOST> ext{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> ext{};
 
   // for_each<NX / 4, 3 * NX / 4 + 1, NY / 4, 3 * NY / 4>(
   //     [&](Index i, Index j) { fs.curr.U(i, j) = u_analytical(fs.x(i), fs.ym(j), 0.0); });

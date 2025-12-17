@@ -52,7 +52,7 @@ void test_curvature(CURV_FUNC calc_curv,
                     bool invert_phases,
                     const FS<Float, N, N, NGHOST>& fs,
                     VOF<Float, N, N, NGHOST>& vof,
-                    Matrix<Float, N, N, NGHOST>& curv,
+                    Field2D<Float, N, N, NGHOST>& curv,
                     CurvatureMetrics& metrics) {
 
   auto vof0 = [cx, cy, r, invert_phases](Float x, Float y) {
@@ -118,9 +118,9 @@ auto main() -> int {
   VOF<Float, N, N, NGHOST> vof{};
   localize_cells(fs.x, fs.y, vof.ir);
 
-  Matrix<Float, N, N, NGHOST> curv_cv{};
-  Matrix<Float, N, N, NGHOST> curv_quad_vol_match{};
-  Matrix<Float, N, N, NGHOST> curv_quad_regression{};
+  Field2D<Float, N, N, NGHOST> curv_cv{};
+  Field2D<Float, N, N, NGHOST> curv_quad_vol_match{};
+  Field2D<Float, N, N, NGHOST> curv_quad_regression{};
 
   VTKWriter<Float, N, N, NGHOST> vtk_writer(OUTPUT_DIR, &fs.x, &fs.y);
   vtk_writer.add_scalar("VOF", &vof.vf);

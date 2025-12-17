@@ -45,7 +45,8 @@ constexpr auto immersed_wall(Float x, Float y, Float r) -> Float {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(r));
 }
 
-#if 0
+// #define CHANNEL_FLOW
+#ifdef CHANNEL_FLOW
 constexpr FlowBConds<Float> bconds{
     .left   = Dirichlet<Float>{.U = 0.01, .V = 0.0},
     .right  = Neumann{.clipped = true},
@@ -63,18 +64,28 @@ constexpr FlowBConds<Float> bconds{
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-// void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
-//                          Float& inflow,
-//                          Float& outflow,
-//                          Float& mass_error) {
-//   inflow  = 0.0;
-//   outflow = 0.0;
-//   for_each_a(fs.ym, [&](Index j) {
-//     inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j);
-//     outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j);
-//   });
-//   mass_error = outflow - inflow;
-// }
+void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
+                         Float& inflow,
+                         Float& outflow,
+                         Float& mass_error) {
+  inflow  = 0.0;
+  outflow = 0.0;
+  for_each_a(fs.ym, [&](Index j) {
+    inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j);
+    outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j);
+  });
+  mass_error = outflow - inflow;
+}
+
+// -------------------------------------------------------------------------------------------------
+struct IB {
+  Field2D<Float, NX, NY, NGHOST> wall;
+  Field2D<Float, NX + 1, NY, NGHOST> wall_u_stag;
+  Field2D<Float, NX, NY + 1, NGHOST> wall_v_stag;
+
+  Field2D<Float, NX + 1, NY, NGHOST> fU;
+  Field2D<Float, NX, NY + 1, NGHOST> fV;
+};
 
 // -------------------------------------------------------------------------------------------------
 auto ib_kernel(Float ib_value) -> Float {
@@ -84,21 +95,21 @@ auto ib_kernel(Float ib_value) -> Float {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_divergence_ib(const Matrix<Float, NX, NY, NGHOST>& ib,
-                        const Matrix<Float, NX + 1, NY, NGHOST>& U,
-                        const Matrix<Float, NX, NY + 1, NGHOST>& V,
+void calc_divergence_ib(const Field2D<Float, NX, NY, NGHOST>& wall,
+                        const Field2D<Float, NX + 1, NY, NGHOST>& U,
+                        const Field2D<Float, NX, NY + 1, NGHOST>& V,
                         Float dx,
                         Float dy,
-                        Matrix<Float, NX, NY, NGHOST>& div) {
+                        Field2D<Float, NX, NY, NGHOST>& div) {
   for_each_a<Exec::Parallel>(div, [&](Index i, Index j) {
-    div(i, j) = ((U(i + 1, j) - U(i, j)) / dx + (V(i, j + 1) - V(i, j)) / dy) * ib_kernel(ib(i, j));
+    div(i, j) =
+        ((U(i + 1, j) - U(i, j)) / dx + (V(i, j + 1) - V(i, j)) / dy) * ib_kernel(wall(i, j));
   });
 }
 
 // -------------------------------------------------------------------------------------------------
 void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
-                                  const Matrix<Float, NX + 1, NY, NGHOST>& ib_u_stag,
-                                  const Matrix<Float, NX, NY + 1, NGHOST>& ib_v_stag,
+                                  const IB& ib,
                                   Float& mass,
                                   Float& momentum_x,
                                   Float& momentum_y) noexcept {
@@ -107,54 +118,49 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
   momentum_y = 0.0;
 
   for_each<0, NX, 0, NY>([&](Index i, Index j) {
-    mass += (ib_kernel(ib_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) +
-             ib_kernel(ib_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) +
-             ib_kernel(ib_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) +
-             ib_kernel(ib_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1)) /
+    mass += (ib_kernel(ib.wall_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) +
+             ib_kernel(ib.wall_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) +
+             ib_kernel(ib.wall_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) +
+             ib_kernel(ib.wall_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1)) /
             4.0 * fs.dx * fs.dy;
 
     momentum_x +=
-        (ib_kernel(ib_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
-         ib_kernel(ib_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
+        (ib_kernel(ib.wall_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
+         ib_kernel(ib.wall_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
         2.0 * fs.dx * fs.dy;
     momentum_y +=
-        (ib_kernel(ib_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
-         ib_kernel(ib_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
+        (ib_kernel(ib.wall_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
+         ib_kernel(ib.wall_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
         2.0 * fs.dx * fs.dy;
   });
 }
 
 // -------------------------------------------------------------------------------------------------
-void calc_ib(const FS<Float, NX, NY, NGHOST>& fs,
-             Float r,
-             Matrix<Float, NX + 1, NY, NGHOST>& ib_u_stag,
-             Matrix<Float, NX, NY + 1, NGHOST>& ib_v_stag,
-             Matrix<Float, NX, NY, NGHOST>& ib) {
-  for_each_a<Exec::Parallel>(ib_u_stag, [&](Index i, Index j) {
-    ib_u_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
-                                 fs.x(i) - fs.dx / 2.0,
-                                 fs.x(i) + fs.dx / 2.0,
-                                 fs.y(j),
-                                 fs.y(j + 1)) /
-                      (fs.dx * fs.dy);
+void calc_ib(const FS<Float, NX, NY, NGHOST>& fs, Float r, IB& ib) {
+  for_each_a<Exec::Parallel>(ib.wall_u_stag, [&](Index i, Index j) {
+    ib.wall_u_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
+                                      fs.x(i) - fs.dx / 2.0,
+                                      fs.x(i) + fs.dx / 2.0,
+                                      fs.y(j),
+                                      fs.y(j + 1)) /
+                           (fs.dx * fs.dy);
   });
-  for_each_a<Exec::Parallel>(ib_v_stag, [&](Index i, Index j) {
-    ib_v_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
-                                 fs.x(i),
-                                 fs.x(i + 1),
-                                 fs.y(j) - fs.dy / 2.0,
-                                 fs.y(j) + fs.dy / 2.0) /
-                      (fs.dx * fs.dy);
+  for_each_a<Exec::Parallel>(ib.wall_v_stag, [&](Index i, Index j) {
+    ib.wall_v_stag(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
+                                      fs.x(i),
+                                      fs.x(i + 1),
+                                      fs.y(j) - fs.dy / 2.0,
+                                      fs.y(j) + fs.dy / 2.0) /
+                           (fs.dx * fs.dy);
   });
-  for_each_a<Exec::Parallel>(ib, [&](Index i, Index j) {
-    ib(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
-                          fs.x(i),
-                          fs.x(i + 1),
-                          fs.y(j),
-                          fs.y(j + 1)) /
-               (fs.dx * fs.dy);
+  for_each_a<Exec::Parallel>(ib.wall, [&](Index i, Index j) {
+    ib.wall(i, j) = quadrature([&](Float x, Float y) { return immersed_wall(x, y, r); },
+                               fs.x(i),
+                               fs.x(i + 1),
+                               fs.y(j),
+                               fs.y(j + 1)) /
+                    (fs.dx * fs.dy);
   });
-  // interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -171,21 +177,17 @@ auto main() -> int {
   calc_visc(fs);
   LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(PRESSURE_TOL, PRESSURE_MAX_ITER);
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
 
-  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
-  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
-  Matrix<Float, NX, NY, NGHOST> delta_p{};
+  Field2D<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Field2D<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Field2D<Float, NX, NY, NGHOST> delta_p{};
 
-  Matrix<Float, NX, NY, NGHOST> ib{};
-  Matrix<Float, NX + 1, NY, NGHOST> ib_u_stag{};
-  Matrix<Float, NX, NY + 1, NGHOST> ib_v_stag{};
-  Matrix<Float, NX + 1, NY, NGHOST> ib_u_forcing{};
-  Matrix<Float, NX, NY + 1, NGHOST> ib_v_forcing{};
-  Matrix<Float, NX, NY, NGHOST> fUi{};
-  Matrix<Float, NX, NY, NGHOST> fVi{};
+  IB ib{};
+  Field2D<Float, NX, NY, NGHOST> fUi{};
+  Field2D<Float, NX, NY, NGHOST> fVi{};
 
   // Observation variables
   Float t       = 0.0;
@@ -212,8 +214,8 @@ auto main() -> int {
   data_writer.add_scalar("pressure", &fs.p);
   data_writer.add_scalar("divergence", &div);
   data_writer.add_vector("velocity", &Ui, &Vi);
-  data_writer.add_scalar("Immersed-wall", &ib);
-  data_writer.add_vector("IB_forcing", &fUi, &fVi);
+  data_writer.add_scalar("wall", &ib.wall);
+  data_writer.add_vector("fIB", &fUi, &fVi);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -236,7 +238,7 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize immersed boundaries ==============================================================
-  calc_ib(fs, r, ib_u_stag, ib_v_stag, ib);
+  calc_ib(fs, r, ib);
   // = Initialize immersed boundaries ==============================================================
 
   // = Initialize flow field =======================================================================
@@ -246,14 +248,14 @@ auto main() -> int {
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
-  interpolate_U(ib_u_forcing, fUi);
-  interpolate_V(ib_v_forcing, fVi);
+  interpolate_U(ib.fU, fUi);
+  interpolate_V(ib.fV, fVi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   U_max = abs_max(fs.curr.U);
   V_max = abs_max(fs.curr.V);
-  calc_divergence_ib(ib, fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+  calc_divergence_ib(ib.wall, fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   div_max = abs_max(div);
-  calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
+  calc_conserved_quantities_ib(fs, ib, mass, mom_x, mom_y);
   if (!data_writer.write(t)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
@@ -265,7 +267,7 @@ auto main() -> int {
 
     // = Update IB field ===========================================================================
     drdt = 0.05 * t;  // * t;
-    calc_ib(fs, r, ib_u_stag, ib_v_stag, ib);
+    calc_ib(fs, r, ib);
     // = Update IB field ===========================================================================
 
     // Save previous state
@@ -280,26 +282,24 @@ auto main() -> int {
       calc_dmomdt(fs, drhoUdt, drhoVdt);
 
       // = Calculate IB forcing term ===============================================================
-      for_each_i<Exec::Parallel>(ib_u_forcing, [&](Index i, Index j) {
+      for_each_i<Exec::Parallel>(ib.fU, [&](Index i, Index j) {
         const auto x     = fs.x(i);
         const auto y     = fs.ym(j);
         const auto d     = std::sqrt(Igor::sqr(x - CX) + Igor::sqr(y - CY));
 
-        const Float u_ib = d > 1e-8 && ib_u_stag(i, j) > 1e-8 ? drdt * (x - CX) / d : 0.0;
-        ib_u_forcing(i, j) =
-            (fs.old.rho_u_stag(i, j) * (u_ib - fs.old.U(i, j)) / dt - drhoUdt(i, j)) *
-            ib_u_stag(i, j);
+        const Float u_ib = d > 1e-8 ? drdt * (x - CX) / d : 0.0;
+        ib.fU(i, j) = (fs.old.rho_u_stag(i, j) * (u_ib - fs.old.U(i, j)) / dt - drhoUdt(i, j)) *
+                      ib.wall_u_stag(i, j);
       });
-      for_each_i<Exec::Parallel>(ib_v_forcing, [&](Index i, Index j) {
+      for_each_i<Exec::Parallel>(ib.fV, [&](Index i, Index j) {
         const auto x     = fs.xm(i);
         const auto y     = fs.y(j);
         const auto d     = std::sqrt(Igor::sqr(x - CX) + Igor::sqr(y - CY));
 
-        const Float v_ib = d > 1e-8 && ib_v_stag(i, j) > 1e-8 ? drdt * (y - CY) / d : 0.0;
+        const Float v_ib = d > 1e-8 ? drdt * (y - CY) / d : 0.0;
 
-        ib_v_forcing(i, j) =
-            (fs.old.rho_v_stag(i, j) * (v_ib - fs.old.V(i, j)) / dt - drhoVdt(i, j)) *
-            ib_v_stag(i, j);
+        ib.fV(i, j) = (fs.old.rho_v_stag(i, j) * (v_ib - fs.old.V(i, j)) / dt - drhoVdt(i, j)) *
+                      ib.wall_v_stag(i, j);
       });
       // = Calculate IB forcing term ===============================================================
 
@@ -314,25 +314,26 @@ auto main() -> int {
 
       // = Apply IB forcing term ===================================================================
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U(i, j) += ib_u_forcing(i, j) * dt / fs.curr.rho_u_stag(i, j);
+        fs.curr.U(i, j) += ib.fU(i, j) * dt / fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V(i, j) += ib_v_forcing(i, j) * dt / fs.curr.rho_v_stag(i, j);
+        fs.curr.V(i, j) += ib.fV(i, j) * dt / fs.curr.rho_v_stag(i, j);
       });
       // = Apply IB forcing term ===================================================================
 
       apply_velocity_bconds(fs, bconds);
 
       // = Correct the outflow =====================================================================
-      // Float inflow     = 0.0;
-      // Float outflow    = 0.0;
-      // Float mass_error = 0.0;
-      // calc_inflow_outflow(fs, inflow, outflow, mass_error);
-      // for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
-      //   fs.curr.U(NX + NGHOST, j) -=
-      //       mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 *
-      //       NGHOST));
-      // });
+#ifdef CHANNEL_FLOW
+      Float inflow     = 0.0;
+      Float outflow    = 0.0;
+      Float mass_error = 0.0;
+      calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+        fs.curr.U(NX + NGHOST, j) -=
+            mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
+      });
+#endif  // CHANNEL_FLOW
       // = Correct the outflow =====================================================================
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -340,8 +341,8 @@ auto main() -> int {
       // = Adjust div for bubble growth ============================================================
       // See: Sepahi, F., Verzicco, R., Lohse, D., Krug, D., 2024. Mass transport at gas-evolving
       // electrodes. Journal of Fluid Mechanics 983, A19. https://doi.org/10.1017/jfm.2024.51
-      for_each_i<Exec::Parallel>(div,
-                                 [&](Index i, Index j) { div(i, j) -= ib(i, j) * 3.0 / r * drdt; });
+      for_each_i<Exec::Parallel>(
+          div, [&](Index i, Index j) { div(i, j) -= ib.wall(i, j) * 3.0 / r * drdt; });
 
       // = Apply pressure correction ===============================================================
       Index local_p_iter = 0;
@@ -356,14 +357,16 @@ auto main() -> int {
 
       // Correct velocity
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        const auto dpdx  = (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx;
-        const auto rho   = fs.curr.rho_u_stag(i, j);
-        fs.curr.U(i, j) -= (dpdx * dt / rho) * (1.0 - ib_u_stag(i, j));
+        const auto dpdx = (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx;
+        const auto rho  = fs.curr.rho_u_stag(i, j);
+        // fs.curr.U(i, j) -= (dpdx * dt / rho) * (1.0 - ib.wall_u_stag(i, j));
+        fs.curr.U(i, j) -= (dpdx * dt / rho);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        const auto dpdy  = (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy;
-        const auto rho   = fs.curr.rho_v_stag(i, j);
-        fs.curr.V(i, j) -= (dpdy * dt / rho) * (1.0 - ib_v_stag(i, j));
+        const auto dpdy = (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy;
+        const auto rho  = fs.curr.rho_v_stag(i, j);
+        // fs.curr.V(i, j) -= (dpdy * dt / rho) * (1.0 - ib.wall_v_stag(i, j));
+        fs.curr.V(i, j) -= (dpdy * dt / rho);
       });
       // = Apply pressure correction ===============================================================
     }
@@ -372,14 +375,14 @@ auto main() -> int {
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
-    interpolate_U(ib_u_forcing, fUi);
-    interpolate_V(ib_v_forcing, fVi);
+    interpolate_U(ib.fU, fUi);
+    interpolate_V(ib.fV, fVi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     U_max = abs_max(fs.curr.U);
     V_max = abs_max(fs.curr.V);
-    calc_divergence_ib(ib, fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+    calc_divergence_ib(ib.wall, fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     div_max = abs_max(div);
-    calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
+    calc_conserved_quantities_ib(fs, ib, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
     }

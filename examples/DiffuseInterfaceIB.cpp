@@ -33,8 +33,8 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
-                                  const Matrix<Float, NX + 1, NY, NGHOST>& ib_u_stag,
-                                  const Matrix<Float, NX, NY + 1, NGHOST>& ib_v_stag,
+                                  const Field2D<Float, NX + 1, NY, NGHOST>& ib_u_stag,
+                                  const Field2D<Float, NX, NY + 1, NGHOST>& ib_v_stag,
                                   Float& mass,
                                   Float& momentum_x,
                                   Float& momentum_y) noexcept {
@@ -76,17 +76,17 @@ auto main() -> int {
   LinearSolver_StructHypre<Float, NX, NY, NGHOST> ps(PRESSURE_TOL, PRESSURE_MAX_ITER);
   ps.set_pressure_operator(fs);
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
 
-  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
-  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
-  Matrix<Float, NX, NY, NGHOST> delta_p{};
+  Field2D<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Field2D<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Field2D<Float, NX, NY, NGHOST> delta_p{};
 
-  Matrix<Float, NX, NY, NGHOST> ib{};
-  Matrix<Float, NX + 1, NY, NGHOST> ib_u_stag{};
-  Matrix<Float, NX, NY + 1, NGHOST> ib_v_stag{};
+  Field2D<Float, NX, NY, NGHOST> ib{};
+  Field2D<Float, NX + 1, NY, NGHOST> ib_u_stag{};
+  Field2D<Float, NX, NY + 1, NGHOST> ib_v_stag{};
 
   // Observation variables
   Float t       = 0.0;

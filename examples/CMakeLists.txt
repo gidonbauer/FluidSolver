@@ -8,6 +8,7 @@ set(executables
 
   DiffuseInterfaceIB
   SharpInterfaceIB
+  MovingLeastSquaresIB
   VerifyDFGBenchmarkSetup
 
   VOF

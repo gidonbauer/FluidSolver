@@ -43,7 +43,7 @@ struct FS {
 
   Field2D<Float, NX, NY, NGHOST> p{};
 
-  Float sigma{};                                      // Surface tension
+  Float sigma{};                                       // Surface tension
   Field2D<Float, NX + 1, NY, NGHOST> p_jump_u_stag{};  // Pressure jump from surface tension
   Field2D<Float, NX, NY + 1, NGHOST> p_jump_v_stag{};  // Pressure jump from surface tension
 

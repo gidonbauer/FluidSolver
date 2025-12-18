@@ -151,9 +151,9 @@ class Matrix {
 // -------------------------------------------------------------------------------------------------
 template <std::floating_point Float, Index N>
 class Vector {
+ public:
   std::array<Float, N> m_data{};
 
- public:
   constexpr auto operator()(Index i) noexcept -> Float& {
     IGOR_ASSERT(i >= 0 && i < N, "Index {} is out of bounds for Vector of size {}", i, N);
     return m_data[static_cast<size_t>(i)];

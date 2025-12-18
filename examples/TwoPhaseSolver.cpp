@@ -123,9 +123,6 @@ auto main() -> int {
   Igor::Info("Reynolds number (liquid) = {:.6e}", Re_L);
   Igor::Info("Reynolds number (gas)    = {:.6e}", Re_G);
 
-  Igor::Debug("VISC_G = {:.6e}", VISC_G);
-  Igor::Debug("VISC_L = {:.6e}", VISC_L);
-
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{.visc_gas    = VISC_G,
                                .visc_liquid = VISC_L,
@@ -149,6 +146,14 @@ auto main() -> int {
   Field2D<Float, NX, NY, NGHOST> delta_p{};
   Field2D<Float, NX + 1, NY, NGHOST> delta_p_jump_u_stag{};
   Field2D<Float, NX, NY + 1, NGHOST> delta_p_jump_v_stag{};
+
+  // Surface tension force
+  Field2D<Float, NX + 1, NY, NGHOST> f_sigma_u{};
+  Field2D<Float, NX, NY + 1, NGHOST> f_sigma_v{};
+  Field2D<Float, NX, NY, NGHOST> f_sigma_ui{};
+  Field2D<Float, NX, NY, NGHOST> f_sigma_vi{};
+
+  Field2D<Float, NX, NY, NGHOST> surface_tension_in_pressure_poisson{};
 
   // Observation variables
   Float t       = 0.0;
@@ -187,6 +192,8 @@ auto main() -> int {
   data_writer.add_scalar("VOF", &vof.vf);
   data_writer.add_vector("velocity", &Ui, &Vi);
   data_writer.add_scalar("curvature", &vof.curv);
+  data_writer.add_vector("f_sigma", &f_sigma_ui, &f_sigma_vi);
+  data_writer.add_scalar("st_in_pp", &surface_tension_in_pressure_poisson);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -236,6 +243,8 @@ auto main() -> int {
 
   interpolate_U(fs.curr.U, Ui);
   interpolate_V(fs.curr.V, Vi);
+  interpolate_U(f_sigma_u, f_sigma_ui);
+  interpolate_V(f_sigma_v, f_sigma_vi);
   interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
   calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
   U_max    = abs_max(fs.curr.U);
@@ -311,6 +320,7 @@ auto main() -> int {
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
       // ===== Add capillary forces ================================================================
+#if 1
       calc_curvature_quad_volume_matching(fs, vof);
 
       // NOTE: Save old pressure jump in delta_p_jump_[uv]_stag
@@ -318,6 +328,7 @@ auto main() -> int {
       copy(fs.p_jump_v_stag, delta_p_jump_v_stag);
       calc_interface_length(fs, vof);
       calc_pressure_jump(vof.vf_old, vof.curv, vof.interface_length, fs);
+
       for_each_a<Exec::Parallel>(delta_p_jump_u_stag, [&](Index i, Index j) {
         delta_p_jump_u_stag(i, j) = fs.p_jump_u_stag(i, j) - delta_p_jump_u_stag(i, j);
       });
@@ -333,6 +344,16 @@ auto main() -> int {
                             delta_p_jump_v_stag(i, j) / fs.curr.rho_v_stag(i, j)) /
                                fs.dy);
       });
+#else
+      calc_surface_tension_force(vof.ir, vof.vf_old, fs.sigma, f_sigma_u, f_sigma_v);
+      for_each_i<Exec::Parallel>(div, [&](Index i, Index j) {
+        surface_tension_in_pressure_poisson(i, j) =
+            -dt * 100.0 *
+            ((f_sigma_u(i + 1, j) - f_sigma_u(i, j)) / fs.dx +
+             (f_sigma_v(i, j + 1) - f_sigma_v(i, j)) / fs.dy);
+        div(i, j) += surface_tension_in_pressure_poisson(i, j);
+      });
+#endif
       // ===== Add capillary forces ================================================================
 
       Index local_p_iter = 0;
@@ -360,6 +381,8 @@ auto main() -> int {
     t += dt;
     interpolate_U(fs.curr.U, Ui);
     interpolate_V(fs.curr.V, Vi);
+    interpolate_U(f_sigma_u, f_sigma_ui);
+    interpolate_V(f_sigma_v, f_sigma_vi);
     interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
     U_max    = max(fs.curr.U);

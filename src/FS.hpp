@@ -107,6 +107,8 @@ auto adjust_dt(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max)
 
   if (fs.sigma > 0.0) {
     // Taken from NGA2 two phase solver
+    // See also: Popinet, S., 2018. Numerical Models of Surface Tension. Annu. Rev. Fluid Mech. 50,
+    // 49–75. https://doi.org/10.1146/annurev-fluid-122316-045034
     CFLst = 1.0 / std::sqrt(((fs.rho_gas + fs.rho_liquid) * std::pow(fs.dx * fs.dy, 3.0 / 2.0)) /
                             (4.0 * std::numbers::pi_v<Float> * fs.sigma));
   }
@@ -430,6 +432,106 @@ void calc_pressure_jump(const Field2D<Float, NX, NY, NGHOST>& vf,
                                   (plus_length + minus_length)
                                   : 0.0;
     fs.p_jump_v_stag(i, j)  = fs.sigma * curv_i * (vf(i, j) - vf(i, j - 1)) / fs.dy;
+  });
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void calc_surface_tension_force(const InterfaceReconstruction<NX, NY, NGHOST>& ir,
+                                const Field2D<Float, NX, NY, NGHOST>& vf,
+                                Float sigma,
+                                Field2D<Float, NX + 1, NY, NGHOST>& f_sigma_u,
+                                Field2D<Float, NX, NY + 1, NGHOST>& f_sigma_v) noexcept {
+  struct Vector2 {
+    Float x, y;
+  };
+
+  auto get_tangent = [](const Vector2& normal) -> Vector2 {
+    return {.x = -normal.y, .y = normal.x};
+  };
+
+  // = U-staggered mesh ============================================================================
+  fill(f_sigma_u, 0.0);
+  for_each_i(f_sigma_u, [&](Index i, Index j) {
+    if (!(has_interface(vf, i - 1, j) && has_interface(vf, i, j))) { return; }
+
+    const auto& left_interface = ir.interface(i - 1, j);
+    IGOR_ASSERT(left_interface.getNumberOfPlanes() == 1,
+                "({}, {}): Expected one plane but got {}",
+                i - 1,
+                j,
+                left_interface.getNumberOfPlanes());
+    const auto& right_interface = ir.interface(i, j);
+    IGOR_ASSERT(right_interface.getNumberOfPlanes() == 1,
+                "({}, {}): Expected one plane but got {}",
+                i,
+                j,
+                right_interface.getNumberOfPlanes());
+
+    const Vector2 left_normal = {
+        .x = left_interface[0].normal()[0],
+        .y = left_interface[0].normal()[1],
+    };
+    const Vector2 right_normal = {
+        .x = right_interface[0].normal()[0],
+        .y = right_interface[0].normal()[1],
+    };
+
+    Vector2 left_tangent = get_tangent(left_normal);
+    if (left_tangent.x > 0.0) {
+      left_tangent.x *= -1.0;
+      left_tangent.y *= -1.0;
+    }
+
+    Vector2 right_tangent = get_tangent(right_normal);
+    if (right_tangent.x < 0.0) {
+      right_tangent.x *= -1.0;
+      right_tangent.y *= -1.0;
+    }
+
+    f_sigma_u(i, j) = sigma * (right_tangent.x - left_tangent.x);
+  });
+
+  // = V-staggered mesh ============================================================================
+  fill(f_sigma_v, 0.0);
+  for_each_i(f_sigma_v, [&](Index i, Index j) {
+    if (!(has_interface(vf, i, j - 1) && has_interface(vf, i, j))) { return; }
+
+    const auto& left_interface = ir.interface(i, j - 1);
+    IGOR_ASSERT(left_interface.getNumberOfPlanes() == 1,
+                "({}, {}): Expected one plane but got {}",
+                i - 1,
+                j,
+                left_interface.getNumberOfPlanes());
+    const auto& right_interface = ir.interface(i, j);
+    IGOR_ASSERT(right_interface.getNumberOfPlanes() == 1,
+                "({}, {}): Expected one plane but got {}",
+                i,
+                j,
+                right_interface.getNumberOfPlanes());
+
+    const Vector2 left_normal = {
+        .x = left_interface[0].normal()[0],
+        .y = left_interface[0].normal()[1],
+    };
+    const Vector2 right_normal = {
+        .x = right_interface[0].normal()[0],
+        .y = right_interface[0].normal()[1],
+    };
+
+    Vector2 left_tangent = get_tangent(left_normal);
+    if (left_tangent.y > 0.0) {
+      left_tangent.x *= -1.0;
+      left_tangent.y *= -1.0;
+    }
+
+    Vector2 right_tangent = get_tangent(right_normal);
+    if (right_tangent.y < 0.0) {
+      right_tangent.x *= -1.0;
+      right_tangent.y *= -1.0;
+    }
+
+    f_sigma_v(i, j) = sigma * (right_tangent.y - left_tangent.y);
   });
 }
 

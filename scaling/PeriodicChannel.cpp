@@ -94,13 +94,13 @@ auto main(int argc, char** argv) -> int {
   calc_rho(fs);
   calc_visc(fs);
 
-  Matrix<Float, NX, NY, NGHOST> Ui{};
-  Matrix<Float, NX, NY, NGHOST> Vi{};
-  Matrix<Float, NX, NY, NGHOST> div{};
+  Field2D<Float, NX, NY, NGHOST> Ui{};
+  Field2D<Float, NX, NY, NGHOST> Vi{};
+  Field2D<Float, NX, NY, NGHOST> div{};
 
-  Matrix<Float, NX + 1, NY, NGHOST> drhoUdt{};
-  Matrix<Float, NX, NY + 1, NGHOST> drhoVdt{};
-  Matrix<Float, NX, NY, NGHOST> delta_p{};
+  Field2D<Float, NX + 1, NY, NGHOST> drhoUdt{};
+  Field2D<Float, NX, NY + 1, NGHOST> drhoVdt{};
+  Field2D<Float, NX, NY, NGHOST> delta_p{};
 
   Float t          = 0.0;
   Float dt         = DT_MAX;
@@ -183,12 +183,10 @@ auto main(int argc, char** argv) -> int {
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        if (std::isnan(drhoUdt(i, j))) { Igor::Panic("NaN value in drhoUdt[{}, {}]", i, j); }
         fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
                           fs.curr.rho_u_stag(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        if (std::isnan(drhoVdt(i, j))) { Igor::Panic("NaN value in drhoVdt[{}, {}]", i, j); }
         fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
                           fs.curr.rho_v_stag(i, j);
       });
@@ -214,15 +212,6 @@ auto main(int argc, char** argv) -> int {
       ps.set_pressure_rhs(fs, div, dt);
       ps.solve(delta_p, &p_res, &local_p_iter);
       p_iter += local_p_iter;
-
-      {
-        if (std::any_of(delta_p.get_data(), delta_p.get_data() + delta_p.size(), [](Float x) {
-              return std::isnan(x);
-            })) {
-          Igor::Warn("Encountered NaN value in pressure correction.");
-          return 1;
-        }
-      }
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
       for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p(i, j) += delta_p(i, j); });
@@ -276,7 +265,7 @@ auto main(int argc, char** argv) -> int {
   // - Test U profile --------
   Float U_error     = 0.0;
   auto u_analytical = [&](Float y, Float dpdx) -> Float { return dpdx / (2 * VISC) * (y * y - y); };
-  Vector<Float, NY + 2 * NGHOST, 0> diff{};
+  Field1D<Float, NY + 2 * NGHOST, 0> diff{};
 
   static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
   for_each_i(fs.x, [&](Index i) {

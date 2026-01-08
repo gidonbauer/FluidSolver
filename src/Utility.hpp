@@ -214,10 +214,10 @@ void solve_linear_system(Matrix<Float, N, N> lhs,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float>
-void solve_linear_system_explicit(const Field2D<Float, 3, 3>& lhs,
-                                  const Field1D<Float, 3>& rhs,
-                                  Field1D<Float, 3>& sol) noexcept {
-  Field2D<Float, 3, 3> inv_lhs{};
+void solve_linear_system_explicit(const Matrix<Float, 3, 3>& lhs,
+                                  const Vector<Float, 3>& rhs,
+                                  Vector<Float, 3>& sol) noexcept {
+  Matrix<Float, 3, 3> inv_lhs{};
   inv_lhs(0, 0) = (lhs(1, 1) * lhs(2, 2) - lhs(1, 2) * lhs(2, 1));
   inv_lhs(1, 0) = -(lhs(1, 0) * lhs(2, 2) - lhs(1, 2) * lhs(2, 0));
   inv_lhs(2, 0) = (lhs(1, 0) * lhs(2, 1) - lhs(1, 1) * lhs(2, 0));

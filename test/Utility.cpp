@@ -8,10 +8,10 @@ template <Index N>
 auto test_solve_linear_system(const Matrix<double, N, N>& A,
                               const Vector<double, N>& b,
                               const Vector<double, N>& sol) -> bool {
+  bool any_test_failed = false;
   Vector<double, N> x{};
   solve_linear_system(A, b, x);
 
-  bool any_test_failed = false;
   for (Index i = 0; i < N; ++i) {
     if (std::abs(x(i) - sol(i)) > 1e-12) {
       Igor::Warn(
@@ -27,6 +27,7 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
       any_test_failed = true;
     }
   }
+
   return !any_test_failed;
 }
 

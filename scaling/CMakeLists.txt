@@ -24,7 +24,8 @@ foreach(N  RANGE 21 101 10)
 endforeach()
 
 add_custom_target(Run-PeriodicChannel-Scaling
-  echo "NX,NY,dx,dy,pressure_error,dpdx_error,U_error,V_error,runtime_s" > ${CMAKE_SOURCE_DIR}/scaling/output/PeriodicChannel-Scaling.csv
+  COMMAND mkdir -p ${CMAKE_SOURCE_DIR}/scaling/output
+  COMMAND echo "NX,NY,dx,dy,pressure_error,dpdx_error,U_error,V_error,runtime_s" > ${CMAKE_SOURCE_DIR}/scaling/output/PeriodicChannel-Scaling.csv
   COMMAND PeriodicChannel-21  --csv >> ${CMAKE_SOURCE_DIR}/scaling/output/PeriodicChannel-Scaling.csv
   COMMAND PeriodicChannel-31  --csv >> ${CMAKE_SOURCE_DIR}/scaling/output/PeriodicChannel-Scaling.csv
   COMMAND PeriodicChannel-41  --csv >> ${CMAKE_SOURCE_DIR}/scaling/output/PeriodicChannel-Scaling.csv

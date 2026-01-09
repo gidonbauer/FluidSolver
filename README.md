@@ -49,4 +49,3 @@ HDF5 is optional and must also be installed separately.
 - [Interface Reconstruction Library](https://github.com/robert-chiodi/interface-reconstruction-library)
 - [HDF5](https://github.com/HDFGroup/hdf5)
 - [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page)
-- [Abseil](https://github.com/abseil/abseil-cpp)

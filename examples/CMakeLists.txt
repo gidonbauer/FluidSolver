@@ -3,7 +3,6 @@ set(executables
   TwoPhaseSolver
   RisingBubble
   WallBubble
-  LidDrivenFlow
   Wave
 
   DiffuseInterfaceIB

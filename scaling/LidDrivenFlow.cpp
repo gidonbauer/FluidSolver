@@ -11,21 +11,27 @@
 #include "Utility.hpp"
 
 // = Config ========================================================================================
-using Float                     = double;
+using Float           = double;
 
-constexpr Float X_MIN           = 0.0;
-constexpr Float X_MAX           = 1.0;
-constexpr Float Y_MIN           = 0.0;
-constexpr Float Y_MAX           = 1.0;
+constexpr Float X_MIN = 0.0;
+constexpr Float X_MAX = 1.0;
+constexpr Float Y_MIN = 0.0;
+constexpr Float Y_MAX = 1.0;
 
-constexpr Index NX              = 64;
-constexpr Index NY              = 64;
+#ifndef FS_SCALING_N
+#error "Need to define `FS_SCALING_N`, the number of cells in x- and y-direction"
+#else
+constexpr Index N = 1 << FS_SCALING_N;
+#endif
+
+constexpr Index NX              = N;
+constexpr Index NY              = N;
 constexpr Index NGHOST          = 1;
 
-constexpr Float T_END           = 50.0;
-constexpr Float DT_MAX          = 1e-1;
+constexpr Float T_END           = 25.0;
+constexpr Float DT_WRITE        = T_END / 100;
+constexpr Float DT_MAX          = std::min(1e-1, DT_WRITE);
 constexpr Float CFL_MAX         = 0.9;
-constexpr Float DT_WRITE        = 5e-1;
 
 constexpr Float U_TOP           = 1.0;
 constexpr Float VISC            = 1e-3;
@@ -42,13 +48,16 @@ constexpr FlowBConds<Float> bconds{
     .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
     .top    = Dirichlet<Float>{.U = U_TOP, .V = 0.0},
 };
+
+constexpr Float Re = U_TOP * (X_MAX - X_MIN) * RHO / VISC;
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
-  const auto OUTPUT_DIR = get_output_directory();
+  const auto OUTPUT_DIR = get_output_directory("scaling/output") + std::to_string(N) + "/";
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
+  Igor::Info("Re = {:.6e}", Re);
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{

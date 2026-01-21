@@ -82,8 +82,7 @@ auto main(int argc, char** argv) -> int {
       return 1;
     }
   }
-
-  // = Create output directory =====================================================================
+// = Create output directory =====================================================================
   const auto OUTPUT_DIR = get_output_directory("scaling/output") + std::to_string(N) + "/";
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 

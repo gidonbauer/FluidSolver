@@ -406,6 +406,7 @@ auto main() -> int {
         fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
                           fs.curr.rho_v_stag(i, j);
       });
+      // = Update flow field =======================================================================
 
       // = IB forcing ==============================================================================
       for_each_i<Exec::Serial>(fs.curr.U, [&](Index i, Index j) {

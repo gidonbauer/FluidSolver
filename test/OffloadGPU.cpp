@@ -55,7 +55,7 @@ auto is_equal(const Field2D<Float, M, N, NGHOST, LAYOUT>& A,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto vecadd() -> bool {
+auto test_vecadd() -> bool {
   struct {
     Field1D<Float, M, 0> A{};
     Field1D<Float, M, 0> B{};
@@ -77,7 +77,7 @@ auto vecadd() -> bool {
 }
 
 // -------------------------------------------------------------------------------------------------
-auto matmul() -> bool {
+auto test_matmul() -> bool {
   struct {
     Field2D<Float, M, K, 0> A{};
     Field2D<Float, K, N, 0, Layout::F> B{};
@@ -107,7 +107,7 @@ auto matmul() -> bool {
 }
 
 // -------------------------------------------------------------------------------------------------
-auto dotprod() -> bool {
+auto test_dotprod() -> bool {
   struct {
     Field1D<Float, M, 0> A{};
     Field1D<Float, M> B{};
@@ -129,7 +129,7 @@ auto dotprod() -> bool {
 }
 
 // -------------------------------------------------------------------------------------------------
-auto max_reduce() -> bool {
+auto test_max_reduce() -> bool {
   Field2D<Float, M, N, 0> A{};
   std::generate_n(A.get_data(), A.size(), rand_float);
 
@@ -165,10 +165,10 @@ auto main() -> int {
   omp_set_num_threads(4);
 
   std::array funcs = {
-      &vecadd,
-      &matmul,
-      &dotprod,
-      &max_reduce,
+      &test_vecadd,
+      &test_matmul,
+      &test_dotprod,
+      &test_max_reduce,
   };
   std::array names = {
       "Field1D addition",

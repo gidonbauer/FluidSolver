@@ -119,6 +119,7 @@ void update_maximum_atomic(std::atomic<T>& maximum_value, T const& value) noexce
 
 // -------------------------------------------------------------------------------------------------
 template <std::floating_point Float, Index M, Index N>
+requires(M > 0 && N > 0)
 class Matrix {
   std::array<Float, M * N> m_data{};
 
@@ -150,6 +151,7 @@ class Matrix {
 
 // -------------------------------------------------------------------------------------------------
 template <std::floating_point Float, Index N>
+requires(N > 0)
 class Vector {
  public:
   std::array<Float, N> m_data{};
@@ -164,6 +166,46 @@ class Vector {
     return m_data[static_cast<size_t>(i)];
   }
 };
+
+// -------------------------------------------------------------------------------------------------
+template <std::floating_point Float, Index N>
+requires(N > 0)
+constexpr void dot(const Vector<Float, N>& lhs, const Vector<Float, N>& rhs, Float& sol) noexcept {
+  sol = 0.0;
+  for (Index i = 0; i < N; ++i) {
+    sol += lhs(i) * rhs(i);
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <std::floating_point Float, Index M, Index N>
+requires(M > 0 && N > 0)
+constexpr void matvecmul(const Matrix<Float, M, N>& lhs,
+                         const Vector<Float, N>& rhs,
+                         Vector<Float, M>& sol) noexcept {
+  for (Index i = 0; i < M; ++i) {
+    sol(i) = 0.0;
+    for (Index j = 0; j < N; ++j) {
+      sol(i) += lhs(i, j) * rhs(j);
+    }
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+template <std::floating_point Float, Index M, Index K, Index N>
+requires(M > 0 && K > 0 && N > 0)
+constexpr void matmul(const Matrix<Float, M, K>& lhs,
+                      const Matrix<Float, K, N>& rhs,
+                      Matrix<Float, M, N>& sol) noexcept {
+  for (Index i = 0; i < M; ++i) {
+    for (Index j = 0; j < N; ++j) {
+      sol(i, j) = 0.0;
+      for (Index k = 0; k < K; ++k) {
+        sol(i, j) += lhs(i, k) * rhs(k, j);
+      }
+    }
+  }
+}
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index N>

@@ -13,6 +13,7 @@ set(executables
   Container
   Utility
   OffloadGPU
+  ShapeFunction
 )
 
 foreach(exec ${executables})

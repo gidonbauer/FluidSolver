@@ -5,9 +5,10 @@ set(executables
   WallBubble
   Wave
 
-  DiffuseInterfaceIB
-  SharpInterfaceIB
+  DiffuseIB
   MovingLeastSquaresIB
+  DiffuseIB-DFG
+  SharpIB-DFG
   VerifyDFGBenchmarkSetup
 
   VOF

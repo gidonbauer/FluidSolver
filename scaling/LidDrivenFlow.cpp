@@ -49,7 +49,7 @@ constexpr FlowBConds<Float> bconds{
     .top    = Dirichlet<Float>{.U = U_TOP, .V = 0.0},
 };
 
-constexpr Float Re = U_TOP * (X_MAX - X_MIN) * RHO / VISC;
+// constexpr Float Re = U_TOP * (X_MAX - X_MIN) * RHO / VISC;
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
@@ -57,7 +57,7 @@ auto main() -> int {
   // = Create output directory =====================================================================
   const auto OUTPUT_DIR = get_output_directory("scaling/output") + std::to_string(N) + "/";
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
-  Igor::Info("Re = {:.6e}", Re);
+  // Igor::Info("Re = {:.6e}", Re);
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{
@@ -122,7 +122,7 @@ auto main() -> int {
   monitor.write();
   // = Initialize flow field =======================================================================
 
-  Igor::ScopeTimer timer("Solver");
+  Igor::ScopeTimer timer(Igor::detail::format("Solver for {}x{}", NX, NY));
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);

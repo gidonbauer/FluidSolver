@@ -37,6 +37,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(cmake/compiler_flags.cmake)
 add_compile_definitions(FS_BASE_DIR="${CMAKE_SOURCE_DIR}")
 
+add_subdirectory(${CMAKE_SOURCE_DIR}/tools/)
 add_subdirectory(${CMAKE_SOURCE_DIR}/examples/)
 
 if (FS_BUILD_TEST)

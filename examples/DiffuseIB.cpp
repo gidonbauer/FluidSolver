@@ -45,7 +45,7 @@ constexpr auto immersed_wall = [](Float x, Float y) -> Float {
   constexpr Circle wall = {.x = 1.0, .y = 0.5, .r = 0.15};
   return static_cast<Float>(is_in(wall, x, y));
 };
-#elif 1
+#elif 0
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
   constexpr Float R = 0.25;
   for (Float xi = 1.0; xi <= X_MAX + R; xi += 2.1 * R) {  // NOLINT
@@ -56,12 +56,16 @@ constexpr auto immersed_wall = [](Float x, Float y) -> Float {
   }
   return 0.0;
 };
-#else
+#elif 0
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
   for (int i = 1; i < 5; ++i) {
     if (i - 0.05 <= x && x <= i + 0.05 && (0.6 <= y || y <= 0.4)) { return 1.0; }
   }
   return 0.0;
+};
+#else
+constexpr auto immersed_wall = [](Float /*x*/, Float y) -> Float {
+  return static_cast<Float>(y < 0.1 || y > 0.9);
 };
 #endif
 
@@ -72,9 +76,14 @@ constexpr Index NUM_SUBITER     = 5;
 
 constexpr auto U_in(Float y, [[maybe_unused]] Float t) -> Float {
   IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
-  constexpr Float height = Y_MAX - Y_MIN;
-  constexpr Float U      = 1.5;
-  return (4.0 * U * y * (height - y)) / Igor::sqr(height);
+  if (0.1 <= y && y <= 0.9) {
+    constexpr Float height = (Y_MAX - 0.1) - (Y_MIN + 0.1);
+    constexpr Float U      = 1.5;
+    const Float y_         = y - 0.1;
+    return (4.0 * U * y_ * (height - y_)) / Igor::sqr(height);
+  } else {
+    return 0.0;
+  }
 }
 
 // Channel flow

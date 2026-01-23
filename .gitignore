@@ -11,6 +11,7 @@ compile.out
 
 output*/
 notes/
+data/
 
 *.txt
 *.stdout

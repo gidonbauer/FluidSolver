@@ -212,6 +212,7 @@ auto main() -> int {
                           fs.curr.rho_v_stag(i, j);
       });
       apply_velocity_bconds(fs, bconds, t);
+      // = Update flow field =======================================================================
 
       // Correct the outflow
       Float inflow     = 0.0;

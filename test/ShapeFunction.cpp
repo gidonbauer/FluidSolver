@@ -32,21 +32,18 @@ auto v_analytical(Float x, Float y, Float t) -> Float { return -std::cos(x) * st
 // = Analytical solution ===========================================================================
 
 // =================================================================================================
-struct Vector2 {
-  Float x, y;
-};
-
 struct IndexPair {
   Index first, second;
 };
 
 // =================================================================================================
-constexpr auto dist(const Vector2& v1, const Vector2& v2) noexcept -> Float {
+constexpr auto dist(const Vector2<Float>& v1, const Vector2<Float>& v2) noexcept -> Float {
   return std::sqrt(Igor::sqr(v1.x - v2.x) + Igor::sqr(v1.y - v2.y));
 }
 
-constexpr auto weighted_dist(const Vector2& v1, const Vector2& v2, const Vector2 w) noexcept
-    -> Float {
+constexpr auto weighted_dist(const Vector2<Float>& v1,
+                             const Vector2<Float>& v2,
+                             const Vector2<Float>& w) noexcept -> Float {
   return std::sqrt(Igor::sqr((v1.x - v2.x) / w.x) + Igor::sqr((v1.y - v2.y) / w.y));
 }
 
@@ -106,7 +103,8 @@ constexpr auto eval_field_at_nn(const Field1D<Float, NX, NGHOST>& xm,
 }
 
 // = Shape function ================================================================================
-constexpr auto weight_function(Vector2 pos, Vector2 center, Vector2 box_size) -> Float {
+constexpr auto weight_function(Vector2<Float> pos, Vector2<Float> center, Vector2<Float> box_size)
+    -> Float {
   const Float r = weighted_dist(pos, center, box_size);
   if (r <= 0.5) {
     return 2.0 / 3.0 - 4.0 * r * r + 4.0 * r * r * r;

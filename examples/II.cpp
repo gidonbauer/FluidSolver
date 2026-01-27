@@ -13,78 +13,42 @@
 #include "Utility.hpp"
 
 // = Config ========================================================================================
-using Float              = double;
+using Float                  = double;
 
-constexpr Float X_MIN    = 0.0;
-constexpr Float X_MAX    = 5.0;
-constexpr Float Y_MIN    = 0.0;
-constexpr Float Y_MAX    = 1.0;
+constexpr Float X_MIN        = 0.0;
+constexpr Float X_MAX        = 5.0;
+constexpr Float Y_MIN        = 0.0;
+constexpr Float Y_MAX        = 1.0;
 
-constexpr Index NY       = 128;
-constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
-constexpr Index NGHOST   = 1;
+constexpr Index NY           = 128;
+constexpr Index NX           = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
+constexpr Index NGHOST       = 1;
 
-constexpr Float T_END    = 5.0;
-constexpr Float DT_MAX   = 1e-2;
-constexpr Float CFL_MAX  = 0.5;
-constexpr Float DT_WRITE = T_END / 100.0;
+constexpr Float T_END        = 3.0;
+constexpr Float DT_MAX       = 1e-2;
+constexpr Float CFL_MAX      = 0.5;
+constexpr Float DT_WRITE     = T_END / 100.0;
 
-constexpr Float VISC     = 1e-3;
-constexpr Float RHO      = 1.0;
+constexpr Float VISC         = 1e-3;
+constexpr Float RHO          = 1.0;
 
-#if 1
+constexpr Circle wall        = {.x = 1.0, .y = 0.5, .r = 0.15};
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  constexpr Circle wall = {.x = 1.0, .y = 0.5, .r = 0.15};
   return static_cast<Float>(wall.contains({.x = x, .y = y}));
 };
-#elif 0
-constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  constexpr Float R = 0.25;
-  for (Float xi = 1.0; xi <= X_MAX + R; xi += 2.1 * R) {  // NOLINT
-    Circle c{.x = xi, .y = Y_MIN, .r = R};
-    if (is_in(c, x, y)) { return 1.0; }
-    c.y = Y_MAX;
-    if (is_in(c, x, y)) { return 1.0; }
-  }
-  return 0.0;
-};
-#elif 0
-constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  for (int i = 1; i < 5; ++i) {
-    if (i - 0.05 <= x && x <= i + 0.05 && (0.6 <= y || y <= 0.4)) { return 1.0; }
-  }
-  return 0.0;
-};
-#else
-constexpr auto immersed_wall = [](Float /*x*/, Float y) -> Float {
-  return static_cast<Float>(y < 0.1 || y > 0.9);
-};
-#endif
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
 
-constexpr auto U_in(Float y, [[maybe_unused]] Float t) -> Float {
-  IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
+constexpr auto U_in(Float y, Float /*t*/) -> Float {
   constexpr Float height = Y_MAX - Y_MIN;
   constexpr Float U      = 1.5;
   return (4.0 * U * y * (height - y)) / Igor::sqr(height);
-
-  // if (0.1 <= y && y <= 0.9) {
-  //   constexpr Float height = (Y_MAX - 0.1) - (Y_MIN + 0.1);
-  //   constexpr Float U      = 1.5;
-  //   const Float y_         = y - 0.1;
-  //   return (4.0 * U * y_ * (height - y_)) / Igor::sqr(height);
-  // } else {
-  //   return 0.0;
-  // }
 }
-
-constexpr Float U_AVG =
-    quadrature<64>([](Float y) { return U_in(y, 0.0); }, Y_MIN, Y_MAX) / (Y_MAX - Y_MIN);
-constexpr Float Re = RHO * U_AVG * (Y_MAX - Y_MIN) / VISC;
+constexpr Float U_AVG = quadrature([](Float y) { return U_in(y, 0.0); }, Y_MIN, Y_MAX);
+constexpr Float Re    = RHO * U_AVG * (Y_MAX - Y_MIN) / VISC;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -110,32 +74,107 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
-                                  const Field2D<Float, NX + 1, NY, NGHOST>& ib_u_stag,
-                                  const Field2D<Float, NX, NY + 1, NGHOST>& ib_v_stag,
-                                  Float& mass,
-                                  Float& momentum_x,
-                                  Float& momentum_y) noexcept {
-  mass       = 0.0;
-  momentum_x = 0.0;
-  momentum_y = 0.0;
+constexpr Index NMARKER = 100;
+constexpr Float KAPPA   = 1.0;
+constexpr Float ETA     = 1.0;
+struct InterfaceMarker {
+  // Initial position ^= X
+  Field1D<Float, NMARKER> x0;
+  Field1D<Float, NMARKER> y0;
 
-  for_each<0, NX, 0, NY>([&](Index i, Index j) {
-    mass += ((1.0 - ib_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) +
-             (1.0 - ib_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) +
-             (1.0 - ib_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) +
-             (1.0 - ib_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1)) /
-            4.0 * fs.dx * fs.dy;
+  // Current position ^= Chi(X, t)
+  Field1D<Float, NMARKER> x;
+  Field1D<Float, NMARKER> y;
 
-    momentum_x +=
-        ((1.0 - ib_u_stag(i, j)) * fs.curr.rho_u_stag(i, j) * fs.curr.U(i, j) +
-         (1.0 - ib_u_stag(i + 1, j)) * fs.curr.rho_u_stag(i + 1, j) * fs.curr.U(i + 1, j)) /
-        2.0 * fs.dx * fs.dy;
-    momentum_y +=
-        ((1.0 - ib_v_stag(i, j)) * fs.curr.rho_v_stag(i, j) * fs.curr.V(i, j) +
-         (1.0 - ib_v_stag(i, j + 1)) * fs.curr.rho_v_stag(i, j + 1) * fs.curr.V(i, j + 1)) /
-        2.0 * fs.dx * fs.dy;
+  // Current velocity ^= U(X, t)
+  Field1D<Float, NMARKER> u;
+  Field1D<Float, NMARKER> v;
+
+  // Previous position ^= Chi(X, t-dt)
+  Field1D<Float, NMARKER> x_old;
+  Field1D<Float, NMARKER> y_old;
+
+  // Response force
+  Field1D<Float, NMARKER> FU;
+  Field1D<Float, NMARKER> FV;
+
+  // Jump conditins
+  Field1D<Float, NMARKER> p_jump;
+  Field1D<Float, NMARKER> mu_dudx_jump;
+  Field1D<Float, NMARKER> mu_dvdx_jump;
+  Field1D<Float, NMARKER> mu_dudy_jump;
+  Field1D<Float, NMARKER> mu_dvdy_jump;
+};
+
+constexpr void calc_response_force(InterfaceMarker& marker) {
+  for_each_i(marker.x, [&](Index idx) {
+    marker.FU(idx) = KAPPA * (marker.x0(idx) - marker.x(idx)) - ETA * marker.u(idx);
+    marker.FV(idx) = KAPPA * (marker.y0(idx) - marker.y(idx)) - ETA * marker.v(idx);
   });
+}
+
+constexpr void calc_jumps(InterfaceMarker& marker) {
+  // TODO: Assue J^-1 = 1, is this a good assumption?
+  constexpr Float J_inv = 1.0;
+
+  for_each_i(marker.x, [&](Index idx) {
+    const Index idx_prev = ((idx - 1) + NMARKER) % NMARKER;
+    const Index idx_next = (idx + 1) % NMARKER;
+    const Vector2 t1     = {
+            .x = marker.x(idx) - marker.x(idx_prev),
+            .y = marker.y(idx) - marker.y(idx_prev),
+    };
+    const auto n1    = normalize(Vector2{
+           .x = -t1.y,
+           .y = t1.x,
+    });
+    const Vector2 t2 = {
+        .x = marker.x(idx_next) - marker.x(idx),
+        .y = marker.y(idx_next) - marker.y(idx),
+    };
+    const auto n2   = normalize(Vector2{
+          .x = -t2.y,
+          .y = t2.x,
+    });
+    const Vector2 n = {
+        .x = (n1.x + n2.x) / 2.0,
+        .y = (n1.y + n2.y) / 2.0,
+    };
+
+    marker.p_jump(idx) = J_inv * (marker.FU(idx) * n.x + marker.FV(idx) * n.y);
+
+    marker.mu_dudx_jump(idx) =
+        J_inv * ((1.0 - n.x * n.x) * marker.FU(idx) + (1.0 - n.x * n.y) * marker.FV(idx)) * n.x;
+    marker.mu_dvdx_jump(idx) =
+        J_inv * ((1.0 - n.x * n.y) * marker.FU(idx) + (1.0 - n.y * n.y) * marker.FV(idx)) * n.x;
+
+    marker.mu_dudy_jump(idx) =
+        J_inv * ((1.0 - n.x * n.x) * marker.FU(idx) + (1.0 - n.x * n.y) * marker.FV(idx)) * n.y;
+    marker.mu_dvdy_jump(idx) =
+        J_inv * ((1.0 - n.x * n.y) * marker.FU(idx) + (1.0 - n.y * n.y) * marker.FV(idx)) * n.y;
+  });
+}
+
+[[nodiscard]] auto write_interface(const std::string& directory, const InterfaceMarker& marker)
+    -> bool {
+  static Index write_counter = 0;
+
+  if (!to_npy(Igor::detail::format("{}/marker_x_{:06}.npy", directory, write_counter), marker.x)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/marker_y_{:06}.npy", directory, write_counter), marker.y)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/marker_u_{:06}.npy", directory, write_counter), marker.u)) {
+    return false;
+  }
+  if (!to_npy(Igor::detail::format("{}/marker_v_{:06}.npy", directory, write_counter), marker.v)) {
+    return false;
+  }
+
+  write_counter += 1;
+
+  return true;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -143,8 +182,10 @@ auto main() -> int {
   Igor::Info("Re = {:.6e}", Re);
 
   // = Create output directory =====================================================================
-  const auto OUTPUT_DIR = get_output_directory();
+  const auto OUTPUT_DIR           = get_output_directory();
+  const auto INTERFACE_OUTPUT_DIR = OUTPUT_DIR + "interface";
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
+  if (!init_output_directory(INTERFACE_OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{
@@ -164,22 +205,14 @@ auto main() -> int {
   Field2D<Float, NX, NY, NGHOST> delta_p{};
 
   Field2D<Float, NX, NY, NGHOST> ib{};
-  Field2D<Float, NX + 1, NY, NGHOST> ib_u_stag{};
-  Field2D<Float, NX, NY + 1, NGHOST> ib_v_stag{};
-
-  // IB forcing term
-  Field2D<Float, NX, NY, NGHOST> fUi{};
-  Field2D<Float, NX, NY, NGHOST> fVi{};
-  Field2D<Float, NX + 1, NY, NGHOST> fU{};
-  Field2D<Float, NX, NY + 1, NGHOST> fV{};
 
   // Observation variables
-  Float t       = 0.0;
-  Float dt      = DT_MAX;
+  Float t  = 0.0;
+  Float dt = DT_MAX;
 
-  Float mass    = 0.0;
-  Float mom_x   = 0.0;
-  Float mom_y   = 0.0;
+  // Float mass    = 0.0;
+  // Float mom_x   = 0.0;
+  // Float mom_y   = 0.0;
 
   Float U_max   = 0.0;
   Float V_max   = 0.0;
@@ -197,7 +230,6 @@ auto main() -> int {
   data_writer.add_scalar("divergence", &div);
   data_writer.add_vector("velocity", &Ui, &Vi);
   data_writer.add_scalar("Immersed-wall", &ib);
-  data_writer.add_vector("IB-forcing", &fUi, &fVi);
 
   Monitor<Float> monitor(Igor::detail::format("{}/monitor.log", OUTPUT_DIR));
   monitor.add_variable(&t, "time");
@@ -212,35 +244,32 @@ auto main() -> int {
   monitor.add_variable(&p_res, "res(p)");
   monitor.add_variable(&p_iter, "iter(p)");
 
-  monitor.add_variable(&mass, "mass");
-  monitor.add_variable(&mom_x, "momentum (x)");
-  monitor.add_variable(&mom_y, "momentum (y)");
+  // monitor.add_variable(&mass, "mass");
+  // monitor.add_variable(&mom_x, "momentum (x)");
+  // monitor.add_variable(&mom_y, "momentum (y)");
   // = Output ======================================================================================
 
   // = Initialize immersed boundaries ==============================================================
-  for_each_a<Exec::Parallel>(ib_u_stag, [&](Index i, Index j) {
-    ib_u_stag(i, j) =
-        quadrature(
-            immersed_wall, fs.x(i) - fs.dx / 2.0, fs.x(i) + fs.dx / 2.0, fs.y(j), fs.y(j + 1)) /
-        (fs.dx * fs.dy);
-  });
-
-  for_each_a<Exec::Parallel>(ib_v_stag, [&](Index i, Index j) {
-    ib_v_stag(i, j) =
-        quadrature(
-            immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j) - fs.dy / 2.0, fs.y(j) + fs.dy / 2.0) /
-        (fs.dx * fs.dy);
-  });
   for_each_a<Exec::Parallel>(ib, [&](Index i, Index j) {
     ib(i, j) =
         quadrature(immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
-  // interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
+
+  InterfaceMarker marker{};
+  for_each<0, NMARKER>([&](Index idx) {
+    const Float angle = 2.0 * std::numbers::pi_v<Float> * static_cast<Float>(idx) / NMARKER;
+    marker.x0(idx)    = wall.r * std::cos(angle) + wall.x;
+    marker.y0(idx)    = wall.r * std::sin(angle) + wall.y;
+    marker.x(idx)     = marker.x0(idx);
+    marker.y(idx)     = marker.y0(idx);
+    marker.u(idx) = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, marker.x0(idx), marker.y0(idx));
+    marker.v(idx) = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, marker.x0(idx), marker.y0(idx));
+  });
   // = Initialize immersed boundaries ==============================================================
 
   // = Initialize flow field =======================================================================
-  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = 0.0; });
-  for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
+  fill(fs.curr.U, 0.0);
+  fill(fs.curr.V, 0.0);
   apply_velocity_bconds(fs, bconds, t);
 
   interpolate_U(fs.curr.U, Ui);
@@ -250,8 +279,8 @@ auto main() -> int {
   V_max   = max(fs.curr.V);
   div_max = max(div);
   p_max   = max(fs.p);
-  calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
   if (!data_writer.write(t)) { return 1; }
+  if (!write_interface(INTERFACE_OUTPUT_DIR, marker)) { return 1; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -263,10 +292,16 @@ auto main() -> int {
     // Save previous state
     save_old_velocity(fs.curr, fs.old);
 
+    copy(marker.x, marker.x_old);
+    copy(marker.y, marker.y_old);
+
     p_iter = 0;
     for (Index sub_iter = 0; sub_iter < NUM_SUBITER; ++sub_iter) {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
+
+      calc_response_force(marker);
+      calc_jumps(marker);
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
@@ -292,27 +327,6 @@ auto main() -> int {
       });
       // = Correct the outflow =====================================================================
 
-      // = IB forcing ==============================================================================
-      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        // Calculate
-        constexpr Float U_TARGET = 0.0;
-        fU(i, j)                 = ib_u_stag(i, j) * (U_TARGET - fs.curr.U(i, j)) / dt;
-
-        // Apply
-        fs.curr.U(i, j) += dt * fU(i, j);
-      });
-      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        // Calculate
-        constexpr Float V_TARGET = 0.0;
-        fV(i, j)                 = ib_v_stag(i, j) * (V_TARGET - fs.curr.V(i, j)) / dt;
-
-        // Apply
-        fs.curr.V(i, j) += dt * fV(i, j);
-      });
-      interpolate_U(fU, fUi);
-      interpolate_V(fV, fVi);
-      // = IB forcing ==============================================================================
-
       // = Apply pressure correction ===============================================================
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       Index local_p_iter = 0;
@@ -336,6 +350,19 @@ auto main() -> int {
         fs.curr.V(i, j) -= dpdy * dt / rho;
       });
       // = Apply pressure correction ===============================================================
+
+      // = Update marker position ==================================================================
+      for_each_i(marker.u, [&](Index idx) {
+        marker.x(idx) = (marker.x(idx) + marker.x_old(idx)) / 2.0;
+        marker.y(idx) = (marker.y(idx) + marker.y_old(idx)) / 2.0;
+
+        marker.u(idx) = bilinear_interpolate(fs.x, fs.ym, fs.curr.U, marker.x(idx), marker.y(idx));
+        marker.v(idx) = bilinear_interpolate(fs.xm, fs.y, fs.curr.V, marker.x(idx), marker.y(idx));
+
+        marker.x(idx) = marker.x_old(idx) + dt * marker.u(idx);
+        marker.y(idx) = marker.y_old(idx) + dt * marker.v(idx);
+      });
+      // = Update marker position ==================================================================
     }
 
     t += dt;
@@ -346,9 +373,9 @@ auto main() -> int {
     V_max   = max(fs.curr.V);
     div_max = max(div);
     p_max   = max(fs.p);
-    calc_conserved_quantities_ib(fs, ib_u_stag, ib_v_stag, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
       if (!data_writer.write(t)) { return 1; }
+      if (!write_interface(INTERFACE_OUTPUT_DIR, marker)) { return 1; }
     }
     monitor.write();
   }

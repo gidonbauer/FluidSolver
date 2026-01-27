@@ -25,7 +25,7 @@ constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_
 constexpr Index NGHOST   = 1;
 
 constexpr Float T_END    = 5.0;
-constexpr Float DT_MAX   = 1e-2;
+constexpr Float DT_MAX   = 1e-2;  // 1e-4;
 constexpr Float CFL_MAX  = 0.5;
 constexpr Float DT_WRITE = T_END / 100.0;
 
@@ -33,9 +33,16 @@ constexpr Float VISC     = 1e-3;
 constexpr Float RHO      = 1.0;
 
 #if 1
+constexpr Circle wall        = {.x = 1.0, .y = 0.5, .r = 0.15};
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  constexpr Circle wall = {.x = 1.0, .y = 0.5, .r = 0.15};
   return static_cast<Float>(wall.contains({.x = x, .y = y}));
+};
+constexpr auto normal_immersed_wall = [](Float x, Float y) -> std::array<Float, 2> {
+  const auto d = std::sqrt(Igor::sqr(x - wall.x) + Igor::sqr(y - wall.y));
+  return {
+      (x - wall.x) / d,
+      (y - wall.y) / d,
+  };
 };
 #elif 0
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
@@ -137,6 +144,130 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
         2.0 * fs.dx * fs.dy;
   });
 }
+
+// -------------------------------------------------------------------------------------------------
+enum IBBoundary : uint32_t {
+  INSIDE  = 0b00000,
+  LEFT    = 0b00001,
+  RIGHT   = 0b00010,
+  BOTTOM  = 0b00100,
+  TOP     = 0b01000,
+  OUTSIDE = 0b10000,
+};
+
+[[nodiscard]] auto is_boundary(const auto& xs, const auto& ys, Index i, Index j) -> uint32_t {
+  if (immersed_wall(xs(i), ys(j)) < 1.0) { return IBBoundary::OUTSIDE; }
+
+  uint32_t boundary = IBBoundary::INSIDE;
+  if (immersed_wall(xs(i + 1), ys(j)) < 1.0) { boundary |= IBBoundary::RIGHT; }
+  if (immersed_wall(xs(i - 1), ys(j)) < 1.0) { boundary |= IBBoundary::LEFT; }
+  if (immersed_wall(xs(i), ys(j + 1)) < 1.0) { boundary |= IBBoundary::TOP; }
+  if (immersed_wall(xs(i), ys(j - 1)) < 1.0) { boundary |= IBBoundary::BOTTOM; }
+  return boundary;
+}
+
+// -------------------------------------------------------------------------------------------------
+[[nodiscard]] auto get_extrapolated_velocity(
+    const auto& xs, const auto& ys, Float dx, Float dy, const auto& vel, Index i, Index j)
+    -> Float {
+  auto get_weights = [](Float beta) -> std::array<Float, 3> {
+#define LINEAR
+#ifdef LINEAR
+    return {
+        1.0 / (1.0 - beta),
+        -beta / (1.0 - beta),
+        0.0,
+    };
+#else
+    constexpr Float BETA1 = 0.5;
+    if (beta < BETA1) {
+      return {
+          2.0 / ((1.0 - beta) * (2.0 - beta)),
+          -2.0 * beta / (1.0 - beta),
+          beta / (2.0 - beta),
+      };
+    } else {
+      const auto w0 = 2.0 / ((1.0 - BETA1) * (2.0 - BETA1));
+      return {
+          w0,
+          2.0 - (2.0 - beta) * w0,
+          -1.0 + (1.0 - beta) * w0,
+      };
+    }
+#endif  // LINEAR
+  };
+
+  // const auto [normal_x, normal_y] = normal_immersed_wall(xs(i), ys(j));
+  const auto normal    = normal_immersed_wall(xs(i), ys(j));
+  const auto normal_x  = normal[0];
+  const auto normal_y  = normal[1];
+  const auto direction = [&]() {
+    if (std::abs(normal_x) > std::abs(normal_y)) {
+      return normal_x > 0.0 ? IBBoundary::RIGHT : IBBoundary::LEFT;
+    } else {
+      return normal_y > 0.0 ? IBBoundary::TOP : IBBoundary::BOTTOM;
+    }
+  }();
+  // IGOR_ASSERT((direction & boundary) > 0, "Direction and boundary do not align.");
+
+  const Float U0 = 0.0;  // Velocity at interface is set to zero
+  Float U1       = 0.0;
+  Float U2       = 0.0;
+  Float beta     = 0.0;
+  switch (direction) {
+    case IBBoundary::LEFT:
+      {
+        const Point pe{.x = xs(i), .y = ys(j)};
+        const Point p1{.x = xs(i - 1), .y = ys(j)};
+        const auto [intersect_x, intersect_y] = intersect_line_circle(pe, p1, wall);
+        beta                                  = std::abs(intersect_x - pe.x) / dx;
+        U1                                    = vel(i - 1, j);
+        U2                                    = vel(i - 2, j);
+      }
+      break;
+    case IBBoundary::RIGHT:
+      {
+        const Point pe{.x = xs(i), .y = ys(j)};
+        const Point p1{.x = xs(i + 1), .y = ys(j)};
+        const auto [intersect_x, intersect_y] = intersect_line_circle(pe, p1, wall);
+        beta                                  = std::abs(intersect_x - pe.x) / dx;
+        U1                                    = vel(i + 1, j);
+        U2                                    = vel(i + 2, j);
+      }
+      break;
+    case IBBoundary::BOTTOM:
+      {
+        const Point pe{.x = xs(i), .y = ys(j)};
+        const Point p1{.x = xs(i), .y = ys(j - 1)};
+        const auto [intersect_x, intersect_y] = intersect_line_circle(pe, p1, wall);
+        beta                                  = std::abs(intersect_y - pe.y) / dy;
+        U1                                    = vel(i, j - 1);
+        U2                                    = vel(i, j - 2);
+      }
+      break;
+    case IBBoundary::TOP:
+      {
+        const Point pe{.x = xs(i), .y = ys(j)};
+        const Point p1{.x = xs(i), .y = ys(j + 1)};
+        const auto [intersect_x, intersect_y] = intersect_line_circle(pe, p1, wall);
+        beta                                  = std::abs(intersect_y - pe.y) / dy;
+        U1                                    = vel(i, j + 1);
+        U2                                    = vel(i, j + 2);
+      }
+      break;
+    case IBBoundary::INSIDE:
+    default:                 Igor::Panic("Unreachable");
+  }
+
+  const auto [w0, w1, w2] = get_weights(beta);
+  IGOR_ASSERT(std::abs(w0 + w1 + w2 - 1.0) < 1e-8,
+              "Expected sum of weights to be 1.0 but is {:.6e}",
+              w0 + w1 + w2);
+  IGOR_ASSERT(std::abs(beta * w0 + w1 + 2.0 * w2) < 1e-8,
+              "Expected beta*w0 + w1 + 2*w2 to be 0.0 but is {:.6e}",
+              beta * w0 + w1 + 2.0 * w2);
+  return w0 * U0 + w1 * U1 + w2 * U2;
+};
 
 // -------------------------------------------------------------------------------------------------
 auto main() -> int {
@@ -295,16 +426,32 @@ auto main() -> int {
       // = IB forcing ==============================================================================
       for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
         // Calculate
-        constexpr Float U_TARGET = 0.0;
-        fU(i, j)                 = ib_u_stag(i, j) * (U_TARGET - fs.curr.U(i, j)) / dt;
+        const auto boundary = is_boundary(fs.x, fs.ym, i, j);
+        if (boundary == IBBoundary::OUTSIDE) {
+          fU(i, j) = 0.0;
+        } else {
+          Float u_target = 0.0;
+          if (boundary != IBBoundary::INSIDE) {
+            u_target = get_extrapolated_velocity(fs.x, fs.ym, fs.dx, fs.dy, fs.curr.U, i, j);
+          }
+          fU(i, j) = (u_target - fs.curr.U(i, j)) / dt;
+        }
 
         // Apply
         fs.curr.U(i, j) += dt * fU(i, j);
       });
       for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
         // Calculate
-        constexpr Float V_TARGET = 0.0;
-        fV(i, j)                 = ib_v_stag(i, j) * (V_TARGET - fs.curr.V(i, j)) / dt;
+        const auto boundary = is_boundary(fs.xm, fs.y, i, j);
+        if (boundary == IBBoundary::OUTSIDE) {
+          fV(i, j) = 0.0;
+        } else {
+          Float v_target = 0.0;
+          if (boundary != IBBoundary::INSIDE) {
+            v_target = get_extrapolated_velocity(fs.xm, fs.y, fs.dx, fs.dy, fs.curr.V, i, j);
+          }
+          fV(i, j) = (v_target - fs.curr.V(i, j)) / dt;
+        }
 
         // Apply
         fs.curr.V(i, j) += dt * fV(i, j);

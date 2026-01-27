@@ -322,7 +322,7 @@ auto main() -> int {
     });
   }
 
-  // - Test U profile --------
+  // - Test V profile --------
   {
     constexpr Float TOL = 1e-7;
     for_each_i(fs.curr.V, [&](Index i, Index j) {

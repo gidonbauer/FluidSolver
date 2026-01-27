@@ -5,7 +5,9 @@ set(executables
   WallBubble
   Wave
 
+  II
   DiffuseIB
+  SharpIB
   MovingLeastSquaresIB
   DiffuseIB-DFG
   SharpIB-DFG

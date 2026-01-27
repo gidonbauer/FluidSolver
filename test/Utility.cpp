@@ -1,4 +1,5 @@
 #include <cmath>
+#include <numbers>
 
 #include <omp.h>
 
@@ -135,6 +136,59 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
 }
 
 // =================================================================================================
+[[nodiscard]] auto check_intersect(const Circle<double>& c,
+                                   const Point<double>& p1,
+                                   const Point<double>& p2,
+                                   const Point<double>& i_exp) -> bool {
+  constexpr double EPS = 1e-12;
+  Point i              = intersect_line_circle(p1, p2, c);
+  if (std::abs(i.x - i_exp.x) > EPS || std::abs(i.y - i_exp.y) > EPS) {
+    Igor::Error("Incorrect intersection point: expected {{ .x = {:.6e}, .y = {:.6e} }}, but got {{ "
+                ".x = {:.6e}, .y = {:.6e} }}",
+                i_exp.x,
+                i_exp.y,
+                i.x,
+                i.y);
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] auto test_geometry() -> bool {
+  if (!check_intersect(Circle{.x = 1.0, .y = 1.0, .r = 0.5},
+                       Point{.x = 0.0, .y = 1.0},
+                       Point{.x = 1.0, .y = 1.0},
+                       Point{.x = 0.5, .y = 1.0})) {
+    return false;
+  }
+
+  if (!check_intersect(Circle{.x = 1.0e-7, .y = 1.0e-7, .r = 0.5e-7},
+                       Point{.x = 0.0e-7, .y = 1.0e-7},
+                       Point{.x = 1.0e-7, .y = 1.0e-7},
+                       Point{.x = 0.5e-7, .y = 1.0e-7})) {
+    return false;
+  }
+
+  if (!check_intersect(Circle{.x = 1.0, .y = 1.0, .r = 0.5},
+                       Point{.x = 0.0, .y = 0.0},
+                       Point{.x = 1.0, .y = 1.0},
+                       Point{.x = 1.0 - 0.5 * std::numbers::sqrt2 / 2.0,
+                             .y = 1.0 - 0.5 * std::numbers::sqrt2 / 2.0})) {
+    return false;
+  }
+
+  if (!check_intersect(Circle{.x = 1.0e-7, .y = 1.0e-7, .r = 0.5e-7},
+                       Point{.x = 0.0e-7, .y = 0.0e-7},
+                       Point{.x = 1.0e-7, .y = 1.0e-7},
+                       Point{.x = (1.0 - 0.5 * std::numbers::sqrt2 / 2.0) * 1e-7,
+                             .y = (1.0 - 0.5 * std::numbers::sqrt2 / 2.0) * 1e-7})) {
+    return false;
+  }
+
+  return true;
+}
+
+// =================================================================================================
 auto main() -> int {
   omp_set_num_threads(4);
 
@@ -142,6 +196,7 @@ auto main() -> int {
 
   any_test_failed      = !test_reduce_field_1d() || any_test_failed;
   any_test_failed      = !test_reduce_field_2d() || any_test_failed;
+  any_test_failed      = !test_geometry() || any_test_failed;
 
   {
     Matrix<double, 3, 3> A{};

@@ -1,7 +1,4 @@
-#include <cstddef>
-
 #include <Igor/Logging.hpp>
-#include <Igor/Macros.hpp>
 #include <Igor/Timer.hpp>
 
 #include "FS.hpp"
@@ -12,54 +9,38 @@
 #include "Quadrature.hpp"
 #include "Utility.hpp"
 
+#include "../test/Common.hpp"
+
 // = Config ========================================================================================
-using Float              = double;
+using Float                    = double;
 
-constexpr Float X_MIN    = 0.0;
-constexpr Float X_MAX    = 5.0;
-constexpr Float Y_MIN    = 0.0;
-constexpr Float Y_MAX    = 1.0;
+constexpr Float X_MIN          = 0.0;
+constexpr Float X_MAX          = 5.0;
+constexpr Float Y_MIN          = 0.0;
+constexpr Float Y_MAX          = 5.0;
+constexpr Float CHANNEL_HEIGHT = 1.0;
+constexpr Float CHANNEL_LENGTH = X_MAX - X_MIN;
+constexpr Float CHANNEL_OFFSET = 2.0;
 
-constexpr Index NY       = 128;
-constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
-constexpr Index NGHOST   = 1;
+#ifndef FS_SCALING_N
+#error "Need to define `FS_SCALING_N`, the number of cells in x- and y-direction"
+#endif  // FS_SCALING_N
+constexpr Index NX           = (1 << FS_SCALING_N) + 1;
+constexpr Index NY           = NX;
+constexpr Index NGHOST       = 1;
 
-constexpr Float T_END    = 5.0;
-constexpr Float DT_MAX   = 1e-2;
-constexpr Float CFL_MAX  = 0.5;
-constexpr Float DT_WRITE = T_END / 100.0;
+constexpr Float T_END        = 10.0;
+constexpr Float DT_MAX       = 1e-1;
+constexpr Float CFL_MAX      = 0.25;
+constexpr Float DT_WRITE     = T_END / 100.0;
 
-constexpr Float VISC     = 1e-3;
-constexpr Float RHO      = 1.0;
+constexpr Float VISC         = 1e-2;
+constexpr Float RHO          = 1.0;
+constexpr Float P0           = 0.2;
 
-#if 1
-constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  constexpr Circle wall = {.x = 1.0, .y = 0.5, .r = 0.15};
-  return static_cast<Float>(wall.contains({.x = x, .y = y}));
-};
-#elif 0
-constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  constexpr Float R = 0.25;
-  for (Float xi = 1.0; xi <= X_MAX + R; xi += 2.1 * R) {  // NOLINT
-    Circle c{.x = xi, .y = Y_MIN, .r = R};
-    if (is_in(c, x, y)) { return 1.0; }
-    c.y = Y_MAX;
-    if (is_in(c, x, y)) { return 1.0; }
-  }
-  return 0.0;
-};
-#elif 0
-constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  for (int i = 1; i < 5; ++i) {
-    if (i - 0.05 <= x && x <= i + 0.05 && (0.6 <= y || y <= 0.4)) { return 1.0; }
-  }
-  return 0.0;
-};
-#else
 constexpr auto immersed_wall = [](Float /*x*/, Float y) -> Float {
-  return static_cast<Float>(y < 0.1 || y > 0.9);
+  return static_cast<Float>(y < Y_MIN + CHANNEL_OFFSET || y > Y_MAX - CHANNEL_OFFSET);
 };
-#endif
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -68,23 +49,17 @@ constexpr Index NUM_SUBITER     = 5;
 
 constexpr auto U_in(Float y, [[maybe_unused]] Float t) -> Float {
   IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
-  constexpr Float height = Y_MAX - Y_MIN;
-  constexpr Float U      = 1.5;
-  return (4.0 * U * y * (height - y)) / Igor::sqr(height);
+  if (immersed_wall(-1.0, y) > 0.0) { return 0.0; }
 
-  // if (0.1 <= y && y <= 0.9) {
-  //   constexpr Float height = (Y_MAX - 0.1) - (Y_MIN + 0.1);
-  //   constexpr Float U      = 1.5;
-  //   const Float y_         = y - 0.1;
-  //   return (4.0 * U * y_ * (height - y_)) / Igor::sqr(height);
-  // } else {
-  //   return 0.0;
-  // }
+  const Float y_off = y - CHANNEL_OFFSET;
+  return P0 * CHANNEL_HEIGHT / (VISC * CHANNEL_LENGTH) * y_off * (1.0 - y_off / CHANNEL_HEIGHT);
 }
 
-constexpr Float U_AVG =
-    quadrature<64>([](Float y) { return U_in(y, 0.0); }, Y_MIN, Y_MAX) / (Y_MAX - Y_MIN);
-constexpr Float Re = RHO * U_AVG * (Y_MAX - Y_MIN) / VISC;
+constexpr Float U_AVG = quadrature<64>([](Float y) { return U_in(y, 0.0); },
+                                       CHANNEL_OFFSET,
+                                       CHANNEL_OFFSET + CHANNEL_HEIGHT) /
+                        CHANNEL_HEIGHT;
+constexpr Float Re = RHO * U_AVG * CHANNEL_HEIGHT / VISC;
 
 // Channel flow
 constexpr FlowBConds<Float> bconds{
@@ -139,11 +114,25 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto main() -> int {
-  Igor::Info("Re = {:.6e}", Re);
+auto main(int argc, char** argv) -> int {
+  bool write_csv_header = false;
+  bool write_csv        = false;
+#define USAGE Igor::Error("Usage: {} [--write-csv-header] [--write-csv]", *argv)
+  for (int i = 1; i < argc; ++i) {
+    using namespace std::string_literals;
+    if (argv[i] == "--write-csv-header"s) {
+      write_csv_header = true;
+    } else if (argv[i] == "--write-csv"s) {
+      write_csv = true;
+    } else {
+      USAGE;
+      Igor::Error("Unknown flag `{}`", argv[i]);
+    }
+  }
+#undef USAGE
 
   // = Create output directory =====================================================================
-  const auto OUTPUT_DIR = get_output_directory();
+  const auto OUTPUT_DIR = get_output_directory("scaling/output") + std::to_string(FS_SCALING_N);
   if (!init_output_directory(OUTPUT_DIR)) { return 1; }
 
   // = Allocate memory =============================================================================
@@ -224,7 +213,6 @@ auto main() -> int {
             immersed_wall, fs.x(i) - fs.dx / 2.0, fs.x(i) + fs.dx / 2.0, fs.y(j), fs.y(j + 1)) /
         (fs.dx * fs.dy);
   });
-
   for_each_a<Exec::Parallel>(ib_v_stag, [&](Index i, Index j) {
     ib_v_stag(i, j) =
         quadrature(
@@ -235,12 +223,11 @@ auto main() -> int {
     ib(i, j) =
         quadrature(immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
-  // interpolate_UV_staggered_field(ib_u_stag, ib_v_stag, ib);
   // = Initialize immersed boundaries ==============================================================
 
   // = Initialize flow field =======================================================================
-  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = 0.0; });
-  for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
+  fill(fs.curr.U, 0.0);
+  fill(fs.curr.V, 0.0);
   apply_velocity_bconds(fs, bconds, t);
 
   interpolate_U(fs.curr.U, Ui);
@@ -255,7 +242,6 @@ auto main() -> int {
   monitor.write();
   // = Initialize flow field =======================================================================
 
-  Igor::ScopeTimer timer("Solver");
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
@@ -293,7 +279,7 @@ auto main() -> int {
       // = Correct the outflow =====================================================================
 
       // = IB forcing ==============================================================================
-      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+      for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
         // Calculate
         constexpr Float U_TARGET = 0.0;
         fU(i, j)                 = ib_u_stag(i, j) * (U_TARGET - fs.curr.U(i, j)) / dt;
@@ -301,7 +287,7 @@ auto main() -> int {
         // Apply
         fs.curr.U(i, j) += dt * fU(i, j);
       });
-      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+      for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
         // Calculate
         constexpr Float V_TARGET = 0.0;
         fV(i, j)                 = ib_v_stag(i, j) * (V_TARGET - fs.curr.V(i, j)) / dt;
@@ -353,5 +339,52 @@ auto main() -> int {
     monitor.write();
   }
 
-  Igor::Info("Solver finished successfully.");
+  // = Check results ===============================================================================
+  const Float dpdx_avg = (fs.p(NX - 1, NY / 2) - fs.p(0, NY / 2)) / CHANNEL_LENGTH;
+  const Float dpdx_exp = -2.0 * P0 / CHANNEL_LENGTH;
+  Float dpdx_error     = 0.0;
+  Float U_L1_error     = 0.0;
+  {
+    constexpr Index j_mid = NY / 2;
+    for_each_i(fs.xm, [&](Index i) {
+      const Float dpdx  = (fs.p(i + 1, j_mid) - fs.p(i - 1, j_mid)) / (2.0 * fs.dx);
+      dpdx_error       += Igor::sqr(dpdx_exp - dpdx);
+    });
+    dpdx_error /= static_cast<Float>(NX);
+  }
+
+  {
+    auto u_analytical = [=](Float y) -> Float {
+      if (immersed_wall(-1.0, y) > 0.0) { return 0.0; }
+      const auto y_off = y - CHANNEL_OFFSET;
+      return dpdx_exp / (2 * VISC) * (y_off * y_off - y_off);
+    };
+
+    Field1D<Float, NY + 2 * NGHOST, 0> diff{};
+    for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
+      diff(j + NGHOST) = std::abs(fs.curr.U(NX / 2, j) - u_analytical(fs.ym(j)));
+    }
+    U_L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
+  }
+
+  if (write_csv_header) { std::cout << "NX,NY,T_END,Re,dpdx_avg,dpdx_exp,MSE_dpdx,L1_error_U\n"; }
+  if (write_csv) {
+    std::cout << NX << ',';
+    std::cout << NY << ',';
+    std::cout << std::scientific << std::setprecision(6) << T_END << ',';
+    std::cout << std::scientific << std::setprecision(6) << Re << ',';
+    std::cout << std::scientific << std::setprecision(6) << dpdx_avg << ',';
+    std::cout << std::scientific << std::setprecision(6) << dpdx_exp << ',';
+    std::cout << std::scientific << std::setprecision(6) << dpdx_error << ',';
+    std::cout << std::scientific << std::setprecision(6) << U_L1_error << '\n';
+  } else {
+    Igor::Info("NX         = {}", NX);
+    Igor::Info("NY         = {}", NY);
+    Igor::Info("T_END      = {:.6e}", T_END);
+    Igor::Info("Re         = {:.6e}", Re);
+    Igor::Info("dpdx_avg   = {:.6e}", dpdx_avg);
+    Igor::Info("dpdx_exp   = {:.6e}", dpdx_exp);
+    Igor::Info("MSE dpdx   = {:.6e}", dpdx_error);
+    Igor::Info("L1-error U = {:.6e}", U_L1_error);
+  }
 }

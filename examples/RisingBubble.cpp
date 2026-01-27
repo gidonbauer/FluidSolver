@@ -121,11 +121,6 @@ constexpr FlowBConds<Float> bconds{
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-struct Vector2 {
-  Float x, y;
-};
-
-// -------------------------------------------------------------------------------------------------
 void calc_vof_stats(const FS<Float, NX, NY, NGHOST>& fs,
                     const Field2D<Float, NX, NY, NGHOST>& vf,
                     const Float init_vf_integral,
@@ -160,7 +155,7 @@ auto calc_center_of_mass(Float dx,
                          Float dy,
                          const Field1D<Float, NX, NGHOST>& xm,
                          const Field1D<Float, NY, NGHOST>& ym,
-                         const Field2D<Float, NX, NY, NGHOST>& vf) -> Vector2 {
+                         const Field2D<Float, NX, NY, NGHOST>& vf) -> Vector2<Float> {
   const auto vol   = integrate(dx, dy, vf);
 
   Float weighted_x = 0.0;
@@ -177,7 +172,7 @@ auto calc_center_of_mass(Float dx,
 
 // -------------------------------------------------------------------------------------------------
 constexpr auto calc_avg_bubble_velocity(const FS<Float, NX, NY, NGHOST>& fs,
-                                        const VOF<Float, NX, NY, NGHOST>& vof) -> Vector2 {
+                                        const VOF<Float, NX, NY, NGHOST>& vof) -> Vector2<Float> {
   Float int_vf = 0.0;
   Float int_u  = 0.0;
   Float int_v  = 0.0;
@@ -278,8 +273,8 @@ auto main(int argc, char** argv) -> int {
   Float p_res         = 0.0;
   Index p_iter        = 0;
 
-  Vector2 center_of_mass{};
-  Vector2 Ub_avg{};
+  Vector2<Float> center_of_mass{};
+  Vector2<Float> Ub_avg{};
   Float Ub_avg_mag{};
 
   // - Dimensional analysis ------------

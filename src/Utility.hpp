@@ -4,6 +4,7 @@
 #include <atomic>
 
 #include <Igor/Logging.hpp>
+#include <Igor/Math.hpp>
 
 #include "Container.hpp"
 #include "ForEach.hpp"
@@ -287,6 +288,116 @@ void solve_linear_system_explicit(const Matrix<Float, 3, 3>& lhs,
     for (Index j = 0; j < 3; ++j) {
       sol(i) += inv_lhs(i, j) * rhs(j);
     }
+  }
+}
+
+// =================================================================================================
+// = Geometry ======================================================================================
+// =================================================================================================
+
+template <typename Float>
+struct Vector2 {
+  Float x, y;
+};
+template <typename Float>
+using Point = Vector2<Float>;
+static_assert(std::is_same_v<Vector2<double>, Point<double>>);
+
+template <typename Float>
+struct Circle {
+  Float x, y, r;
+
+  [[nodiscard]] constexpr auto contains(const Point<Float>& p) const noexcept -> bool {
+    return Igor::sqr(p.x - x) + Igor::sqr(p.y - y) <= Igor::sqr(r);
+  }
+};
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float>
+[[nodiscard]] constexpr auto normalize(const Vector2<Float>& vec) noexcept -> Vector2<Float> {
+  const Float norm = Igor::sqrt(Igor::sqr(vec.x) + Igor::sqr(vec.y));
+  return {.x = vec.x / norm, .y = vec.y / norm};
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float>
+[[nodiscard]] auto intersect_line_circle(Point<Float> p1,
+                                         Point<Float> p2,
+                                         const Circle<Float>& c) noexcept -> Point<Float> {
+  auto sign           = [](Float x) -> Float { return x < 0 ? -1.0 : 1.0; };
+
+  auto on_finite_line = [&](const Point<Float>& i) -> bool {
+    constexpr Float EPS = 1e-8;
+    return std::min(p1.x, p2.x) - EPS <= i.x && i.x <= std::max(p1.x, p2.x) + EPS &&
+           std::min(p1.y, p2.y) - EPS <= i.y && i.y <= std::max(p1.y, p2.y) + EPS;
+  };
+
+  // See: https://mathworld.wolfram.com/Circle-LineIntersection.html
+  p1.x                   -= c.x;
+  p1.y                   -= c.y;
+  p2.x                   -= c.x;
+  p2.y                   -= c.y;
+
+  const auto dx           = p2.x - p1.x;
+  const auto dy           = p2.y - p1.y;
+  const auto dr           = std::sqrt(dx * dx + dy * dy);
+  const auto det          = p1.x * p2.y - p2.x * p1.y;
+
+  const auto inside_sqrt  = c.r * c.r * dr * dr - det * det;
+  if (!(inside_sqrt >= 0.0)) {
+    Igor::Panic("Line ({:.6e}, {:.6e}) -- ({:.6e}, {:.6e}) and circle ({:.6e}, {:.6e}, R={:.6e}) "
+                "do not intersect.",
+                p1.x + c.x,
+                p1.y + c.y,
+                p2.x + c.x,
+                p2.y + c.y,
+                c.x,
+                c.y,
+                c.r);
+  }
+
+  Point i1 = {
+      .x = (det * dy + sign(dy) * dx * std::sqrt(inside_sqrt)) / (dr * dr),
+      .y = (-det * dx + std::abs(dy) * std::sqrt(inside_sqrt)) / (dr * dr),
+  };
+  Point i2 = {
+      .x = (det * dy - sign(dy) * dx * std::sqrt(inside_sqrt)) / (dr * dr),
+      .y = (-det * dx - std::abs(dy) * std::sqrt(inside_sqrt)) / (dr * dr),
+  };
+
+  if (!(on_finite_line(i1) || on_finite_line(i2))) {
+    Igor::Panic("None of the intersection points ({:.6e}, {:.6e}) and ({:.6e}, {:.6e}) is on the "
+                "finite line ({:.6e}, {:.6e}) -- ({:.6e}, {:.6e}).",
+                i1.x + c.x,
+                i1.y + c.y,
+                i2.x + c.x,
+                i2.y + c.y,
+                p1.x + c.x,
+                p1.y + c.y,
+                p2.x + c.x,
+                p2.y + c.y);
+  }
+  if (on_finite_line(i1) && on_finite_line(i2)) {
+    Igor::Panic("Both of the intersection points ({:.6e}, {:.6e}) and ({:.6e}, {:.6e}) are on the "
+                "finite line ({:.6e}, {:.6e}) -- ({:.6e}, {:.6e}).",
+                i1.x + c.x,
+                i1.y + c.y,
+                i2.x + c.x,
+                i2.y + c.y,
+                p1.x + c.x,
+                p1.y + c.y,
+                p2.x + c.x,
+                p2.y + c.y);
+  }
+
+  if (on_finite_line(i1)) {
+    i1.x += c.x;
+    i1.y += c.y;
+    return i1;
+  } else {
+    i2.x += c.x;
+    i2.y += c.y;
+    return i2;
   }
 }
 

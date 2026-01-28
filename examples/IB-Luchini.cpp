@@ -5,6 +5,7 @@
 #include <Igor/Timer.hpp>
 
 #include "FS.hpp"
+#include "IB.hpp"
 #include "IO.hpp"
 #include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
@@ -20,21 +21,22 @@ constexpr Float X_MAX        = 5.0;
 constexpr Float Y_MIN        = 0.0;
 constexpr Float Y_MAX        = 1.0;
 
-constexpr Index NY           = 64;
+constexpr Index NY           = 128;
 constexpr Index NX           = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
 constexpr Index NGHOST       = 1;
 
 constexpr Float T_END        = 5.0;
-constexpr Float DT_MAX       = 1e-6;
+constexpr Float DT_MAX       = 1e-2;
 constexpr Float CFL_MAX      = 0.5;
 constexpr Float DT_WRITE     = T_END / 100.0;
 
 constexpr Float VISC         = 1e-3;
 constexpr Float RHO          = 1.0;
 
-constexpr Circle wall        = {.x = 1.0, .y = 0.5, .r = 0.15};
+constexpr Circle wall1       = {.x = 1.0, .y = 0.5, .r = 0.15};
+constexpr Circle wall2       = {.x = 3.0, .y = 0.5, .r = 0.25};
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  return static_cast<Float>(wall.contains({.x = x, .y = y}));
+  return static_cast<Float>(wall1.contains({.x = x, .y = y}) || wall2.contains({.x = x, .y = y}));
 };
 
 constexpr int PRESSURE_MAX_ITER = 50;
@@ -77,27 +79,6 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-enum Flow : uint32_t {
-  FREE_FLOW      = 0b00000,
-  WALL_TO_LEFT   = 0b00001,
-  WALL_TO_RIGHT  = 0b00010,
-  WALL_TO_BOTTOM = 0b00100,
-  WALL_TO_TOP    = 0b01000,
-  SOLID          = 0b10000,
-};
-
-constexpr auto characterize_flow(const auto& xs, const auto& ys, Index i, Index j) -> uint32_t {
-  if (immersed_wall(xs(i), ys(j)) > 0.0) { return Flow::SOLID; }
-
-  uint32_t flow = Flow::FREE_FLOW;
-  if (immersed_wall(xs(i + 1), ys(j)) > 0.0) { flow |= Flow::WALL_TO_RIGHT; }
-  if (immersed_wall(xs(i - 1), ys(j)) > 0.0) { flow |= Flow::WALL_TO_LEFT; }
-  if (immersed_wall(xs(i), ys(j + 1)) > 0.0) { flow |= Flow::WALL_TO_TOP; }
-  if (immersed_wall(xs(i), ys(j - 1)) > 0.0) { flow |= Flow::WALL_TO_BOTTOM; }
-  return flow;
-}
-
-// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   Igor::Info("Re = {:.6e}", Re);
 
@@ -120,6 +101,8 @@ auto main() -> int {
 
   // Immersed-wall
   Field2D<Float, NX, NY, NGHOST> ib{};
+  Field2D<Float, NX + 1, NY, NGHOST> ib_corr_u_stag{};
+  Field2D<Float, NX, NY + 1, NGHOST> ib_corr_v_stag{};
 
   Field2D<Float, NX + 1, NY, NGHOST> drhoUdt{};
   Field2D<Float, NX, NY + 1, NGHOST> drhoVdt{};
@@ -198,111 +181,18 @@ auto main() -> int {
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
+      update_velocity(drhoUdt, drhoVdt, dt, fs);
 
-      // = IB forcing ==============================================================================
-      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        const auto flow = characterize_flow(fs.x, fs.ym, i, j);
-        if (flow == Flow::FREE_FLOW || flow == Flow::SOLID) { return; }
-        IGOR_ASSERT(!((flow & Flow::WALL_TO_LEFT) > 0 && (flow & Flow::WALL_TO_RIGHT) > 0),
-                    "Wall cannot be to the left and the right.");
-        IGOR_ASSERT(!((flow & Flow::WALL_TO_BOTTOM) > 0 && (flow & Flow::WALL_TO_TOP) > 0),
-                    "Wall cannot be to the bottom and the top.");
+      fill(ib_corr_u_stag, 0.0);
+      fill(ib_corr_v_stag, 0.0);
+      calc_ib_correction_circle(wall1, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
+      calc_ib_correction_circle(wall1, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
 
-        const Point p_center = {.x = fs.x(i), .y = fs.ym(j)};
-        if ((flow & Flow::WALL_TO_RIGHT) > 0) {
-          const Point p_other   = {.x = fs.x(i + 1), .y = fs.ym(j)};
-          const Point intersect = intersect_line_circle(p_center, p_other, wall);
-          const Float d         = intersect.x - p_center.x;
-          IGOR_ASSERT(
-              0.0 < d && d < fs.dx, "Expected d in [0, {:.6e}] but got d = {:.6e}", fs.dx, d);
-          const Float lambda  = (fs.dx - d) / (d * fs.dx * fs.dx);
-          drhoUdt(i, j)      -= lambda * fs.curr.U(i, j);
-        }
-        if ((flow & Flow::WALL_TO_LEFT) > 0) {
-          const Point p_other   = {.x = fs.x(i - 1), .y = fs.ym(j)};
-          const Point intersect = intersect_line_circle(p_center, p_other, wall);
-          const Float d         = p_center.x - intersect.x;
-          IGOR_ASSERT(
-              0.0 < d && d < fs.dx, "Expected d in [0, {:.6e}] but got d = {:.6e}", fs.dx, d);
-          const Float lambda  = (fs.dx - d) / (d * fs.dx * fs.dx);
-          drhoUdt(i, j)      -= lambda * fs.curr.U(i, j);
-        }
-        if ((flow & Flow::WALL_TO_TOP) > 0) {
-          const Point p_other   = {.x = fs.x(i), .y = fs.ym(j + 1)};
-          const Point intersect = intersect_line_circle(p_center, p_other, wall);
-          const Float d         = intersect.y - p_center.y;
-          IGOR_ASSERT(
-              0.0 < d && d < fs.dy, "Expected d in [0, {:.6e}] but got d = {:.6e}", fs.dy, d);
-          const Float lambda  = (fs.dy - d) / (d * fs.dy * fs.dy);
-          drhoUdt(i, j)      -= lambda * fs.curr.U(i, j);
-        }
-        if ((flow & Flow::WALL_TO_BOTTOM) > 0) {
-          const Point p_other   = {.x = fs.x(i), .y = fs.ym(j - 1)};
-          const Point intersect = intersect_line_circle(p_center, p_other, wall);
-          const Float d         = p_center.y - intersect.y;
-          IGOR_ASSERT(
-              0.0 < d && d < fs.dy, "Expected d in [0, {:.6e}] but got d = {:.6e}", fs.dy, d);
-          const Float lambda  = (fs.dy - d) / (d * fs.dy * fs.dy);
-          drhoUdt(i, j)      -= lambda * fs.curr.U(i, j);
-        }
-      });
+      calc_ib_correction_circle(wall2, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
+      calc_ib_correction_circle(wall2, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
 
-      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        const auto flow = characterize_flow(fs.xm, fs.y, i, j);
-        if (flow == Flow::FREE_FLOW || flow == Flow::SOLID) { return; }
-        IGOR_ASSERT(!((flow & Flow::WALL_TO_LEFT) > 0 && (flow & Flow::WALL_TO_RIGHT) > 0),
-                    "Wall cannot be to the left and the right.");
-        IGOR_ASSERT(!((flow & Flow::WALL_TO_BOTTOM) > 0 && (flow & Flow::WALL_TO_TOP) > 0),
-                    "Wall cannot be to the bottom and the top.");
+      correct_velocity_ib_implicit(ib_corr_u_stag, ib_corr_v_stag, dt, fs);
 
-        const Point p_center = {.x = fs.xm(i), .y = fs.y(j)};
-        if ((flow & Flow::WALL_TO_RIGHT) > 0) {
-          const Point p_other   = {.x = fs.xm(i + 1), .y = fs.y(j)};
-          const Point intersect = intersect_line_circle(p_center, p_other, wall);
-          const Float d         = intersect.x - p_center.x;
-          IGOR_ASSERT(
-              0.0 < d && d < fs.dx, "Expected d in [0, {:.6e}] but got d = {:.6e}", fs.dx, d);
-          const Float lambda  = (fs.dx - d) / (d * fs.dx * fs.dx);
-          drhoUdt(i, j)      -= lambda * fs.curr.U(i, j);
-        }
-        if ((flow & Flow::WALL_TO_LEFT) > 0) {
-          const Point p_other   = {.x = fs.xm(i - 1), .y = fs.y(j)};
-          const Point intersect = intersect_line_circle(p_center, p_other, wall);
-          const Float d         = p_center.x - intersect.x;
-          IGOR_ASSERT(
-              0.0 < d && d < fs.dx, "Expected d in [0, {:.6e}] but got d = {:.6e}", fs.dx, d);
-          const Float lambda  = (fs.dx - d) / (d * fs.dx * fs.dx);
-          drhoUdt(i, j)      -= lambda * fs.curr.U(i, j);
-        }
-        if ((flow & Flow::WALL_TO_TOP) > 0) {
-          const Point p_other   = {.x = fs.xm(i), .y = fs.y(j + 1)};
-          const Point intersect = intersect_line_circle(p_center, p_other, wall);
-          const Float d         = intersect.y - p_center.y;
-          IGOR_ASSERT(
-              0.0 < d && d < fs.dy, "Expected d in [0, {:.6e}] but got d = {:.6e}", fs.dy, d);
-          const Float lambda  = (fs.dy - d) / (d * fs.dy * fs.dy);
-          drhoUdt(i, j)      -= lambda * fs.curr.U(i, j);
-        }
-        if ((flow & Flow::WALL_TO_BOTTOM) > 0) {
-          const Point p_other   = {.x = fs.xm(i), .y = fs.y(j - 1)};
-          const Point intersect = intersect_line_circle(p_center, p_other, wall);
-          const Float d         = p_center.y - intersect.y;
-          IGOR_ASSERT(
-              0.0 < d && d < fs.dy, "Expected d in [0, {:.6e}] but got d = {:.6e}", fs.dy, d);
-          const Float lambda  = (fs.dy - d) / (d * fs.dy * fs.dy);
-          drhoUdt(i, j)      -= lambda * fs.curr.U(i, j);
-        }
-      });
-      // = IB forcing ==============================================================================
-
-      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
-                          fs.curr.rho_u_stag(i, j);
-      });
-      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
-                          fs.curr.rho_v_stag(i, j);
-      });
       apply_velocity_bconds(fs, bconds, t);
       // = Update flow field =======================================================================
 

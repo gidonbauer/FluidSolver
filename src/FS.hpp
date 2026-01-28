@@ -407,6 +407,36 @@ void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
+void update_density(const Field2D<Float, NX + 1, NY, NGHOST>& drho_u_stagdt,
+                    const Field2D<Float, NX, NY + 1, NGHOST>& drho_v_stagdt,
+                    Float dt,
+                    FS<Float, NX, NY, NGHOST>& fs) {
+  for_each_i<Exec::Parallel>(fs.curr.rho_u_stag, [&](Index i, Index j) {
+    fs.curr.rho_u_stag(i, j) = fs.old.rho_u_stag(i, j) + dt * drho_u_stagdt(i, j);
+  });
+  for_each_i<Exec::Parallel>(fs.curr.rho_v_stag, [&](Index i, Index j) {
+    fs.curr.rho_v_stag(i, j) = fs.old.rho_v_stag(i, j) + dt * drho_v_stagdt(i, j);
+  });
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void update_velocity(const Field2D<Float, NX + 1, NY, NGHOST>& drhoUdt,
+                     const Field2D<Float, NX, NY + 1, NGHOST>& drhoVdt,
+                     Float dt,
+                     FS<Float, NX, NY, NGHOST>& fs) {
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+    fs.curr.U(i, j) =
+        (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) / fs.curr.rho_u_stag(i, j);
+  });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+    fs.curr.V(i, j) =
+        (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) / fs.curr.rho_v_stag(i, j);
+  });
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
 void calc_pressure_jump(const Field2D<Float, NX, NY, NGHOST>& vf,
                         const Field2D<Float, NX, NY, NGHOST>& curv,
                         const Field2D<Float, NX, NY, NGHOST>& interface_length,

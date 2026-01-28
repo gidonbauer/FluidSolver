@@ -10,6 +10,11 @@
 #include "ForEach.hpp"
 #include "Geometry.hpp"
 
+// See: Luchini, P., Gatti, D., Chiarini, A., Gattere, F., Atzori, M., Quadrio, M., 2025. A simple
+//      and efficient second-order immersed-boundary method for the incompressible Navier–Stokes
+//      equations. Journal of Computational Physics 539, 114245.
+//      https://doi.org/10.1016/j.jcp.2025.114245
+
 // -------------------------------------------------------------------------------------------------
 enum Flow : uint8_t {
   FREE_FLOW      = 0b00000,

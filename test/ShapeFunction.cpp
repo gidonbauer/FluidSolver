@@ -5,6 +5,7 @@
 
 #include "Container.hpp"
 #include "FS.hpp"
+#include "Geometry.hpp"
 #include "IO.hpp"
 #include "Operators.hpp"
 #include "Utility.hpp"

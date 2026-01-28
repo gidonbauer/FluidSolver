@@ -5,6 +5,7 @@
 #include <Igor/Timer.hpp>
 
 #include "FS.hpp"
+#include "Geometry.hpp"
 #include "IO.hpp"
 #include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
@@ -219,7 +220,7 @@ enum IBBoundary : uint32_t {
       {
         const Point pe{.x = xs(i), .y = ys(j)};
         const Point p1{.x = xs(i - 1), .y = ys(j)};
-        const auto [intersect_x, intersect_y] = intersect_line_circle(pe, p1, wall);
+        const auto [intersect_x, intersect_y] = wall.intersect_line(pe, p1);
         beta                                  = std::abs(intersect_x - pe.x) / dx;
         U1                                    = vel(i - 1, j);
         U2                                    = vel(i - 2, j);
@@ -229,7 +230,7 @@ enum IBBoundary : uint32_t {
       {
         const Point pe{.x = xs(i), .y = ys(j)};
         const Point p1{.x = xs(i + 1), .y = ys(j)};
-        const auto [intersect_x, intersect_y] = intersect_line_circle(pe, p1, wall);
+        const auto [intersect_x, intersect_y] = wall.intersect_line(pe, p1);
         beta                                  = std::abs(intersect_x - pe.x) / dx;
         U1                                    = vel(i + 1, j);
         U2                                    = vel(i + 2, j);
@@ -239,7 +240,7 @@ enum IBBoundary : uint32_t {
       {
         const Point pe{.x = xs(i), .y = ys(j)};
         const Point p1{.x = xs(i), .y = ys(j - 1)};
-        const auto [intersect_x, intersect_y] = intersect_line_circle(pe, p1, wall);
+        const auto [intersect_x, intersect_y] = wall.intersect_line(pe, p1);
         beta                                  = std::abs(intersect_y - pe.y) / dy;
         U1                                    = vel(i, j - 1);
         U2                                    = vel(i, j - 2);
@@ -249,7 +250,7 @@ enum IBBoundary : uint32_t {
       {
         const Point pe{.x = xs(i), .y = ys(j)};
         const Point p1{.x = xs(i), .y = ys(j + 1)};
-        const auto [intersect_x, intersect_y] = intersect_line_circle(pe, p1, wall);
+        const auto [intersect_x, intersect_y] = wall.intersect_line(pe, p1);
         beta                                  = std::abs(intersect_y - pe.y) / dy;
         U1                                    = vel(i, j + 1);
         U2                                    = vel(i, j + 2);

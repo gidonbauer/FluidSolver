@@ -3,6 +3,7 @@
 
 #include <omp.h>
 
+#include "Geometry.hpp"
 #include "Utility.hpp"
 
 template <Index N>
@@ -136,12 +137,12 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
 }
 
 // =================================================================================================
-[[nodiscard]] auto check_intersect(const Circle<double>& c,
+[[nodiscard]] auto check_intersect(const auto& shape,
                                    const Point<double>& p1,
                                    const Point<double>& p2,
                                    const Point<double>& i_exp) -> bool {
   constexpr double EPS = 1e-12;
-  Point i              = intersect_line_circle(p1, p2, c);
+  Point i              = shape.intersect_line(p1, p2);
   if (std::abs(i.x - i_exp.x) > EPS || std::abs(i.y - i_exp.y) > EPS) {
     Igor::Error("Incorrect intersection point: expected {{ .x = {:.6e}, .y = {:.6e} }}, but got {{ "
                 ".x = {:.6e}, .y = {:.6e} }}",
@@ -182,6 +183,20 @@ auto test_solve_linear_system(const Matrix<double, N, N>& A,
                        Point{.x = 1.0e-7, .y = 1.0e-7},
                        Point{.x = (1.0 - 0.5 * std::numbers::sqrt2 / 2.0) * 1e-7,
                              .y = (1.0 - 0.5 * std::numbers::sqrt2 / 2.0) * 1e-7})) {
+    return false;
+  }
+
+  if (!check_intersect(Rect{.x = -1.0, .y = -1.0, .w = 2.0, .h = 2.0},
+                       Point{.x = -1.5, .y = 1.0},
+                       Point{.x = 0.5, .y = 1.0},
+                       Point{.x = -1.0, .y = 1.0})) {
+    return false;
+  }
+
+  if (!check_intersect(Rect{.x = -1.0e-4, .y = -1.0e-4, .w = 2.0e-4, .h = 2.0e-4},
+                       Point{.x = -1.5e-4, .y = 1.0e-4},
+                       Point{.x = 0.5e-4, .y = 1.0e-4},
+                       Point{.x = -1.0e-4, .y = 1.0e-4})) {
     return false;
   }
 

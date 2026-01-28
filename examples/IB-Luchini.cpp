@@ -14,30 +14,43 @@
 #include "Utility.hpp"
 
 // = Config ========================================================================================
-using Float                  = double;
+using Float              = double;
 
-constexpr Float X_MIN        = 0.0;
-constexpr Float X_MAX        = 5.0;
-constexpr Float Y_MIN        = 0.0;
-constexpr Float Y_MAX        = 1.0;
+constexpr Float X_MIN    = 0.0;
+constexpr Float X_MAX    = 5.0;
+constexpr Float Y_MIN    = 0.0;
+constexpr Float Y_MAX    = 1.0;
 
-constexpr Index NY           = 128;
-constexpr Index NX           = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
-constexpr Index NGHOST       = 1;
+constexpr Index NY       = 128;
+constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
+constexpr Index NGHOST   = 1;
 
-constexpr Float T_END        = 5.0;
-constexpr Float DT_MAX       = 1e-2;
-constexpr Float CFL_MAX      = 0.5;
-constexpr Float DT_WRITE     = T_END / 100.0;
+constexpr Float T_END    = 5.0;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.5;
+constexpr Float DT_WRITE = T_END / 100.0;
 
-constexpr Float VISC         = 1e-3;
-constexpr Float RHO          = 1.0;
+constexpr Float VISC     = 1e-3;
+constexpr Float RHO      = 1.0;
 
-constexpr Circle wall1       = {.x = 1.0, .y = 0.5, .r = 0.15};
-constexpr Circle wall2       = {.x = 3.0, .y = 0.5, .r = 0.25};
-constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  return static_cast<Float>(wall1.contains({.x = x, .y = y}) || wall2.contains({.x = x, .y = y}));
+// #define IB_CHANNEL
+#ifdef IB_CHANNEL
+constexpr Rect wall1 = {
+    .x = X_MIN,
+    .y = Y_MIN,
+    .w = X_MAX - X_MIN,
+    .h = (Y_MAX - Y_MIN) / 4.0,
 };
+constexpr Rect wall2 = {
+    .x = X_MIN,
+    .y = Y_MIN + 3.0 * (Y_MAX - Y_MIN) / 4.0,
+    .w = X_MAX - X_MIN,
+    .h = (Y_MAX - Y_MIN) / 4.0,
+};
+#else
+constexpr Circle wall1 = {.x = 1.0, .y = 0.5, .r = 0.15};
+constexpr Rect wall2   = {.x = 2.75, .y = 0.25, .w = 0.5, .h = 0.5};
+#endif  // IB_CHANNEL
 
 constexpr int PRESSURE_MAX_ITER = 50;
 constexpr Float PRESSURE_TOL    = 1e-6;
@@ -46,9 +59,17 @@ constexpr Index NUM_SUBITER     = 5;
 
 constexpr auto U_in(Float y, [[maybe_unused]] Float t) -> Float {
   IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
+#ifdef IB_CHANNEL
+  if (y < (Y_MAX - Y_MIN) / 4.0 || y > 3.0 * (Y_MAX - Y_MIN) / 4.0) { return 0.0; }
+  constexpr Float height = (Y_MAX - Y_MIN) / 2.0;
+  constexpr Float U      = 1.5;
+  const Float y_off      = y - (Y_MAX - Y_MIN) / 4.0;
+  return (4.0 * U * y_off * (height - y_off)) / Igor::sqr(height);
+#else
   constexpr Float height = Y_MAX - Y_MIN;
   constexpr Float U      = 1.5;
   return (4.0 * U * y * (height - y)) / Igor::sqr(height);
+#endif  // IB_CHANNEL
 }
 
 constexpr Float U_AVG =
@@ -145,8 +166,16 @@ auto main() -> int {
 
   // = Initialize immersed boundaries ==============================================================
   for_each_a<Exec::Parallel>(ib, [&](Index i, Index j) {
-    ib(i, j) =
-        quadrature(immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
+    ib(i, j) = quadrature(
+                   [](Float x, Float y) -> Float {
+                     Point p{.x = x, .y = y};
+                     return static_cast<Float>(wall1.contains(p) || wall2.contains(p));
+                   },
+                   fs.x(i),
+                   fs.x(i + 1),
+                   fs.y(j),
+                   fs.y(j + 1)) /
+               (fs.dx * fs.dy);
   });
   // = Initialize immersed boundaries ==============================================================
 
@@ -185,11 +214,11 @@ auto main() -> int {
 
       fill(ib_corr_u_stag, 0.0);
       fill(ib_corr_v_stag, 0.0);
-      calc_ib_correction_circle(wall1, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
-      calc_ib_correction_circle(wall1, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
+      calc_ib_correction_shape(wall1, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
+      calc_ib_correction_shape(wall1, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
 
-      calc_ib_correction_circle(wall2, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
-      calc_ib_correction_circle(wall2, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
+      calc_ib_correction_shape(wall2, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
+      calc_ib_correction_shape(wall2, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
 
       correct_velocity_ib_implicit(ib_corr_u_stag, ib_corr_v_stag, dt, fs);
 

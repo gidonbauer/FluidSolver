@@ -9,6 +9,7 @@
 
 #include "Curvature.hpp"
 #include "FS.hpp"
+#include "Geometry.hpp"
 #include "IO.hpp"
 #include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"

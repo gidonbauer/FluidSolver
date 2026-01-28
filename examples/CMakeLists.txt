@@ -6,6 +6,7 @@ set(executables
   Wave
 
   II
+  IB-Luchini
   DiffuseIB
   SharpIB
   MovingLeastSquaresIB

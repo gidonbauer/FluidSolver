@@ -59,12 +59,13 @@ constexpr void calc_ib_correction_shape(const Shape& wall,
       return;
     }
 
+    constexpr Float TOL  = 1e-6;
     const Point p_center = {.x = xs(i), .y = ys(j)};
     if ((flow & Flow::WALL_TO_RIGHT) > 0) {
       const Point p_other   = {.x = xs(i + 1), .y = ys(j)};
       const Point intersect = wall.intersect_line(p_center, p_other);
       const Float dist      = intersect.x - p_center.x;
-      IGOR_ASSERT(0.0 <= dist && dist <= dx,
+      IGOR_ASSERT(0.0 < dist && dist < dx + TOL,
                   "Expected dist in [0, {:.6e}] but got dist = {:.6e}",
                   dx,
                   dist);
@@ -75,7 +76,7 @@ constexpr void calc_ib_correction_shape(const Shape& wall,
       const Point p_other   = {.x = xs(i - 1), .y = ys(j)};
       const Point intersect = wall.intersect_line(p_center, p_other);
       const Float dist      = p_center.x - intersect.x;
-      IGOR_ASSERT(0.0 <= dist && dist <= dx,
+      IGOR_ASSERT(0.0 < dist && dist < dx + TOL,
                   "Expected dist in [0, {:.6e}] but got dist = {:.6e}",
                   dx,
                   dist);
@@ -86,7 +87,7 @@ constexpr void calc_ib_correction_shape(const Shape& wall,
       const Point p_other   = {.x = xs(i), .y = ys(j + 1)};
       const Point intersect = wall.intersect_line(p_center, p_other);
       const Float dist      = intersect.y - p_center.y;
-      IGOR_ASSERT(0.0 <= dist && dist <= dy,
+      IGOR_ASSERT(0.0 < dist && dist < dy + TOL,
                   "Expected dist in [0, {:.6e}] but got dist = {:.6e}",
                   dy,
                   dist);
@@ -97,7 +98,7 @@ constexpr void calc_ib_correction_shape(const Shape& wall,
       const Point p_other   = {.x = xs(i), .y = ys(j - 1)};
       const Point intersect = wall.intersect_line(p_center, p_other);
       const Float dist      = p_center.y - intersect.y;
-      IGOR_ASSERT(0.0 <= dist && dist <= dy,
+      IGOR_ASSERT(0.0 < dist && dist < dy + TOL,
                   "Expected dist in [0, {:.6e}] but got dist = {:.6e}",
                   dy,
                   dist);

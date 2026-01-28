@@ -99,11 +99,11 @@ add_custom_target(Run-DiffuseIBChannel-Scaling
   BYPRODUCTS ${CMAKE_SOURCE_DIR}/scaling/output/DiffuseIBChannel-Scaling.csv
 )
 
-# = Sharp Immersed Boundaries - Channel flow =======================================================
+# = Immersed Boundaries by Luchini et al. - Channel flow ===========================================
 foreach(N  RANGE 4 8 1)
     # - Define executables -------------
-    set(exec SharpIBChannel-${N})
-    add_executable(${exec} SharpIBChannel.cpp)
+    set(exec LuchiniIBChannel-${N})
+    add_executable(${exec} LuchiniIBChannel.cpp)
     target_compile_definitions(${exec} PRIVATE FS_SCALING_N=${N})
 
     # - Define include path ------------
@@ -121,12 +121,12 @@ foreach(N  RANGE 4 8 1)
     endif()
 endforeach()
 
-add_custom_target(Run-SharpIBChannel-Scaling
+add_custom_target(Run-LuchiniIBChannel-Scaling
   COMMAND mkdir -p ${CMAKE_SOURCE_DIR}/scaling/output
-  COMMAND SharpIBChannel-4 --write-csv --write-csv-header > ${CMAKE_SOURCE_DIR}/scaling/output/SharpIBChannel-Scaling.csv
-  COMMAND SharpIBChannel-5 --write-csv >> ${CMAKE_SOURCE_DIR}/scaling/output/SharpIBChannel-Scaling.csv
-  COMMAND SharpIBChannel-6 --write-csv >> ${CMAKE_SOURCE_DIR}/scaling/output/SharpIBChannel-Scaling.csv
-  COMMAND SharpIBChannel-7 --write-csv >> ${CMAKE_SOURCE_DIR}/scaling/output/SharpIBChannel-Scaling.csv
-  COMMAND SharpIBChannel-8 --write-csv >> ${CMAKE_SOURCE_DIR}/scaling/output/SharpIBChannel-Scaling.csv
-  BYPRODUCTS ${CMAKE_SOURCE_DIR}/scaling/output/SharpIBChannel-Scaling.csv
+  COMMAND LuchiniIBChannel-4 --write-csv --write-csv-header > ${CMAKE_SOURCE_DIR}/scaling/output/LuchiniIBChannel-Scaling.csv
+  COMMAND LuchiniIBChannel-5 --write-csv >> ${CMAKE_SOURCE_DIR}/scaling/output/LuchiniIBChannel-Scaling.csv
+  COMMAND LuchiniIBChannel-6 --write-csv >> ${CMAKE_SOURCE_DIR}/scaling/output/LuchiniIBChannel-Scaling.csv
+  COMMAND LuchiniIBChannel-7 --write-csv >> ${CMAKE_SOURCE_DIR}/scaling/output/LuchiniIBChannel-Scaling.csv
+  COMMAND LuchiniIBChannel-8 --write-csv >> ${CMAKE_SOURCE_DIR}/scaling/output/LuchiniIBChannel-Scaling.csv
+  BYPRODUCTS ${CMAKE_SOURCE_DIR}/scaling/output/LuchiniIBChannel-Scaling.csv
 )

@@ -360,9 +360,9 @@ auto main(int argc, char** argv) -> int {
       return dpdx_exp / (2 * VISC) * (y_off * y_off - y_off);
     };
 
-    Field1D<Float, NY + 2 * NGHOST, 0> diff{};
-    for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
-      diff(j + NGHOST) = std::abs(fs.curr.U(NX / 2, j) - u_analytical(fs.ym(j)));
+    Field1D<Float, NY, 0> diff{};
+    for (Index j = 0; j < NY; ++j) {
+      diff(j) = std::abs(fs.curr.U(NX / 2, j) - u_analytical(fs.ym(j)));
     }
     U_L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
   }

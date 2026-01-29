@@ -135,12 +135,12 @@ auto main(int argc, char** argv) -> int {
                 "Assume that the machine uses little endian.");
   Dimension dim{.nx = -1, .ny = -1, .nz = -1};
   BoundingBox bounding_box{
-      .x_min = std::numeric_limits<double>::quiet_NaN(),
-      .x_max = std::numeric_limits<double>::quiet_NaN(),
-      .y_min = std::numeric_limits<double>::quiet_NaN(),
-      .y_max = std::numeric_limits<double>::quiet_NaN(),
-      .z_min = std::numeric_limits<double>::quiet_NaN(),
-      .z_max = std::numeric_limits<double>::quiet_NaN(),
+      .x_min = std::numeric_limits<float>::quiet_NaN(),
+      .x_max = std::numeric_limits<float>::quiet_NaN(),
+      .y_min = std::numeric_limits<float>::quiet_NaN(),
+      .y_max = std::numeric_limits<float>::quiet_NaN(),
+      .z_min = std::numeric_limits<float>::quiet_NaN(),
+      .z_max = std::numeric_limits<float>::quiet_NaN(),
   };
   std::vector<float> data{};
 

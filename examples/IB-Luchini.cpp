@@ -31,7 +31,7 @@ constexpr Float CFL_MAX  = 0.5;
 constexpr Float DT_WRITE = T_END / 100.0;
 
 constexpr Float VISC     = 1e-3;
-constexpr Float RHO      = 1.0;
+constexpr Float RHO      = 0.5;
 
 // #define IB_CHANNEL
 #ifdef IB_CHANNEL
@@ -49,7 +49,7 @@ constexpr Rect wall2 = {
 };
 #else
 constexpr Circle wall1 = {.x = 1.0, .y = 0.5, .r = 0.15};
-constexpr Rect wall2   = {.x = 2.75, .y = 0.25, .w = 0.5, .h = 0.5};
+// constexpr Rect wall2   = {.x = 2.75, .y = 0.25, .w = 0.5, .h = 0.5};
 #endif  // IB_CHANNEL
 
 constexpr int PRESSURE_MAX_ITER = 50;
@@ -59,15 +59,14 @@ constexpr Index NUM_SUBITER     = 5;
 
 constexpr auto U_in(Float y, [[maybe_unused]] Float t) -> Float {
   IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
+  constexpr Float U = 1.5;
 #ifdef IB_CHANNEL
   if (y < (Y_MAX - Y_MIN) / 4.0 || y > 3.0 * (Y_MAX - Y_MIN) / 4.0) { return 0.0; }
   constexpr Float height = (Y_MAX - Y_MIN) / 2.0;
-  constexpr Float U      = 1.5;
   const Float y_off      = y - (Y_MAX - Y_MIN) / 4.0;
   return (4.0 * U * y_off * (height - y_off)) / Igor::sqr(height);
 #else
   constexpr Float height = Y_MAX - Y_MIN;
-  constexpr Float U      = 1.5;
   return (4.0 * U * y * (height - y)) / Igor::sqr(height);
 #endif  // IB_CHANNEL
 }
@@ -169,7 +168,7 @@ auto main() -> int {
     ib(i, j) = quadrature(
                    [](Float x, Float y) -> Float {
                      Point p{.x = x, .y = y};
-                     return static_cast<Float>(wall1.contains(p) || wall2.contains(p));
+                     return static_cast<Float>(wall1.contains(p) /*|| wall2.contains(p)*/);
                    },
                    fs.x(i),
                    fs.x(i + 1),
@@ -208,19 +207,26 @@ auto main() -> int {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
 
-      // = Update flow field =======================================================================
-      calc_dmomdt(fs, drhoUdt, drhoVdt);
-      update_velocity(drhoUdt, drhoVdt, dt, fs);
-
+      // = Calculate IB correction =================================================================
       fill(ib_corr_u_stag, 0.0);
       fill(ib_corr_v_stag, 0.0);
       calc_ib_correction_shape(wall1, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
       calc_ib_correction_shape(wall1, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
 
-      calc_ib_correction_shape(wall2, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
-      calc_ib_correction_shape(wall2, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
+      // calc_ib_correction_shape(wall2, fs.dx, fs.dy, fs.x, fs.ym, fs.visc_gas, ib_corr_u_stag);
+      // calc_ib_correction_shape(wall2, fs.dx, fs.dy, fs.xm, fs.y, fs.visc_gas, ib_corr_v_stag);
+      // = Calculate IB correction =================================================================
 
-      correct_velocity_ib_implicit(ib_corr_u_stag, ib_corr_v_stag, dt, fs);
+      // = Update flow field =======================================================================
+      calc_dmomdt(fs, drhoUdt, drhoVdt);
+
+// #define IMPLICIT_EULER
+#ifdef IMPLICIT_EULER
+      update_velocity(drhoUdt, drhoVdt, dt, fs);
+      correct_velocity_ib_implicit_euler(ib_corr_u_stag, ib_corr_v_stag, dt, fs);
+#else
+      update_velocity_ib_semi_analytical(drhoUdt, drhoVdt, dt, ib_corr_u_stag, ib_corr_v_stag, fs);
+#endif  // IMPLICIT_EULER
 
       apply_velocity_bconds(fs, bconds, t);
       // = Update flow field =======================================================================

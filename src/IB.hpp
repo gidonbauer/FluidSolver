@@ -111,14 +111,79 @@ constexpr void calc_ib_correction_shape(const Shape& wall,
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
 constexpr void
-correct_velocity_ib_implicit(const Field2D<Float, NX + 1, NY, NGHOST>& ib_corr_u_stag,
-                             const Field2D<Float, NX, NY + 1, NGHOST>& ib_corr_v_stag,
-                             Float dt,
-                             FS<Float, NX, NY, NGHOST>& fs) {
-  for_each_i<Exec::Parallel>(
-      fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) /= 1.0 + dt * ib_corr_u_stag(i, j); });
-  for_each_i<Exec::Parallel>(
-      fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) /= 1.0 + dt * ib_corr_v_stag(i, j); });
+correct_velocity_ib_implicit_euler(const Field2D<Float, NX + 1, NY, NGHOST>& ib_corr_u_stag,
+                                   const Field2D<Float, NX, NY + 1, NGHOST>& ib_corr_v_stag,
+                                   Float dt,
+                                   FS<Float, NX, NY, NGHOST>& fs) {
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+    const Float visc  = (fs.visc(i, j) + fs.visc(i - 1, j)) / 2.0;
+    const Float rho   = fs.curr.rho_u_stag(i, j);
+    fs.curr.U(i, j)  /= 1.0 + dt * visc / rho * ib_corr_u_stag(i, j);
+  });
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+    const Float visc  = (fs.visc(i, j) + fs.visc(i, j - 1)) / 2.0;
+    const Float rho   = fs.curr.rho_v_stag(i, j);
+    fs.curr.V(i, j)  /= 1.0 + dt * visc / rho * ib_corr_v_stag(i, j);
+  });
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Index NX, Index NY, Index NGHOST>
+void update_velocity_ib_semi_analytical(const Field2D<Float, NX + 1, NY, NGHOST>& drhoUdt,
+                                        const Field2D<Float, NX, NY + 1, NGHOST>& drhoVdt,
+                                        Float dt,
+                                        const Field2D<Float, NX + 1, NY, NGHOST>& ib_corr_u_stag,
+                                        const Field2D<Float, NX, NY + 1, NGHOST>& ib_corr_v_stag,
+                                        FS<Float, NX, NY, NGHOST>& fs) {
+  // From Luchini et al.
+  // A*U^(n+1) - B*U^n = C*F^n
+  // U^(n+1) = (C*F^n + B*U^n) / A
+  //
+  // B = (lambda*dt) / (exp(lambda*dt) - 1)
+  // A = lambda*dt + B
+  // C = dt
+
+  auto calc_coefficients = [](Float lambda, Float dt, Float& A, Float& B, Float& C) {
+    B = std::abs(lambda) < 1e-6 ? 1.0 : (lambda * dt) / (std::exp(lambda * dt) - 1.0);
+    IGOR_ASSERT(
+        0 <= B && B <= 1, "Expected B in [0, 1] but got B = {:.6e} (lambda = {:.6e})", B, lambda);
+    A = lambda * dt + B;
+    C = dt;
+  };
+
+  // = U =======================================================================
+  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+    const Float visc   = (fs.visc(i, j) + fs.visc(i - 1, j)) / 2.0;
+    const Float rho    = fs.curr.rho_u_stag(i, j);
+    const Float lambda = visc / rho * ib_corr_u_stag(i, j);
+    if (std::isinf(lambda)) {
+      fs.curr.U(i, j) = 0.0;
+      return;
+    }
+
+    Float A, B, C;  // NOLINT
+    calc_coefficients(lambda, dt, A, B, C);
+
+    fs.curr.U(i, j) = (B * fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + C * drhoUdt(i, j)) /
+                      (A * fs.curr.rho_u_stag(i, j));
+  });
+
+  // = V =======================================================================
+  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+    const Float visc   = (fs.visc(i, j) + fs.visc(i, j - 1)) / 2.0;
+    const Float rho    = fs.curr.rho_v_stag(i, j);
+    const Float lambda = visc / rho * ib_corr_v_stag(i, j);
+    if (std::isinf(lambda)) {
+      fs.curr.V(i, j) = 0.0;
+      return;
+    }
+
+    Float A, B, C;  // NOLINT
+    calc_coefficients(lambda, dt, A, B, C);
+
+    fs.curr.V(i, j) = (B * fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + C * drhoVdt(i, j)) /
+                      (A * fs.curr.rho_v_stag(i, j));
+  });
 }
 
 #endif  // FLUID_SOLVER_IB_HPP_

@@ -37,7 +37,7 @@ constexpr Float CFL_MAX    = 0.25;
 constexpr Float DT_WRITE   = T_END / 100.0;
 
 constexpr Float VISC       = 1e-2;
-constexpr Float RHO        = 1.0;
+constexpr Float RHO        = 10.0;  // 1.0;
 constexpr Float P0         = 0.2;
 
 constexpr Rect wall_bottom = {
@@ -60,7 +60,7 @@ constexpr Index NUM_SUBITER     = 5;
 
 constexpr auto U_in(Float y, [[maybe_unused]] Float t) -> Float {
   IGOR_ASSERT(t >= 0, "Expected t >= 0 but got t={:.6e}", t);
-  const Point p{.x = (X_MAX - X_MIN) / 2.0, .y = y};
+  const Point p{.x = (X_MAX + X_MIN) / 2.0, .y = y};
   if (wall_bottom.contains(p) || wall_top.contains(p)) { return 0.0; }
 
   const Float y_off = y - CHANNEL_OFFSET;
@@ -217,10 +217,7 @@ auto main(int argc, char** argv) -> int {
       calc_mid_time(fs.curr.U, fs.old.U);
       calc_mid_time(fs.curr.V, fs.old.V);
 
-      // = Update flow field =======================================================================
-      calc_dmomdt(fs, drhoUdt, drhoVdt);
-      update_velocity(drhoUdt, drhoVdt, dt, fs);
-
+      // = Calculate IB correction =================================================================
       fill(ib_corr_u_stag, 0.0);
       fill(ib_corr_v_stag, 0.0);
       calc_ib_correction_shape(wall_bottom, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
@@ -228,8 +225,18 @@ auto main(int argc, char** argv) -> int {
 
       calc_ib_correction_shape(wall_top, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
       calc_ib_correction_shape(wall_top, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
+      // = Calculate IB correction =================================================================
 
-      correct_velocity_ib_implicit(ib_corr_u_stag, ib_corr_v_stag, dt, fs);
+      // = Update flow field =======================================================================
+      calc_dmomdt(fs, drhoUdt, drhoVdt);
+
+#define IMPLICIT_EULER
+#ifdef IMPLICIT_EULER
+      update_velocity(drhoUdt, drhoVdt, dt, fs);
+      correct_velocity_ib_implicit_euler(ib_corr_u_stag, ib_corr_v_stag, dt, fs);
+#else
+      update_velocity_ib_semi_analytical(drhoUdt, drhoVdt, dt, ib_corr_u_stag, ib_corr_v_stag, fs);
+#endif  // IMPLICIT_EULER
 
       apply_velocity_bconds(fs, bconds, t);
       // = Update flow field =======================================================================
@@ -285,10 +292,12 @@ auto main(int argc, char** argv) -> int {
   }
 
   // = Check results ===============================================================================
-  const Float dpdx_avg = (fs.p(NX - 1, NY / 2) - fs.p(0, NY / 2)) / CHANNEL_LENGTH;
-  const Float dpdx_exp = -2.0 * P0 / CHANNEL_LENGTH;
-  Float dpdx_error     = 0.0;
-  Float U_L1_error     = 0.0;
+  const Index i          = NX / 2;
+  const Float dpdx_avg   = (fs.p(NX - 1, NY / 2) - fs.p(0, NY / 2)) / CHANNEL_LENGTH;
+  const Float dpdx_exp   = -2.0 * P0 / CHANNEL_LENGTH;
+  const Float dpdx_local = (fs.p(i + 1, NY / 2) - fs.p(i - 1, NY / 2)) / (2.0 * fs.dx);
+  Float dpdx_error       = 0.0;
+  Float U_L1_error       = 0.0;
   {
     constexpr Index j_mid = NY / 2;
     for_each_i(fs.xm, [&](Index i) {
@@ -300,15 +309,15 @@ auto main(int argc, char** argv) -> int {
 
   {
     auto u_analytical = [=](Float y) -> Float {
-      const Point p{.x = (X_MAX - X_MIN) / 2.0, .y = y};
+      const Point p{.x = (X_MAX + X_MIN) / 2.0, .y = y};
       if (wall_bottom.contains(p) || wall_top.contains(p)) { return 0.0; }
       const auto y_off = y - CHANNEL_OFFSET;
       return dpdx_exp / (2 * VISC) * (y_off * y_off - y_off);
     };
 
-    Field1D<Float, NY + 2 * NGHOST, 0> diff{};
-    for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
-      diff(j + NGHOST) = std::abs(fs.curr.U(NX / 2, j) - u_analytical(fs.ym(j)));
+    Field1D<Float, NY, 0> diff{};
+    for (Index j = 0; j < NY; ++j) {
+      diff(j) = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j)));
     }
     U_L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
   }
@@ -330,6 +339,7 @@ auto main(int argc, char** argv) -> int {
     Igor::Info("Re         = {:.6e}", Re);
     Igor::Info("dpdx_avg   = {:.6e}", dpdx_avg);
     Igor::Info("dpdx_exp   = {:.6e}", dpdx_exp);
+    Igor::Info("dpdx_local = {:.6e}", dpdx_local);
     Igor::Info("MSE dpdx   = {:.6e}", dpdx_error);
     Igor::Info("L1-error U = {:.6e}", U_L1_error);
   }

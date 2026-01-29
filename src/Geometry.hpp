@@ -161,14 +161,16 @@ struct Rect {
     for (auto found : found_intersects) {
       num_found += static_cast<int>(found);
     }
-    IGOR_ASSERT(
-        num_found == 1, "Expected to find exactly one intersection but found {}", num_found);
+    if (num_found != 1) {
+      Igor::Panic("Expected to find exactly one intersection but found {}", num_found);
+    }
 
     for (size_t i = 0; i < intersects.size(); ++i) {
       if (found_intersects[i]) { return intersects[i]; }
     }
 
     Igor::Panic("Unreachable");
+    std::unreachable();
   }
 };
 

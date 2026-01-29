@@ -59,8 +59,8 @@ constexpr void calc_ib_correction_shape(const Shape& wall,
       return;
     }
 
-    constexpr Float TOL  = 1e-6;
-    const Point p_center = {.x = xs(i), .y = ys(j)};
+    [[maybe_unused]] constexpr Float TOL = 1e-6;
+    const Point p_center                 = {.x = xs(i), .y = ys(j)};
     if ((flow & Flow::WALL_TO_RIGHT) > 0) {
       const Point p_other   = {.x = xs(i + 1), .y = ys(j)};
       const Point intersect = wall.intersect_line(p_center, p_other);

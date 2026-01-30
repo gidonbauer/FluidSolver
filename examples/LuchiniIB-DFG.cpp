@@ -1,5 +1,3 @@
-#include <cstddef>
-
 #include <Igor/Logging.hpp>
 #include <Igor/Timer.hpp>
 
@@ -7,6 +5,7 @@
 // #define FS_SILENCE_CONV_WARN
 
 #include "FS.hpp"
+#include "IB.hpp"
 #include "IO.hpp"
 #include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
@@ -15,9 +14,6 @@
 #include "Utility.hpp"
 
 #include "DFGBenchmarkSetup.hpp"
-
-// See: Vreman, A.W., 2020. Immersed boundary and overset grid methods assessed for Stokes flow due
-// to an oscillating sphere. Journal of Computational Physics 423, 109783.
 
 // -------------------------------------------------------------------------------------------------
 void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
@@ -63,126 +59,6 @@ void calc_conserved_quantities_ib(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-enum IBBoundary : uint32_t {
-  INSIDE = 0b0000,
-  LEFT   = 0b0001,
-  RIGHT  = 0b0010,
-  BOTTOM = 0b0100,
-  TOP    = 0b1000,
-};
-
-[[nodiscard]] auto is_boundary(const auto& xs, const auto& ys, Index i, Index j) -> uint32_t {
-  if (immersed_wall(xs(i), ys(j)) < 1.0) { return IBBoundary::INSIDE; }
-
-  uint32_t boundary = IBBoundary::INSIDE;
-  if (immersed_wall(xs(i + 1), ys(j)) < 1.0) { boundary |= IBBoundary::RIGHT; }
-  if (immersed_wall(xs(i - 1), ys(j)) < 1.0) { boundary |= IBBoundary::LEFT; }
-  if (immersed_wall(xs(i), ys(j + 1)) < 1.0) { boundary |= IBBoundary::TOP; }
-  if (immersed_wall(xs(i), ys(j - 1)) < 1.0) { boundary |= IBBoundary::BOTTOM; }
-  return boundary;
-}
-
-// -------------------------------------------------------------------------------------------------
-[[nodiscard]] auto get_extrapolated_velocity(
-    const auto& xs, const auto& ys, Float dx, Float dy, const auto& vel, Index i, Index j)
-    -> Float {
-  auto get_weights = [](Float beta) -> std::array<Float, 3> {
-    constexpr Float BETA1 = 0.5;
-    if (beta < BETA1) {
-      return {
-          2.0 / ((1.0 - beta) * (2.0 - beta)),
-          -2.0 * beta / (1.0 - beta),
-          beta / (2.0 - beta),
-      };
-    } else {
-      const auto w0 = 2.0 / ((1.0 - BETA1) * (2.0 - BETA1));
-      return {
-          w0,
-          2.0 - (2.0 - beta) * w0,
-          -1.0 + (1.0 - beta) * w0,
-      };
-    }
-  };
-
-  // const auto [normal_x, normal_y] = normal_immersed_wall(xs(i), ys(j));
-  const auto normal    = normal_immersed_wall(xs(i), ys(j));
-  const auto direction = [&]() {
-    if (std::abs(normal.x) > std::abs(normal.y)) {
-      return normal.x > 0.0 ? IBBoundary::RIGHT : IBBoundary::LEFT;
-    } else {
-      return normal.y > 0.0 ? IBBoundary::TOP : IBBoundary::BOTTOM;
-    }
-  }();
-  // IGOR_ASSERT((direction & boundary) > 0, "Direction and boundary do not align.");
-
-  const Float U0 = 0.0;  // Velocity at interface is set to zero
-  Float U1       = 0.0;
-  Float U2       = 0.0;
-  Float beta     = 0.0;
-  switch (direction) {
-    case IBBoundary::LEFT:
-      {
-        const auto xe        = xs(i);
-        const auto ye        = ys(j);
-        const auto x1        = xs(i - 1);
-        const auto y1        = ys(j);
-        const auto intersect = wall.intersect_line({xe, ye}, {x1, y1});
-        beta                 = std::abs(intersect.x - xe) / dx;
-        U1                   = vel(i - 1, j);
-        U2                   = vel(i - 2, j);
-      }
-      break;
-    case IBBoundary::RIGHT:
-      {
-        const auto xe        = xs(i);
-        const auto ye        = ys(j);
-        const auto x1        = xs(i + 1);
-        const auto y1        = ys(j);
-        const auto intersect = wall.intersect_line({xe, ye}, {x1, y1});
-        beta                 = std::abs(intersect.x - xe) / dx;
-        U1                   = vel(i + 1, j);
-        U2                   = vel(i + 2, j);
-      }
-      break;
-    case IBBoundary::BOTTOM:
-      {
-        const auto xe        = xs(i);
-        const auto ye        = ys(j);
-        const auto x1        = xs(i);
-        const auto y1        = ys(j - 1);
-        const auto intersect = wall.intersect_line({xe, ye}, {x1, y1});
-        beta                 = std::abs(intersect.y - ye) / dy;
-        U1                   = vel(i, j - 1);
-        U2                   = vel(i, j - 2);
-      }
-      break;
-    case IBBoundary::TOP:
-      {
-        const auto xe        = xs(i);
-        const auto ye        = ys(j);
-        const auto x1        = xs(i);
-        const auto y1        = ys(j + 1);
-        const auto intersect = wall.intersect_line({xe, ye}, {x1, y1});
-        beta                 = std::abs(intersect.y - ye) / dy;
-        U1                   = vel(i, j + 1);
-        U2                   = vel(i, j + 2);
-      }
-      break;
-    case IBBoundary::INSIDE:
-    default:                 Igor::Panic("Unreachable");
-  }
-
-  const auto [w0, w1, w2] = get_weights(beta);
-  IGOR_ASSERT(std::abs(w0 + w1 + w2 - 1.0) < 1e-8,
-              "Expected sum of weights to be 1.0 but is {:.6e}",
-              w0 + w1 + w2);
-  IGOR_ASSERT(std::abs(beta * w0 + w1 + 2.0 * w2) < 1e-8,
-              "Expected beta*w0 + w1 + 2*w2 to be 0.0 but is {:.6e}",
-              beta * w0 + w1 + 2.0 * w2);
-  return w0 * U0 + w1 * U1 + w2 * U2;
-};
-
-// -------------------------------------------------------------------------------------------------
 auto main() -> int {
   // = Create output directory =====================================================================
   const auto OUTPUT_DIR = get_output_directory() + "DFG" IGOR_STRINGIFY(DFG_BENCHMARK) "/";
@@ -207,6 +83,8 @@ auto main() -> int {
   Field2D<Float, NX, NY, NGHOST> delta_p{};
 
   Field2D<Float, NX, NY, NGHOST> ib{};
+  Field2D<Float, NX + 1, NY, NGHOST> ib_corr_u_stag{};
+  Field2D<Float, NX, NY + 1, NGHOST> ib_corr_v_stag{};
 
   // Observation variables
   Float t       = 0.0;
@@ -221,9 +99,9 @@ auto main() -> int {
 
   Float div_max = 0.0;
 
-  Float p_max   = 0.0;
   Float p_res   = 0.0;
   Index p_iter  = 0;
+  Float p_max   = 0.0;
 
   Float Re      = calc_Re(t);
   Float p_diff  = 0.0;
@@ -264,18 +142,22 @@ auto main() -> int {
   // = Output ======================================================================================
 
   // = Initialize immersed boundaries ==============================================================
-  for_each_a(ib, [&](Index i, Index j) {
+  for_each_a<Exec::Parallel>(ib, [&](Index i, Index j) {
     ib(i, j) =
         quadrature(immersed_wall, fs.x(i), fs.x(i + 1), fs.y(j), fs.y(j + 1)) / (fs.dx * fs.dy);
   });
   // = Initialize immersed boundaries ==============================================================
 
+  // = Calculate IB correction =================================================================
+  fill(ib_corr_u_stag, 0.0);
+  fill(ib_corr_v_stag, 0.0);
+  calc_ib_correction_shape(wall, fs.dx, fs.dy, fs.x, fs.ym, ib_corr_u_stag);
+  calc_ib_correction_shape(wall, fs.dx, fs.dy, fs.xm, fs.y, ib_corr_v_stag);
+  // = Calculate IB correction =================================================================
+
   // = Initialize flow field =======================================================================
-  for_each_a<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-    // fs.curr.U(i, j) = 1.0 - immersed_wall(fs.x(i), fs.ym(j));
-    fs.curr.U(i, j) = 0.0;
-  });
-  for_each_a<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
+  fill(fs.curr.U, 0.0);
+  fill(fs.curr.V, 0.0);
   apply_velocity_bconds(fs, bconds, t);
 
   interpolate_U(fs.curr.U, Ui);
@@ -310,34 +192,19 @@ auto main() -> int {
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
-                          fs.curr.rho_u_stag(i, j);
-      });
-      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
-                          fs.curr.rho_v_stag(i, j);
-      });
-      // = Update flow field =======================================================================
 
-      // = IB forcing ==============================================================================
-      for_each_i<Exec::Serial>(fs.curr.U, [&](Index i, Index j) {
-        if (immersed_wall(fs.x(i), fs.ym(j)) > 0.0) { fs.curr.U(i, j) = 0.0; }
-        const auto boundary = is_boundary(fs.x, fs.ym, i, j);
-        if (boundary == IBBoundary::INSIDE) { return; }
-        fs.curr.U(i, j) = get_extrapolated_velocity(fs.x, fs.ym, fs.dx, fs.dy, fs.curr.U, i, j);
-      });
-      for_each_i<Exec::Serial>(fs.curr.V, [&](Index i, Index j) {
-        if (immersed_wall(fs.xm(i), fs.y(j)) > 0.0) { fs.curr.V(i, j) = 0.0; }
-        const auto boundary = is_boundary(fs.xm, fs.y, i, j);
-        if (boundary == IBBoundary::INSIDE) { return; }
-        fs.curr.V(i, j) = get_extrapolated_velocity(fs.xm, fs.y, fs.dx, fs.dy, fs.curr.V, i, j);
-      });
-      // = IB forcing ==============================================================================
+#define IMPLICIT_EULER
+#ifdef IMPLICIT_EULER
+      update_velocity(drhoUdt, drhoVdt, dt, fs);
+      correct_velocity_ib_implicit_euler(ib_corr_u_stag, ib_corr_v_stag, dt, fs);
+#else
+      update_velocity_ib_semi_analytical(drhoUdt, drhoVdt, dt, ib_corr_u_stag, ib_corr_v_stag, fs);
+#endif  // IMPLICIT_EULER
 
       apply_velocity_bconds(fs, bconds, t);
+      // = Update flow field =======================================================================
 
-      // Correct the outflow
+      // = Correct the outflow =====================================================================
       Float inflow     = 0.0;
       Float outflow    = 0.0;
       Float mass_error = 0.0;
@@ -346,10 +213,10 @@ auto main() -> int {
         fs.curr.U(NX + NGHOST, j) -=
             mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
       });
-
-      calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
+      // = Correct the outflow =====================================================================
 
       // = Apply pressure correction ===============================================================
+      calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
       Index local_p_iter = 0;
       ps.set_pressure_rhs(fs, div, dt);
       ps.solve(delta_p, &p_res, &local_p_iter);

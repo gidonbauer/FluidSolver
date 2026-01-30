@@ -11,6 +11,7 @@ set(executables
   SharpIB
   MovingLeastSquaresIB
   DiffuseIB-DFG
+  LuchiniIB-DFG
   SharpIB-DFG
   VerifyDFGBenchmarkSetup
 

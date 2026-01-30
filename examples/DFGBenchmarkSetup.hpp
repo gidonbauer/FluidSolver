@@ -15,6 +15,7 @@
 #include "BoundaryConditions.hpp"
 #include "Container.hpp"
 #include "FS.hpp"
+#include "Geometry.hpp"
 #include "Operators.hpp"
 #include "Quadrature.hpp"
 
@@ -29,33 +30,27 @@ constexpr Float Y_MAX = 0.4;
 #else
 constexpr Float Y_MAX = 0.41;
 #endif  // SYMMETRIC
-enum : size_t { X, Y };
 
-constexpr Index NY           = 128;
-constexpr Index NX           = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
-constexpr Index NGHOST       = 1;
+constexpr Index NY       = 128;
+constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
+constexpr Index NGHOST   = 1;
 
-constexpr Float T_END        = 8.0;
-constexpr Float DT_MAX       = 1e-2;
-constexpr Float CFL_MAX      = 0.5;
-constexpr Float DT_WRITE     = 2e-2;
+constexpr Float T_END    = 8.0;
+constexpr Float DT_MAX   = 1e-2;
+constexpr Float CFL_MAX  = 0.5;
+constexpr Float DT_WRITE = 2e-2;
 
-constexpr Float VISC         = 1e-3;
-constexpr Float RHO          = 1.0;
+constexpr Float VISC     = 1e-3;
+constexpr Float RHO      = 1.0;
 
-constexpr Float CX           = 0.2;
-constexpr Float CY           = 0.2;
-constexpr Float R0           = 0.05;
-constexpr Float L            = 2.0 * R0;
+constexpr Circle wall{.x = 0.2, .y = 0.2, .r = 0.05};
+constexpr Float L            = 2.0 * wall.r;
 constexpr auto immersed_wall = [](Float x, Float y) -> Float {
-  return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
+  return static_cast<Float>(wall.contains({x, y}));
 };
-constexpr auto normal_immersed_wall = [](Float x, Float y) -> std::array<Float, 2> {
-  const auto d = std::sqrt(Igor::sqr(x - CX) + Igor::sqr(y - CY));
-  return {
-      (x - CX) / d,
-      (y - CY) / d,
-  };
+constexpr auto normal_immersed_wall = [](Float x, Float y) -> Vector2<Float> {
+  const auto d = std::sqrt(Igor::sqr(x - wall.x) + Igor::sqr(y - wall.y));
+  return {.x = (x - wall.x) / d, .y = (y - wall.y) / d};
 };
 
 constexpr int PRESSURE_MAX_ITER = 50;
@@ -88,6 +83,19 @@ constexpr auto U_mean([[maybe_unused]] Float t) -> Float {
   return 2.0 / 3.0 * U;
 }
 
+static_assert(Igor::abs(U_mean(0.0) -
+                        quadrature([](Float y) { return U_in(y, 0.0); }, Y_MIN, Y_MAX) /
+                            (Y_MAX - Y_MIN)) < 1e-8,
+              "U_mean does not match U_in.");
+static_assert(Igor::abs(U_mean(4.0) -
+                        quadrature([](Float y) { return U_in(y, 4.0); }, Y_MIN, Y_MAX) /
+                            (Y_MAX - Y_MIN)) < 1e-8,
+              "U_mean does not match U_in.");
+static_assert(Igor::abs(U_mean(8.0) -
+                        quadrature([](Float y) { return U_in(y, 8.0); }, Y_MIN, Y_MAX) /
+                            (Y_MAX - Y_MIN)) < 1e-8,
+              "U_mean does not match U_in.");
+
 // Channel flow
 constexpr FlowBConds<Float> bconds{
     .left   = Dirichlet<Float>{.U = &U_in, .V = 0.0},
@@ -97,7 +105,7 @@ constexpr FlowBConds<Float> bconds{
 };
 // = Config ========================================================================================
 
-#if 1
+#if 0
 template <typename Float_, Index NX_, Index NY_, Index NGHOST_>
 constexpr auto eval_field_at(const Field1D<Float_, NX_, NGHOST_>& xm,
                              const Field1D<Float_, NY_, NGHOST_>& ym,
@@ -155,29 +163,29 @@ constexpr auto eval_field_at(const Field1D<Float_, NX_, NGHOST_>& xm,
 
 // -------------------------------------------------------------------------------------------------
 constexpr auto calc_p_diff(const FS<Float, NX, NY, NGHOST>& fs) -> Float {
-  constexpr std::array<Float, 2> a1 = {0.15, 0.2};
-  constexpr std::array<Float, 2> a2 = {0.25, 0.2};
-  static_assert(a1[Y] == a2[Y]);
+  constexpr Vector2<Float> a1 = {.x = 0.15, .y = 0.2};
+  constexpr Vector2<Float> a2 = {.x = 0.25, .y = 0.2};
+  static_assert(a1.y == a2.y);
 
 #if 1
-  const auto p1 = eval_field_at(fs.xm, fs.ym, fs.p, a1[X], a1[Y]);
-  const auto p2 = eval_field_at(fs.xm, fs.ym, fs.p, a2[X], a2[Y]);
+  const auto p1 = eval_field_at(fs.xm, fs.ym, fs.p, a1.x, a1.y);
+  const auto p2 = eval_field_at(fs.xm, fs.ym, fs.p, a2.x, a2.y);
 #else
-  const auto jprev = static_cast<Index>(std::floor((a1[Y] - fs.ym(0)) / fs.dy));
+  const auto jprev = static_cast<Index>(std::floor((a1.y - fs.ym(0)) / fs.dy));
   const auto jnext = jprev + 1;
-  IGOR_ASSERT(fs.ym(jprev) <= a1[Y] && a1[Y] <= fs.ym(jnext),
+  IGOR_ASSERT(fs.ym(jprev) <= a1.y && a1.y <= fs.ym(jnext),
               "Incorrect indices: {:.6e} <= {:.6e} <= {:.6e}",
               fs.ym(jprev),
-              a1[Y],
+              a1.y,
               fs.ym(jnext));
 
-  const auto i1 = static_cast<Index>(std::floor((a1[X] - fs.xm(0)) / fs.dx));
+  const auto i1 = static_cast<Index>(std::floor((a1.x - fs.xm(0)) / fs.dx));
   const auto p1 =
-      (fs.p(i1, jnext) - fs.p(i1, jprev)) / fs.dy * (a1[Y] - fs.ym(jprev)) + fs.p(i1, jprev);
+      (fs.p(i1, jnext) - fs.p(i1, jprev)) / fs.dy * (a1.y - fs.ym(jprev)) + fs.p(i1, jprev);
 
-  const auto i2 = static_cast<Index>(std::floor((a2[X] - fs.xm(0)) / fs.dx + 1.0));
+  const auto i2 = static_cast<Index>(std::floor((a2.x - fs.xm(0)) / fs.dx + 1.0));
   const auto p2 =
-      (fs.p(i2, jnext) - fs.p(i2, jprev)) / fs.dy * (a1[Y] - fs.ym(jprev)) + fs.p(i2, jprev);
+      (fs.p(i2, jnext) - fs.p(i2, jprev)) / fs.dy * (a1.y - fs.ym(jprev)) + fs.p(i2, jprev);
 #endif
 
   return p1 - p2;
@@ -199,11 +207,38 @@ constexpr auto calc_coefficient(auto&& f, const FS<Float, NX, NY, NGHOST>& fs, F
 }
 
 constexpr auto calc_C_L(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
+#if 1
+  Float lift_force = 0.0;
+  for_each_i(fs.xm, [&](Index i) {
+    const Float x = fs.xm(i);
+    if (x < wall.x - wall.r || x > wall.x + wall.r) { return; }
+
+    // (x - cx)^2 + (y - cy)^2 = r^2
+    // y_left = -sqrt(r^2 - (x - cx)^2) + cy
+    // y_right = sqrt(r^2 - (x - cx)^2) + cy
+
+    const Float y_bottom    = -std::sqrt(Igor::sqr(wall.r) - Igor::sqr(x - wall.x)) + wall.y;
+    const Float y_top       = std::sqrt(Igor::sqr(wall.r) - Igor::sqr(x - wall.x)) + wall.y;
+
+    const auto j_bottom     = static_cast<Index>(std::floor((y_bottom - fs.y(0)) / fs.dy));
+    const auto j_top        = static_cast<Index>(std::floor((y_top - fs.y(0)) / fs.dy));
+
+    const Float p_bottom    = fs.p(i, j_bottom);
+    const Float p_top       = fs.p(i, j_top);
+
+    const Float dvdy_bottom = (fs.curr.V(i, j_bottom) - fs.curr.V(i, j_bottom - 1)) / fs.dy;
+    const Float dvdy_top    = (fs.curr.V(i, j_top + 1) - fs.curr.V(i, j_top)) / fs.dy;
+
+    lift_force += -((p_bottom - p_top) + 2.0 * fs.visc_gas * (dvdy_top - dvdy_bottom)) * fs.dx;
+  });
+
+  return (2.0 * lift_force) / (fs.rho_gas * Igor::sqr(U_mean(t)) * L);
+#else
   auto f = [&](Float theta) {
     const auto normal_x = std::cos(theta);
     const auto normal_y = std::sin(theta);
-    const auto x        = CX + normal_x * R0;
-    const auto y        = CY + normal_y * R0;
+    const auto x        = wall.x + normal_x * wall.r;
+    const auto y        = wall.y + normal_y * wall.r;
 
     const auto p        = eval_field_at(fs.xm, fs.ym, fs.p, x, y);
 
@@ -221,14 +256,68 @@ constexpr auto calc_C_L(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
   };
 
   return calc_coefficient(f, fs, t);
+#endif
 }
 
 constexpr auto calc_C_D(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
+#if 1
+  Float drag_force = 0.0;
+
+  for_each_i(fs.ym, [&](Index j) {
+    const Float y = fs.ym(j);
+    if (y < wall.y - wall.r || y > wall.y + wall.r) { return; }
+
+    // (x - cx)^2 + (y - cy)^2 = r^2
+    // x_left = -sqrt(r^2 - (y - cy)^2) + cx
+    // x_right = sqrt(r^2 - (y - cy)^2) + cx
+
+    const Float x_left     = -std::sqrt(Igor::sqr(wall.r) - Igor::sqr(y - wall.y)) + wall.x;
+    const Float x_right    = std::sqrt(Igor::sqr(wall.r) - Igor::sqr(y - wall.y)) + wall.x;
+
+    const auto i_left      = static_cast<Index>(std::floor((x_left - fs.x(0)) / fs.dx));
+    const auto i_right     = static_cast<Index>(std::floor((x_right - fs.x(0)) / fs.dx));
+
+    const Float p_left     = fs.p(i_left, j);
+    const Float p_right    = fs.p(i_right, j);
+
+    const Float dudx_left  = (fs.curr.U(i_left, j) - fs.curr.U(i_left - 1, j)) / fs.dx;
+    const Float dudx_right = (fs.curr.U(i_right + 1, j) - fs.curr.U(i_right, j)) / fs.dx;
+
+    drag_force += ((p_left - p_right) + 2.0 * fs.visc_gas * (dudx_right - dudx_left)) * fs.dy;
+  });
+
+  // for_each_i(fs.xm, [&](Index i) {
+  //   const Float x = fs.xm(i);
+  //   if (x < wall.x - wall.r || x > wall.x + wall.r) { return; }
+
+  //   // (x - cx)^2 + (y - cy)^2 = r^2
+  //   // y_left = -sqrt(r^2 - (x - cx)^2) + cy
+  //   // y_right = sqrt(r^2 - (x - cx)^2) + cy
+
+  //   const Float y_bottom = -std::sqrt(Igor::sqr(wall.r) - Igor::sqr(x - wall.x)) + wall.y;
+  //   const Float y_top    = std::sqrt(Igor::sqr(wall.r) - Igor::sqr(x - wall.x)) + wall.y;
+
+  //   const auto j_bottom  = static_cast<Index>(std::floor((y_bottom - fs.y(0)) / fs.dy));
+  //   const auto j_top     = static_cast<Index>(std::floor((y_top - fs.y(0)) / fs.dy));
+
+  //   const Float dvdx_bottom =
+  //       (fs.curr.V(i + 1, j_bottom) - fs.curr.V(i - 1, j_bottom)) / (2.0 * fs.dx);
+  //   const Float dvdx_top    = (fs.curr.V(i + 1, j_top) - fs.curr.V(i - 1, j_top)) / (2.0 *
+  //   fs.dx);
+
+  //   const Float dudy_bottom = (fs.curr.U(i, j_bottom) - fs.curr.U(i, j_bottom - 1)) / fs.dy;
+  //   const Float dudy_top    = (fs.curr.U(i, j_top + 1) - fs.curr.U(i, j_top)) / fs.dy;
+
+  //   drag_force += fs.visc_gas * ((dvdx_bottom - dvdx_top) + (dudy_top - dudy_bottom)) * fs.dx;
+  // });
+
+  return (2.0 * drag_force) / (fs.rho_gas * Igor::sqr(U_mean(t)) * L);
+#else
   auto f = [&](Float theta) {
     const auto normal_x = std::cos(theta);
     const auto normal_y = std::sin(theta);
-    const auto x        = CX + normal_x * R0;
-    const auto y        = CY + normal_y * R0;
+    const auto x        = wall.x + normal_x * wall.r;
+    const auto y        = wall.y + normal_y * wall.r;
 
     const auto p        = eval_field_at(fs.xm, fs.ym, fs.p, x, y);
 
@@ -250,6 +339,7 @@ constexpr auto calc_C_D(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
   };
 
   return calc_coefficient(f, fs, t);
+#endif
 }
 
 #endif  // DFG_BENCHMARK_SETUP_HPP_

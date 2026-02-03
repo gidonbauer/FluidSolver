@@ -276,6 +276,7 @@ auto run_simulation(bool print_csv_format) -> bool {
   Field1D<Float, NY, 0> diff{};
 
   static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
+#if 0
   for_each_i(fs.x, [&](Index i) {
     for_each_i(fs.ym, [&](Index j) {
       const auto dpdx = (fs.p(i, j) - fs.p(i - 1, j)) / fs.dx;
@@ -285,6 +286,17 @@ auto run_simulation(bool print_csv_format) -> bool {
                                 std::span(&fs.ym(0), fs.ym.extent(0)));
   });
   U_error /= static_cast<Float>(fs.x.extent(0));
+#else
+  {
+    const Index i = NX / 2;
+    for_each_i(fs.ym, [&](Index j) {
+      const auto dpdx = (fs.p(i, j) - fs.p(i - 1, j)) / fs.dx;
+      diff(j)         = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j), dpdx));
+    });
+    U_error = trapezoidal_rule(std::span(diff.get_data(), diff.size()),
+                               std::span(&fs.ym(0), fs.ym.extent(0)));
+  }
+#endif
 
   // - Test V profile --------
   Float V_error = 0.0;

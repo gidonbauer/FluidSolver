@@ -11,8 +11,6 @@
 #include "Quadrature.hpp"
 #include "Utility.hpp"
 
-#include "../test/Common.hpp"
-
 // = Config ========================================================================================
 using Float                    = double;
 
@@ -24,27 +22,22 @@ constexpr Float CHANNEL_HEIGHT = 1.0;
 constexpr Float CHANNEL_LENGTH = X_MAX - X_MIN;
 constexpr Float CHANNEL_OFFSET = 2.0;
 
-#ifndef FS_SCALING_N
-#error "Need to define `FS_SCALING_N`, the number of cells in x- and y-direction"
-#endif  // FS_SCALING_N
-constexpr Index NX         = (1 << FS_SCALING_N) + 1;
-constexpr Index NY         = NX;
-constexpr Index NGHOST     = 1;
+constexpr Index NGHOST         = 1;
 
-constexpr Float T_END      = 10.0;
-constexpr Float DT_MAX     = 1e-1;
-constexpr Float CFL_MAX    = 0.25;
-constexpr Float DT_WRITE   = T_END / 100.0;
+constexpr Float T_END          = 10.0;
+constexpr Float DT_MAX         = 1e-1;
+constexpr Float CFL_MAX        = 0.25;
+constexpr Float DT_WRITE       = T_END / 100.0;
 
-constexpr Float VISC       = 1e-2;
-constexpr Float RHO        = 10.0;  // 1.0;
-constexpr Float P0         = 0.2;
+constexpr Float VISC           = 1e-2;
+constexpr Float RHO            = 10.0;  // 1.0;
+constexpr Float P0             = 0.2;
 
-constexpr Rect wall_bottom = {
-    .x = X_MIN - 1.0,
-    .y = Y_MIN,
-    .w = X_MAX - X_MIN + 1.0,
-    .h = CHANNEL_OFFSET,
+constexpr Rect wall_bottom     = {
+        .x = X_MIN - 1.0,
+        .y = Y_MIN,
+        .w = X_MAX - X_MIN + 1.0,
+        .h = CHANNEL_OFFSET,
 };
 constexpr Rect wall_top = {
     .x = X_MIN - 1.0,
@@ -83,6 +76,7 @@ constexpr FlowBConds<Float> bconds{
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
+template <Index NX, Index NY>
 void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
                          Float& inflow,
                          Float& outflow,
@@ -97,26 +91,14 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto main(int argc, char** argv) -> int {
-  bool write_csv_header = false;
-  bool write_csv        = false;
-#define USAGE Igor::Error("Usage: {} [--write-csv-header] [--write-csv]", *argv)
-  for (int i = 1; i < argc; ++i) {
-    using namespace std::string_literals;
-    if (argv[i] == "--write-csv-header"s) {
-      write_csv_header = true;
-    } else if (argv[i] == "--write-csv"s) {
-      write_csv = true;
-    } else {
-      USAGE;
-      Igor::Error("Unknown flag `{}`", argv[i]);
-    }
-  }
-#undef USAGE
+template <Index N>
+auto run_simulation(bool write_csv) -> bool {
+  constexpr Index NX = (1 << N) + 1;
+  constexpr Index NY = NX;
 
   // = Create output directory =====================================================================
-  const auto OUTPUT_DIR = get_output_directory("scaling/output") + std::to_string(FS_SCALING_N);
-  if (!init_output_directory(OUTPUT_DIR)) { return 1; }
+  const auto OUTPUT_DIR = get_output_directory("scaling/output") + std::to_string(N);
+  if (!init_output_directory(OUTPUT_DIR)) { return false; }
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{
@@ -201,7 +183,7 @@ auto main(int argc, char** argv) -> int {
   V_max   = max(fs.curr.V);
   div_max = max(div);
   p_max   = max(fs.p);
-  if (!data_writer.write(t)) { return 1; }
+  if (!data_writer.write(t)) { return false; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -286,7 +268,7 @@ auto main(int argc, char** argv) -> int {
     div_max = max(div);
     p_max   = max(fs.p);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!data_writer.write(t)) { return 1; }
+      if (!data_writer.write(t)) { return false; }
     }
     monitor.write();
   }
@@ -316,13 +298,12 @@ auto main(int argc, char** argv) -> int {
     };
 
     Field1D<Float, NY, 0> diff{};
-    for (Index j = 0; j < NY; ++j) {
-      diff(j) = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j)));
-    }
-    U_L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
+    for_each_i(fs.ym,
+               [&](Index j) { diff(j) = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j))); });
+    U_L1_error = trapezoidal_rule(std::span(diff.get_data(), diff.size()),
+                                  std::span(&fs.ym(0), fs.ym.extent(0)));
   }
 
-  if (write_csv_header) { std::cout << "NX,NY,T_END,Re,dpdx_avg,dpdx_exp,MSE_dpdx,L1_error_U\n"; }
   if (write_csv) {
     std::cout << NX << ',';
     std::cout << NY << ',';
@@ -343,4 +324,27 @@ auto main(int argc, char** argv) -> int {
     Igor::Info("MSE dpdx   = {:.6e}", dpdx_error);
     Igor::Info("L1-error U = {:.6e}", U_L1_error);
   }
+
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+auto main(int argc, char** argv) -> int {
+  bool write_csv = false;
+  for (int i = 1; i < argc; ++i) {
+    using namespace std::string_literals;
+    if (argv[i] == "--write-csv"s) {
+      write_csv = true;
+    } else {
+      Igor::Error("Usage: {} [--write-csv-header] [--write-csv]", *argv);
+      Igor::Error("Unknown flag `{}`", argv[i]);
+    }
+  }
+
+  if (write_csv) { std::cout << "NX,NY,T_END,Re,dpdx_avg,dpdx_exp,MSE_dpdx,L1_error_U\n"; }
+  run_simulation<4>(write_csv);
+  run_simulation<5>(write_csv);
+  run_simulation<6>(write_csv);
+  run_simulation<7>(write_csv);
+  run_simulation<8>(write_csv);
 }

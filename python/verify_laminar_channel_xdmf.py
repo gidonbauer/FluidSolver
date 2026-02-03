@@ -30,9 +30,18 @@ Y, X = np.meshgrid(y, x)
 NX = x.shape[0] - 1
 NY = y.shape[0] - 1
 
-P = file['60']['pressure'][:, :, 0].reshape((NY, NX)).T
-U = file['60']['velocity_x'][:, :, 0].reshape((NY, NX)).T
-V = file['60']['velocity_y'][:, :, 0].reshape((NY, NX)).T
+def isint(s):
+    try:
+        int(s)
+        return True
+    except:
+        return False
+
+last_step = str(max(map(int, filter(isint, file.keys()))))
+P = file[last_step]['pressure'][:, :, 0].reshape((NY, NX)).T
+U = file[last_step]['velocity_x'][:, :, 0].reshape((NY, NX)).T
+V = file[last_step]['velocity_y'][:, :, 0].reshape((NY, NX)).T
+t = file[last_step]['time'][0]
 
 # = Plot solution ==================================================================================
 fig, ax = plt.subplots(nrows=3, figsize=(15, 6), layout='tight')
@@ -41,19 +50,19 @@ c = ax[0].pcolormesh(X, Y, P)
 plt.colorbar(c)
 ax[0].set_xlabel(R"$x$")
 ax[0].set_ylabel(R"$y$")
-ax[0].set_title(R"Pressure")
+ax[0].set_title(f"$p(t = {t:.2f})$")
 
 c = ax[1].pcolormesh(X, Y, U)
 plt.colorbar(c)
 ax[1].set_xlabel(R"$x$")
 ax[1].set_ylabel(R"$y$")
-ax[1].set_title(R"Velocity $x$")
+ax[1].set_title(f"$U(t = {t:.2f})$")
 
 c = ax[2].pcolormesh(X, Y, V)
 plt.colorbar(c)
 ax[2].set_xlabel(R"$x$")
 ax[2].set_ylabel(R"$y$")
-ax[2].set_title(R"Velocity $y$")
+ax[2].set_title(f"$V(t = {t:.2f})$")
 
 plt.show()
 
@@ -74,7 +83,7 @@ plt.text(0.5, 0.1, f"L1 error = {L1_error:.8f}", ha='center', bbox={'boxstyle': 
 
 plt.xlabel(R"$y$")
 plt.ylabel(R"$U(x, y)$")
-plt.title(F"$x={xm[idx]:.4f}$")
+plt.title(F"$x={xm[idx]:.4f}, t={t:.2f}$")
 plt.legend()
 plt.xlim((0, 1))
 plt.ylim((0, None))

@@ -13,9 +13,8 @@
 #include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
+#include "Quadrature.hpp"
 #include "Utility.hpp"
-
-#include "Common.hpp"
 
 // = Config ========================================================================================
 using Float                     = double;
@@ -72,8 +71,8 @@ auto main(int argc, char** argv) -> int {
 
   // = Create output directory =====================================================================
   if (argc < 2) {
-    Igor::Warn("Usage: {} <initial U-velocity>", argv[0]);
-    Igor::Warn("       Did not provide initial U-velocity.");
+    Igor::Error("Usage: {} <initial U-velocity>", argv[0]);
+    Igor::Error("       Did not provide initial U-velocity.");
     return 1;
   }
 
@@ -82,7 +81,7 @@ auto main(int argc, char** argv) -> int {
   const Float U_init      = std::strtod(U_init_cstr, &cstr_end);
   if (U_init == HUGE_VAL ||
       static_cast<size_t>(cstr_end - U_init_cstr) != std::strlen(U_init_cstr)) {
-    Igor::Warn("Could not parse c-string `{}` as double.", U_init_cstr);
+    Igor::Error("Could not parse c-string `{}` as double.", U_init_cstr);
     return 1;
   }
 
@@ -216,7 +215,7 @@ auto main(int argc, char** argv) -> int {
         if (std::any_of(delta_p.get_data(), delta_p.get_data() + delta_p.size(), [](Float x) {
               return std::isnan(x);
             })) {
-          Igor::Warn("Encountered NaN value in pressure correction.");
+          Igor::Error("Encountered NaN value in pressure correction.");
           return 1;
         }
       }
@@ -238,12 +237,12 @@ auto main(int argc, char** argv) -> int {
     {
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
       if (std::abs(mass_error) > 1e-8) {
-        Igor::Warn("Outflow is not equal to inflow at t={:.6e}: inflow={:.6e}, outflow={:.6e}, "
-                   "error={:.6e}",
-                   t,
-                   inflow,
-                   outflow,
-                   std::abs(outflow - inflow));
+        Igor::Error("Outflow is not equal to inflow at t={:.6e}: inflow={:.6e}, outflow={:.6e}, "
+                    "error={:.6e}",
+                    t,
+                    inflow,
+                    outflow,
+                    std::abs(outflow - inflow));
         any_test_failed = true;
       }
     }
@@ -263,7 +262,7 @@ auto main(int argc, char** argv) -> int {
   }
 
   if (failed) {
-    Igor::Warn("LaminarChannel failed.");
+    Igor::Error("LaminarChannel failed.");
     return 1;
   }
 
@@ -283,7 +282,7 @@ auto main(int argc, char** argv) -> int {
         if (std::abs(fs.p(i, j) - ref_pressure) > TOL) { constant_pressure = false; }
       }
       if (!constant_pressure) {
-        Igor::Warn("Non constant pressure along y-axis for x={}.", fs.xm(i));
+        Igor::Error("Non constant pressure along y-axis for x={}.", fs.xm(i));
         any_test_failed = true;
       }
     }
@@ -292,7 +291,7 @@ auto main(int argc, char** argv) -> int {
     for (Index i = i_above_60 + 1; i < fs.p.extent(0); ++i) {
       const auto dpdx = (fs.p(i, NY / 2) - fs.p(i - 1, NY / 2)) / fs.dx;
       if (std::abs(ref_dpdx - dpdx) > TOL) {
-        Igor::Warn(
+        Igor::Error(
             "Non constant dpdx after x=60: Reference dpdx(x={:.6e})={:.6e}, dpdx(x={:.6e})={:.6e} "
             "=> error = {:.6e}",
             fs.x(i_above_60 + 1),
@@ -311,7 +310,7 @@ auto main(int argc, char** argv) -> int {
     auto u_analytical   = [&](Float y, Float dpdx) -> Float {
       return dpdx / (2 * VISC) * (y * y - y);
     };
-    Field1D<Float, NY + 2 * NGHOST, 0> diff{};
+    Field1D<Float, NY, NGHOST> diff{};
 
     static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
     constexpr Float TEST_X_BEGIN = 60.0;
@@ -321,17 +320,17 @@ auto main(int argc, char** argv) -> int {
       const Float x_target = TEST_X_BEGIN + static_cast<Float>(i_check) * TEST_X_STEP;
       const auto i         = static_cast<Index>(x_target / X_MAX * static_cast<Float>(NX + 1));
 
-      for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
+      for_each_a(fs.ym, [&](Index j) {
         const auto dpdx = (fs.p(i, j) - fs.p(i - 1, j)) / fs.dx;
-        diff(j + NGHOST) =
-            std::abs(fs.curr.U(static_cast<Index>(i), j) - u_analytical(fs.ym(j), dpdx));
-      }
-      const auto L1_error = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
+        diff(j) = std::abs(fs.curr.U(static_cast<Index>(i), j) - u_analytical(fs.ym(j), dpdx));
+      });
+      const auto L1_error = trapezoidal_rule(std::span(diff.get_data(), diff.size()),
+                                             std::span(fs.ym.get_data(), fs.ym.size()));
       if (L1_error > TOL) {
-        Igor::Warn("U-velocity profile at x={} does not align with analytical solution: L1-error "
-                   "is {:.6e}",
-                   fs.x(i),
-                   L1_error);
+        Igor::Error("U-velocity profile at x={} does not align with analytical solution: L1-error "
+                    "is {:.6e}",
+                    fs.x(i),
+                    L1_error);
         any_test_failed = true;
       }
     }

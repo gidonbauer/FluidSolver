@@ -13,9 +13,8 @@
 #include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
+#include "Quadrature.hpp"
 #include "Utility.hpp"
-
-#include "Common.hpp"
 
 // = Config ========================================================================================
 using Float                     = double;
@@ -224,7 +223,7 @@ auto main() -> int {
   // = Perform tests ===============================================================================
   {
     auto u_analytical = [&](Float y) -> Float { return U_TOP * y; };
-    Field1D<Float, NY + 2 * NGHOST> diff{};
+    Field1D<Float, NY, NGHOST> diff{};
 
     constexpr Index N_CHECKS                       = 3;
     constexpr std::array<size_t, N_CHECKS> i_check = {NX / 4, NX / 2, 3 * NX / 4};
@@ -232,10 +231,11 @@ auto main() -> int {
 
     size_t counter = 0;
     for (size_t i : i_check) {
-      for (Index j = -NGHOST; j < fs.curr.U.extent(1) + NGHOST; ++j) {
-        diff(j + NGHOST) = std::abs(fs.curr.U(static_cast<Index>(i), j) - u_analytical(fs.ym(j)));
-      }
-      L1_errors[counter++] = simpsons_rule_1d(diff, Y_MIN, Y_MAX);
+      for_each_a(fs.ym, [&](Index j) {
+        diff(j) = std::abs(fs.curr.U(static_cast<Index>(i), j) - u_analytical(fs.ym(j)));
+      });
+      L1_errors[counter++] = trapezoidal_rule(std::span(diff.get_data(), diff.size()),
+                                              std::span(fs.ym.get_data(), fs.ym.size()));
     }
 
     constexpr Float TOL = 1e-5;

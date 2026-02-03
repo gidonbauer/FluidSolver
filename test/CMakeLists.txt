@@ -14,6 +14,7 @@ set(executables
   Utility
   OffloadGPU
   ShapeFunction
+  Quadrature
 )
 
 foreach(exec ${executables})

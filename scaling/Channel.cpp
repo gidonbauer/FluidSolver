@@ -3,28 +3,19 @@
 #include <Igor/Logging.hpp>
 #include <Igor/Macros.hpp>
 
-// #define FS_HYPRE_VERBOSE
+#define FS_SILENCE_CONV_WARN
 
 #include "FS.hpp"
 #include "IO.hpp"
 #include "LinearSolver_StructHypre.hpp"
 #include "Monitor.hpp"
 #include "Operators.hpp"
+#include "Quadrature.hpp"
 #include "Utility.hpp"
 
-#include "../test/Common.hpp"
-
 // = Config ========================================================================================
-using Float = double;
+using Float                     = double;
 
-#ifndef FS_SCALING_N
-#error "Need to define `FS_SCALING_N`, the number of cells in y-direction"
-#else
-constexpr Index N = FS_SCALING_N;
-#endif
-
-constexpr Index NX              = 5LL * N;
-constexpr Index NY              = N;
 constexpr Index NGHOST          = 1;
 
 constexpr Float X_MIN           = 0.0;
@@ -32,7 +23,7 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = 0.0;
 constexpr Float Y_MAX           = 1.0;
 
-constexpr Float T_END           = 60.0;
+constexpr Float T_END           = 20.0;
 constexpr Float DT_MAX          = 1e-1;
 constexpr Float CFL_MAX         = 0.9;
 constexpr Float DT_WRITE        = 1.0;
@@ -47,16 +38,30 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 2;
 
-// Channel flow
+#ifdef PERIODIC
 constexpr FlowBConds<Float> bconds{
     .left   = Periodic{},
     .right  = Periodic{},
     .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
     .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
 };
+#else
+constexpr auto U_in(Float y, Float /*t*/) -> Float {
+  constexpr Float DPDX = -12.0 * VISC * TOTAL_FLOW / RHO;
+  return DPDX / (2.0 * VISC) * (y * y - y);
+}
+
+constexpr FlowBConds<Float> bconds{
+    .left   = Dirichlet<Float>{.U = &U_in, .V = 0.0},
+    .right  = Neumann{.clipped = true},
+    .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+    .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+};
+#endif  // PERIODIC
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
+template <Index NX, Index NY>
 void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
                          Float& inflow,
                          Float& outflow,
@@ -71,20 +76,14 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
 }
 
 // -------------------------------------------------------------------------------------------------
-auto main(int argc, char** argv) -> int {
-  bool print_csv_format = false;
-  for (int i = 1; i < argc; ++i) {
-    using namespace std::string_literals;
-    if (argv[i] == "--csv"s || argv[i] == "-csv"s) {
-      print_csv_format = true;
-    } else {
-      Igor::Error("Usage: {} [--csv]", argv[0]);
-      return 1;
-    }
-  }
-// = Create output directory =====================================================================
+template <Index N>
+auto run_simulation(bool print_csv_format) -> bool {
+  constexpr Index NY = (1 << N) + 1;
+  constexpr Index NX = 5LL * NY;
+
+  // = Create output directory =====================================================================
   const auto OUTPUT_DIR = get_output_directory("scaling/output") + std::to_string(N) + "/";
-  if (!init_output_directory(OUTPUT_DIR)) { return 1; }
+  if (!init_output_directory(OUTPUT_DIR)) { return false; }
 
   // = Allocate memory =============================================================================
   FS<Float, NX, NY, NGHOST> fs{
@@ -162,7 +161,7 @@ auto main(int argc, char** argv) -> int {
   div_max = abs_max(div);
   p_max   = abs_max(fs.p);
   calc_conserved_quantities(fs, mass, mom_x, mom_y);
-  if (!data_writer.write(t)) { return 1; }
+  if (!data_writer.write(t)) { return false; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
@@ -193,6 +192,7 @@ auto main(int argc, char** argv) -> int {
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
+#ifdef PERIODIC
       // = Force total flow ========================================================================
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
       const Float inflow_error  = TOTAL_FLOW - inflow;
@@ -204,6 +204,15 @@ auto main(int argc, char** argv) -> int {
                                                       static_cast<Float>(NY + 2 * NGHOST));
       });
       // = Force total flow ========================================================================
+#else
+      // = Correct outflow =========================================================================
+      calc_inflow_outflow(fs, inflow, outflow, mass_error);
+      for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+        fs.curr.U(NX + NGHOST, j) -=
+            mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
+      });
+      // = Correct outflow =========================================================================
+#endif  // PERIODIC
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
 
@@ -235,7 +244,7 @@ auto main(int argc, char** argv) -> int {
     p_max   = abs_max(fs.p);
     calc_conserved_quantities(fs, mass, mom_x, mom_y);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!data_writer.write(t)) { return 1; }
+      if (!data_writer.write(t)) { return false; }
     }
     monitor.write();
   }
@@ -264,15 +273,16 @@ auto main(int argc, char** argv) -> int {
   // - Test U profile --------
   Float U_error     = 0.0;
   auto u_analytical = [&](Float y, Float dpdx) -> Float { return dpdx / (2 * VISC) * (y * y - y); };
-  Field1D<Float, NY + 2 * NGHOST, 0> diff{};
+  Field1D<Float, NY, 0> diff{};
 
   static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
   for_each_i(fs.x, [&](Index i) {
-    for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
-      const auto dpdx  = (fs.p(i, j) - fs.p(i - 1, j)) / fs.dx;
-      diff(j + NGHOST) = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j), dpdx));
-    }
-    U_error += simpsons_rule_1d(diff, Y_MIN, Y_MAX);
+    for_each_i(fs.ym, [&](Index j) {
+      const auto dpdx = (fs.p(i, j) - fs.p(i - 1, j)) / fs.dx;
+      diff(j)         = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j), dpdx));
+    });
+    U_error += trapezoidal_rule(std::span(diff.get_data(), diff.size()),
+                                std::span(&fs.ym(0), fs.ym.extent(0)));
   });
   U_error /= static_cast<Float>(fs.x.extent(0));
 
@@ -305,5 +315,32 @@ auto main(int argc, char** argv) -> int {
     Igor::Info("Runtime [s]    = {:.6e}", t_dur.count());
   }
 
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+auto main(int argc, char** argv) -> int {
+  bool print_csv_format = false;
+  for (int i = 1; i < argc; ++i) {
+    using namespace std::string_literals;
+    if (argv[i] == "--csv"s || argv[i] == "-csv"s) {
+      print_csv_format = true;
+    } else {
+      Igor::Error("Usage: {} [--csv]", argv[0]);
+      return 1;
+    }
+  }
+
+  if (print_csv_format) {
+    std::cout << "NX,NY,dx,dy,pressure_error,dpdx_error,U_error,V_error,runtime_s\n";
+  }
+  run_simulation<3>(print_csv_format);
+  run_simulation<4>(print_csv_format);
+  run_simulation<5>(print_csv_format);
+  run_simulation<6>(print_csv_format);
+  run_simulation<7>(print_csv_format);
+  // run_simulation<8>(print_csv_format);
+  // run_simulation<9>(print_csv_format);
+  // run_simulation<10>(print_csv_format);
   return 0;
 }

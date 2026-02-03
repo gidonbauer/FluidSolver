@@ -11,21 +11,13 @@
 #include "Utility.hpp"
 
 // = Config ========================================================================================
-using Float           = double;
+using Float                     = double;
 
-constexpr Float X_MIN = 0.0;
-constexpr Float X_MAX = 1.0;
-constexpr Float Y_MIN = 0.0;
-constexpr Float Y_MAX = 1.0;
+constexpr Float X_MIN           = 0.0;
+constexpr Float X_MAX           = 1.0;
+constexpr Float Y_MIN           = 0.0;
+constexpr Float Y_MAX           = 1.0;
 
-#ifndef FS_SCALING_N
-#error "Need to define `FS_SCALING_N`, the number of cells in x- and y-direction"
-#else
-constexpr Index N = 1 << FS_SCALING_N;
-#endif
-
-constexpr Index NX              = N;
-constexpr Index NY              = N;
 constexpr Index NGHOST          = 1;
 
 constexpr Float T_END           = 25.0;
@@ -53,10 +45,14 @@ constexpr FlowBConds<Float> bconds{
 // = Config ========================================================================================
 
 // -------------------------------------------------------------------------------------------------
-auto main() -> int {
+template <Index N>
+auto run_simulation() -> bool {
+  constexpr Index NX = 1 << N;
+  constexpr Index NY = 1 << N;
+
   // = Create output directory =====================================================================
   const auto OUTPUT_DIR = get_output_directory("scaling/output") + std::to_string(N) + "/";
-  if (!init_output_directory(OUTPUT_DIR)) { return 1; }
+  if (!init_output_directory(OUTPUT_DIR)) { return false; }
   // Igor::Info("Re = {:.6e}", Re);
 
   // = Allocate memory =============================================================================
@@ -118,11 +114,10 @@ auto main() -> int {
   U_max   = abs_max(fs.curr.U);
   V_max   = abs_max(fs.curr.V);
   div_max = abs_max(div);
-  if (!data_writer.write(t)) { return 1; }
+  if (!data_writer.write(t)) { return false; }
   monitor.write();
   // = Initialize flow field =======================================================================
 
-  Igor::ScopeTimer timer(Igor::detail::format("Solver for {}x{}", NX, NY));
   while (t < T_END) {
     dt = adjust_dt(fs, CFL_MAX, DT_MAX);
     dt = std::min(dt, T_END - t);
@@ -173,10 +168,21 @@ auto main() -> int {
     V_max   = abs_max(fs.curr.V);
     div_max = abs_max(div);
     if (should_save(t, dt, DT_WRITE, T_END)) {
-      if (!data_writer.write(t)) { return 1; }
+      if (!data_writer.write(t)) { return false; }
     }
     monitor.write();
   }
 
-  Igor::Info("Solver finish successfully.");
+  return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+auto main() -> int {
+  run_simulation<4>();
+  run_simulation<5>();
+  run_simulation<6>();
+  run_simulation<7>();
+  run_simulation<8>();
+  run_simulation<9>();
+  run_simulation<10>();
 }

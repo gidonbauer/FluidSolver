@@ -144,6 +144,7 @@ constexpr void calc_jumps(InterfaceMarker& marker) {
 
     marker.p_jump(idx) = J_inv * (marker.FU(idx) * n.x + marker.FV(idx) * n.y);
 
+    // TODO: This needs to be revised
     marker.mu_dudx_jump(idx) =
         J_inv * ((1.0 - n.x * n.x) * marker.FU(idx) + (1.0 - n.x * n.y) * marker.FV(idx)) * n.x;
     marker.mu_dvdx_jump(idx) =

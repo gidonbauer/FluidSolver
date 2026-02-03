@@ -52,7 +52,6 @@ constexpr void calc_ib_correction_shape(const Shape& wall,
   auto immersed_wall = [&](Float x, Float y) { return wall.contains({.x = x, .y = y}); };
   for_each_i<Exec::Parallel>(ib_corr, [&](Index i, Index j) {
     const auto flow = characterize_flow_regime(immersed_wall, xs, ys, i, j);
-    // if (flow == Flow::FREE_FLOW || flow == Flow::SOLID) { return; }
     if (flow == Flow::FREE_FLOW) { return; }
     if (flow == Flow::SOLID) {
       ib_corr(i, j) = std::numeric_limits<Float>::infinity();

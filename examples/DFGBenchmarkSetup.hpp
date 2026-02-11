@@ -31,7 +31,7 @@ constexpr Float Y_MAX = 0.4;
 constexpr Float Y_MAX = 0.41;
 #endif  // SYMMETRIC
 
-constexpr Index NY       = 128;
+constexpr Index NY       = 256;
 constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
 constexpr Index NGHOST   = 1;
 
@@ -207,7 +207,42 @@ constexpr auto calc_coefficient(auto&& f, const FS<Float, NX, NY, NGHOST>& fs, F
 }
 
 constexpr auto calc_C_L(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
-#if 1
+#if 0
+  static Field2D<Float, NX, NY, NGHOST> dudx{};
+  static Field2D<Float, NX, NY, NGHOST> dvdy{};
+  static Field2D<Float, NX + 1, NY + 1, NGHOST> dudy{};
+  static Field2D<Float, NX + 1, NY + 1, NGHOST> dvdx{};
+
+  for_each_a<Exec::Parallel>(dudx, [&](Index i, Index j) {
+    dudx(i, j) = (fs.curr.U(i + 1, j) - fs.curr.U(i, j)) / fs.dx;
+  });
+  for_each_a<Exec::Parallel>(dvdy, [&](Index i, Index j) {
+    dvdy(i, j) = (fs.curr.V(i, j + 1) - fs.curr.V(i, j)) / fs.dy;
+  });
+  for_each_i<Exec::Parallel>(dudy, [&](Index i, Index j) {
+    dudy(i, j) = (fs.curr.U(i, j) - fs.curr.U(i, j - 1)) / fs.dy;
+  });
+  for_each_i<Exec::Parallel>(dvdx, [&](Index i, Index j) {
+    dvdx(i, j) = (fs.curr.V(i, j) - fs.curr.V(i - 1, j)) / fs.dx;
+  });
+
+  auto f = [&](Float theta) {
+    const auto normal_x    = std::cos(theta);
+    const auto normal_y    = std::sin(theta);
+    const auto x           = wall.x + normal_x * wall.r;
+    const auto y           = wall.y + normal_y * wall.r;
+
+    const auto p_interp    = eval_field_at(fs.xm, fs.ym, fs.p, x, y);
+    const auto dvdy_interp = eval_field_at(fs.xm, fs.ym, dvdy, x, y);
+    const auto dudy_interp = eval_field_at(fs.x, fs.y, dudy, x, y);
+    const auto dvdx_interp = eval_field_at(fs.x, fs.y, dvdx, x, y);
+
+    return -(fs.visc_gas * (dudy_interp + dvdx_interp)) * normal_x +
+           (p_interp + 2.0 * fs.visc_gas * dvdy_interp) * normal_y;
+  };
+
+  return calc_coefficient(f, fs, t);
+#elif 1
   Float lift_force = 0.0;
   for_each_i(fs.xm, [&](Index i) {
     const Float x = fs.xm(i);
@@ -259,8 +294,43 @@ constexpr auto calc_C_L(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
 #endif
 }
 
-constexpr auto calc_C_D(const FS<Float, NX, NY, NGHOST>& fs, Float t) {
-#if 1
+constexpr auto calc_C_D(const FS<Float, NX, NY, NGHOST>& fs, Float t) -> Float {
+#if 0
+  static Field2D<Float, NX, NY, NGHOST> dudx{};
+  static Field2D<Float, NX, NY, NGHOST> dvdy{};
+  static Field2D<Float, NX + 1, NY + 1, NGHOST> dudy{};
+  static Field2D<Float, NX + 1, NY + 1, NGHOST> dvdx{};
+
+  for_each_a<Exec::Parallel>(dudx, [&](Index i, Index j) {
+    dudx(i, j) = (fs.curr.U(i + 1, j) - fs.curr.U(i, j)) / fs.dx;
+  });
+  for_each_a<Exec::Parallel>(dvdy, [&](Index i, Index j) {
+    dvdy(i, j) = (fs.curr.V(i, j + 1) - fs.curr.V(i, j)) / fs.dy;
+  });
+  for_each_i<Exec::Parallel>(dudy, [&](Index i, Index j) {
+    dudy(i, j) = (fs.curr.U(i, j) - fs.curr.U(i, j - 1)) / fs.dy;
+  });
+  for_each_i<Exec::Parallel>(dvdx, [&](Index i, Index j) {
+    dvdx(i, j) = (fs.curr.V(i, j) - fs.curr.V(i - 1, j)) / fs.dx;
+  });
+
+  auto f = [&](Float theta) {
+    const auto normal_x    = std::cos(theta);
+    const auto normal_y    = std::sin(theta);
+    const auto x           = wall.x + normal_x * wall.r;
+    const auto y           = wall.y + normal_y * wall.r;
+
+    const auto p_interp    = eval_field_at(fs.xm, fs.ym, fs.p, x, y);
+    const auto dudx_interp = eval_field_at(fs.xm, fs.ym, dudx, x, y);
+    const auto dudy_interp = eval_field_at(fs.x, fs.y, dudy, x, y);
+    const auto dvdx_interp = eval_field_at(fs.x, fs.y, dvdx, x, y);
+
+    return (-p_interp + 2.0 * fs.visc_gas * dudx_interp) * normal_x +
+           (fs.visc_gas * (dudy_interp + dvdx_interp)) * normal_y;
+  };
+
+  return calc_coefficient(f, fs, t);
+#elif 1
   Float drag_force = 0.0;
 
   for_each_i(fs.ym, [&](Index j) {

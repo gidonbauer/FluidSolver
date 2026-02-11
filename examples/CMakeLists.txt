@@ -1,8 +1,10 @@
 set(executables
   IncompSolver
   TwoPhaseSolver
+  ChannelWithDrop
   RisingBubble
   WallBubble
+  CapillaryWave
   Wave
 
   II

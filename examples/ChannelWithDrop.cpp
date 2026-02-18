@@ -27,16 +27,16 @@ constexpr Float X_MAX           = 5.0;
 constexpr Float Y_MIN           = -0.5;
 constexpr Float Y_MAX           = 0.5;
 
-constexpr Float T_END           = 1.0;
+constexpr Float T_END           = 2.5;
 constexpr Float DT_MAX          = 1e-2;
-constexpr Float CFL_MAX         = 0.9;
+constexpr Float CFL_MAX         = 0.5;
 constexpr Float DT_WRITE        = 1e-2;
 
-constexpr Float U_IN            = 1.0;
+constexpr Float U_AVG           = 1.0;
 constexpr Float RHO_G           = 1.0;
-constexpr Float VISC_G          = 1e-1;  // 1e-6;
+constexpr Float VISC_G          = 1e-6;  // 1e-1;
 constexpr Float RHO_L           = 1e3;
-constexpr Float VISC_L          = 1e-1;  // 1e-3;
+constexpr Float VISC_L          = 1e-3;  // 1e-1;
 
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Circle DROP{.x = 1.0, .y = 0.0, .r = 0.15};
@@ -46,8 +46,12 @@ constexpr Float PRESSURE_TOL    = 1e-6;
 
 constexpr Index NUM_SUBITER     = 5;
 
+constexpr auto u_init(Float y, Float /*t*/) -> Float {
+  return -6.0 * U_AVG * (y + 0.5) * (y - 0.5);
+}
+
 constexpr FlowBConds<Float> bconds{
-    .left   = Dirichlet<Float>{.U = U_IN, .V = 0.0},
+    .left   = Dirichlet<Float>{.U = &u_init, .V = 0.0},
     .right  = Neumann{},
     .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
     .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
@@ -196,14 +200,8 @@ auto main() -> int {
   // = Initialize VOF field ========================================================================
 
   // = Initialize flow field =======================================================================
-#if 0
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-    const auto vf   = (vof.vf(i, j) + vof.vf(i - 1, j)) / 2.0;
-    fs.curr.U(i, j) = vf < 1.0 ? 1.0 : 0.0;
-  });
-#else
-  fill(fs.curr.U, 1.0);
-#endif
+  for_each_i<Exec::Parallel>(fs.curr.U,
+                             [&](Index i, Index j) { fs.curr.U(i, j) = u_init(fs.ym(j), t); });
   fill(fs.curr.V, 0.0);
   apply_velocity_bconds(fs, bconds);
 

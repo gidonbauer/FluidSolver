@@ -6,6 +6,7 @@ set(executables
   WallBubble
   CapillaryWave
   Wave
+  ExpandingBubble
 
   II
   IB-Luchini

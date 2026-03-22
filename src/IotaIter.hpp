@@ -1,6 +1,8 @@
 #ifndef FLUID_SOLVER_IOTA_ITER_HPP_
 #define FLUID_SOLVER_IOTA_ITER_HPP_
 
+#if 0
+
 #include <concepts>
 #include <iterator>
 
@@ -79,5 +81,7 @@ class IotaIter {
     return IotaIter(lhs + rhs.m_value);
   }
 };
+
+#endif
 
 #endif  // FLUID_SOLVER_IOTA_ITER_HPP_

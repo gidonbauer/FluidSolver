@@ -9,7 +9,7 @@
 #include <hdf5_hl.h>
 
 #include "Container.hpp"
-#include "ForEach.hpp"
+#include "Macros.hpp"
 
 template <typename Float, Index NX, Index NY, Index NGHOST>
 class XDMFWriter {
@@ -33,7 +33,7 @@ class XDMFWriter {
                         const Field2D<Float, NX, NY, NGHOST>& scalar,
                         const std::string& name) {
     // Make sure that data is in Fortan order, this is incorrect for HDF5 but XDMF wants it...
-    for_each_i(scalar, [&](Index i, Index j) { m_local_storage(i, j) = scalar(i, j); });
+    FS_FOR_EACH_I(scalar) { m_local_storage(i, j) = scalar(i, j); }
 
     constexpr hsize_t RANK                  = 3;
     constexpr std::array<hsize_t, RANK> DIM = {NX, NY, 1};

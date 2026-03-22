@@ -1,6 +1,8 @@
 #ifndef FLUID_SOLVER_STDPAR_OPENMP_HPP_
 #define FLUID_SOLVER_STDPAR_OPENMP_HPP_
 
+#if 0
+
 #include <cstdint>
 #include <type_traits>
 
@@ -33,5 +35,7 @@ void for_each(ExecPolicy policy, RandIt first, RandIt last, UnaryFunction&& f) {
 }
 
 }  // namespace std
+
+#endif
 
 #endif  // FLUID_SOLVER_STDPAR_OPENMP_HPP_

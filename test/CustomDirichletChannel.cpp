@@ -19,7 +19,7 @@
 // = Config ========================================================================================
 using Float                     = double;
 
-constexpr Index NX              = 5 * 43;
+constexpr Index NX              = 5L * 43;
 constexpr Index NY              = 43;
 constexpr Index NGHOST          = 1;
 
@@ -64,10 +64,10 @@ void calc_inflow_outflow(const FS<Float, NX, NY, NGHOST>& fs,
                          Float& mass_error) {
   inflow  = 0;
   outflow = 0;
-  for_each_a(fs.ym, [&](Index j) {
+  FS_FOR_EACH_A_1D(fs.ym, j) {
     inflow  += fs.curr.rho_u_stag(-NGHOST, j) * fs.curr.U(-NGHOST, j) * fs.dy;
     outflow += fs.curr.rho_u_stag(NX + NGHOST, j) * fs.curr.U(NX + NGHOST, j) * fs.dy;
-  });
+  }
   mass_error = outflow - inflow;
 }
 
@@ -143,8 +143,7 @@ auto main() -> int {
   // = Initialize pressure solver ==================================================================
 
   // = Initialize flow field =======================================================================
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) { fs.curr.U(i, j) = U_AVG; });
-  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) { fs.curr.V(i, j) = 0.0; });
+  fill(fs.curr.U, U_AVG);
   apply_velocity_bconds(fs, bconds);
 
   interpolate_U(fs.curr.U, Ui);
@@ -175,26 +174,29 @@ auto main() -> int {
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+      FS_PARALLEL_FOR(collapse(2))
+      FS_FOR_EACH_I(fs.curr.U) {
         if (std::isnan(drhoUdt(i, j))) { Igor::Panic("NaN value in drhoUdt[{}, {}]", i, j); }
         fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
                           fs.curr.rho_u_stag(i, j);
-      });
-      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+      }
+      FS_PARALLEL_FOR(collapse(2))
+      FS_FOR_EACH_I(fs.curr.V) {
         if (std::isnan(drhoVdt(i, j))) { Igor::Panic("NaN value in drhoVdt[{}, {}]", i, j); }
         fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
                           fs.curr.rho_v_stag(i, j);
-      });
+      }
 
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
       // = Correct outflow =========================================================================
       calc_inflow_outflow(fs, inflow, outflow, mass_error);
-      for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+      FS_PARALLEL_FOR()
+      FS_FOR_EACH_A_1D(fs.ym, j) {
         fs.curr.U(NX + NGHOST, j) -=
             mass_error / (fs.curr.rho_u_stag(NX + NGHOST, j) * static_cast<Float>(NY + 2 * NGHOST));
-      });
+      }
       // = Correct outflow =========================================================================
 
       calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
@@ -214,16 +216,19 @@ auto main() -> int {
       }
 
       shift_pressure_to_zero(fs.dx, fs.dy, delta_p);
-      for_each_a<Exec::Parallel>(fs.p, [&](Index i, Index j) { fs.p(i, j) += delta_p(i, j); });
+      FS_PARALLEL_FOR(collapse(2))
+      FS_FOR_EACH_A(fs.p) { fs.p(i, j) += delta_p(i, j); }
 
-      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+      FS_PARALLEL_FOR(collapse(2))
+      FS_FOR_EACH_I(fs.curr.U) {
         fs.curr.U(i, j) -=
             (delta_p(i, j) - delta_p(i - 1, j)) / fs.dx * dt / fs.curr.rho_u_stag(i, j);
-      });
-      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+      }
+      FS_PARALLEL_FOR(collapse(2))
+      FS_FOR_EACH_I(fs.curr.V) {
         fs.curr.V(i, j) -=
             (delta_p(i, j) - delta_p(i, j - 1)) / fs.dy * dt / fs.curr.rho_v_stag(i, j);
-      });
+      }
     }
     t += dt;
 
@@ -300,9 +305,8 @@ auto main() -> int {
     Field1D<Float, NY, NGHOST> diff{};
 
     static_assert(X_MIN == 0.0, "Expected X_MIN to be 0 to make things a bit easier.");
-    for_each_i(fs.x, [&](Index i) {
-      for_each_a(fs.ym,
-                 [&](Index j) { diff(j) = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j))); });
+    FS_FOR_EACH_I_1D(fs.x, i) {
+      FS_FOR_EACH_A_1D(fs.ym, j) { diff(j) = std::abs(fs.curr.U(i, j) - u_analytical(fs.ym(j))); }
       const auto L1_error = trapezoidal_rule(std::span(diff.get_data(), diff.size()),
                                              std::span(fs.ym.get_data(), fs.ym.size()));
       if (L1_error > TOL) {
@@ -312,13 +316,13 @@ auto main() -> int {
                     L1_error);
         any_test_failed = true;
       }
-    });
+    }
   }
 
   // - Test U profile --------
   {
     constexpr Float TOL = 3e-4;
-    for_each_i(fs.curr.V, [&](Index i, Index j) {
+    FS_FOR_EACH_I(fs.curr.V) {
       if (std::abs(fs.curr.V(i, j)) > TOL) {
         Igor::Error("V-velocity at ({:.6e}, {:.6e}) is not zero: {:.6e}",
                     fs.xm(i),
@@ -326,7 +330,7 @@ auto main() -> int {
                     fs.curr.V(i, j));
         any_test_failed = true;
       }
-    });
+    }
   }
 
   return any_test_failed ? 1 : 0;

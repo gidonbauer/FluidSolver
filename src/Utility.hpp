@@ -7,7 +7,7 @@
 #include <Igor/Math.hpp>
 
 #include "Container.hpp"
-#include "ForEach.hpp"
+#include "Macros.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <bool INCLUDE_GHOST = false,
@@ -23,21 +23,9 @@ template <bool INCLUDE_GHOST = false,
 
   Float res = init;
   if (INCLUDE_GHOST) {
-    for_each_a(vec,
-               [&res,
-                &vec,
-                reduce    = std::forward<BinaryFunc>(reduce),
-                transform = std::forward<UnaryFunc>(transform)](Index i) {
-                 res = reduce(res, transform(vec(i)));
-               });
+    FS_FOR_EACH_A_1D(vec, i) { res = reduce(res, transform(vec(i))); }
   } else {
-    for_each_i(vec,
-               [&res,
-                &vec,
-                reduce    = std::forward<BinaryFunc>(reduce),
-                transform = std::forward<UnaryFunc>(transform)](Index i) {
-                 res = reduce(res, transform(vec(i)));
-               });
+    FS_FOR_EACH_I_1D(vec, i) { res = reduce(res, transform(vec(i))); }
   }
   return res;
 }
@@ -57,21 +45,9 @@ template <bool INCLUDE_GHOST = false,
 
   Float res = init;
   if (INCLUDE_GHOST) {
-    for_each_a(mat,
-               [&mat,
-                &res,
-                reduce    = std::forward<BinaryFunc>(reduce),
-                transform = std::forward<UnaryFunc>(transform)](Index i, Index j) {
-                 res = reduce(res, transform(mat(i, j)));
-               });
+    FS_FOR_EACH_A(mat) { res = reduce(res, transform(mat(i, j))); }
   } else {
-    for_each_i(mat,
-               [&mat,
-                &res,
-                reduce    = std::forward<BinaryFunc>(reduce),
-                transform = std::forward<UnaryFunc>(transform)](Index i, Index j) {
-                 res = reduce(res, transform(mat(i, j)));
-               });
+    FS_FOR_EACH_I(mat) { res = reduce(res, transform(mat(i, j))); }
   }
   return res;
 }

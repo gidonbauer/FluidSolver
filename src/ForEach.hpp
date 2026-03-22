@@ -1,6 +1,8 @@
 #ifndef FLUID_SOLVER_FOR_EACH_HPP_
 #define FLUID_SOLVER_FOR_EACH_HPP_
 
+#if 0
+
 #include <algorithm>
 #ifdef FS_STDPAR
 #include <execution>
@@ -134,5 +136,7 @@ FS_ALWAYS_INLINE void for_each_a([[maybe_unused]] const Field2D<Float, NX, NY, N
                                  FUNC&& f) noexcept {
   for_each<-NGHOST, NX + NGHOST, -NGHOST, NY + NGHOST, EXEC, LAYOUT>(std::forward<FUNC&&>(f));
 }
+
+#endif
 
 #endif  // FLUID_SOLVER_FOR_EACH_HPP_

@@ -64,10 +64,10 @@ class LinearSolver_StructHypre {
   // -----------------------------------------------------------------------------------------------
   constexpr LinearSolver_StructHypre(const LinearSolver_StructHypre& other) noexcept = delete;
   constexpr LinearSolver_StructHypre(LinearSolver_StructHypre&& other) noexcept      = delete;
-  constexpr auto
-  operator=(const LinearSolver_StructHypre& other) noexcept -> LinearSolver_StructHypre& = delete;
-  constexpr auto
-  operator=(LinearSolver_StructHypre&& other) noexcept -> LinearSolver_StructHypre& = delete;
+  constexpr auto operator=(const LinearSolver_StructHypre& other) noexcept
+      -> LinearSolver_StructHypre& = delete;
+  constexpr auto operator=(LinearSolver_StructHypre&& other) noexcept
+      -> LinearSolver_StructHypre& = delete;
 
   // -----------------------------------------------------------------------------------------------
   constexpr ~LinearSolver_StructHypre() noexcept {
@@ -166,7 +166,7 @@ class LinearSolver_StructHypre {
 
     // = Get solution ==============================================================================
     HYPRE_StructVectorGetBoxValues(m_sol, ilower.data(), iupper.data(), lin_sys.rhs.get_data());
-    for_each_a<Exec::Serial>(sol, [&](Index i, Index j) { sol(i, j) = lin_sys.rhs(i, j); });
+    FS_FOR_EACH_A(sol) { sol(i, j) = lin_sys.rhs(i, j); }
 
     if (residual != nullptr) { *residual = final_residual; }
     if (num_iter != nullptr) { *num_iter = local_num_iter; }

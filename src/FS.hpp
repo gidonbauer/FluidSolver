@@ -8,8 +8,8 @@
 
 #include "BoundaryConditions.hpp"
 #include "Container.hpp"
-#include "ForEach.hpp"
 #include "IR.hpp"
+#include "Macros.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
@@ -53,23 +53,20 @@ struct FS {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void init_grid(Float x_min,
-                         Float x_max,
-                         Index nx,
-                         Float y_min,
-                         Float y_max,
-                         Index ny,
-                         FS<Float, NX, NY, NGHOST>& fs) noexcept {
+FS_PARALLEL_CONSTEXPR void init_grid(Float x_min,
+                                     Float x_max,
+                                     Index nx,
+                                     Float y_min,
+                                     Float y_max,
+                                     Index ny,
+                                     FS<Float, NX, NY, NGHOST>& fs) noexcept {
   fs.dx = (x_max - x_min) / static_cast<Float>(nx);
   fs.dy = (y_max - y_min) / static_cast<Float>(ny);
 
-  for_each_a<Exec::Parallel>(fs.x,
-                             [&](Index i) { fs.x(i) = x_min + static_cast<Float>(i) * fs.dx; });
-  for_each_a<Exec::Parallel>(fs.y,
-                             [&](Index j) { fs.y(j) = y_min + static_cast<Float>(j) * fs.dy; });
-
-  for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { fs.xm(i) = (fs.x(i) + fs.x(i + 1)) / 2; });
-  for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { fs.ym(j) = (fs.y(j) + fs.y(j + 1)) / 2; });
+  FS_PARALLEL_FOR() FS_FOR_EACH_A_1D(fs.x, i) { fs.x(i) = x_min + static_cast<Float>(i) * fs.dx; }
+  FS_PARALLEL_FOR() FS_FOR_EACH_A_1D(fs.y, j) { fs.y(j) = y_min + static_cast<Float>(j) * fs.dy; }
+  FS_PARALLEL_FOR() FS_FOR_EACH_A_1D(fs.xm, i) { fs.xm(i) = (fs.x(i) + fs.x(i + 1)) / 2; }
+  FS_PARALLEL_FOR() FS_FOR_EACH_A_1D(fs.ym, j) { fs.ym(j) = (fs.y(j) + fs.y(j + 1)) / 2; }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -98,7 +95,8 @@ constexpr void save_old_state(const State<Float, NX, NY, NGHOST>& curr,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-auto adjust_dt(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max) -> Float {
+constexpr auto adjust_dt(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max)
+    -> Float {
   Float CFLc_x = 0.0;
   Float CFLc_y = 0.0;
   Float CFLv_x = 0.0;
@@ -113,16 +111,16 @@ auto adjust_dt(const FS<Float, NX, NY, NGHOST>& fs, Float cfl_max, Float dt_max)
                             (4.0 * std::numbers::pi_v<Float> * fs.sigma));
   }
 
-  for_each_i(fs.visc, [&](Index i, Index j) {
+  FS_FOR_EACH_I(fs.visc) {
     CFLc_x         = std::max(CFLc_x, (fs.curr.U(i, j) + fs.curr.U(i + 1, j)) / 2 / fs.dx);
     CFLc_y         = std::max(CFLc_y, (fs.curr.V(i, j) + fs.curr.V(i, j + 1)) / 2 / fs.dy);
 
     const auto rho = (fs.curr.rho_u_stag(i, j) + fs.curr.rho_u_stag(i + 1, j) +
                       fs.curr.rho_v_stag(i, j) + fs.curr.rho_v_stag(i, j + 1)) /
                      4.0;
-    CFLv_x = std::max(CFLv_x, 4.0 * fs.visc(i, j) / (Igor::sqr(fs.dx) * rho));
-    CFLv_y = std::max(CFLv_y, 4.0 * fs.visc(i, j) / (Igor::sqr(fs.dy) * rho));
-  });
+    CFLv_x         = std::max(CFLv_x, 4.0 * fs.visc(i, j) / (Igor::sqr(fs.dx) * rho));
+    CFLv_y         = std::max(CFLv_y, 4.0 * fs.visc(i, j) / (Igor::sqr(fs.dy) * rho));
+  }
 
   return std::min(cfl_max / std::max({CFLc_x, CFLc_y, CFLv_x, CFLv_y, CFLst}), dt_max);
 }
@@ -156,9 +154,9 @@ constexpr auto calc_rho_eps(const FS<Float, NX, NY, NGHOST>& fs) noexcept -> Flo
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
-                 Field2D<Float, NX + 1, NY, NGHOST>& dmomUdt,
-                 Field2D<Float, NX, NY + 1, NGHOST>& dmomVdt) {
+FS_PARALLEL_CONSTEXPR void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
+                                       Field2D<Float, NX + 1, NY, NGHOST>& dmomUdt,
+                                       Field2D<Float, NX, NY + 1, NGHOST>& dmomVdt) {
 #ifndef FS_FUSE_MOM_ALL
   static Field2D<Float, NX, NY, 1> FXU{};
   static Field2D<Float, NX + 1, NY + 1, 0> FYU{};
@@ -293,32 +291,40 @@ void calc_dmomdt(const FS<Float, NX, NY, NGHOST>& fs,
   });
 #else
   // = Calculate dmomUdt ===========================================================================
-  for_each<-1, NX + 1, 0, NY, Exec::ParallelGPU>(
-      [&](Index i, Index j) { FXU(i, j) = calc_FXU(i, j); });
-  for_each_i<Exec::ParallelGPU>(FYU, [&](Index i, Index j) { FYU(i, j) = calc_FYU(i, j); });
-  for_each_i<Exec::ParallelGPU>(dmomUdt, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2))
+  for (Index i = -1; i < NX + 1; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      FXU(i, j) = calc_FXU(i, j);
+    }
+  }
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(FYU) { FYU(i, j) = calc_FYU(i, j); }
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(dmomUdt) {
     dmomUdt(i, j) = (FXU(i, j) - FXU(i - 1, j)) / fs.dx +  //
                     (FYU(i, j + 1) - FYU(i, j)) / fs.dy +  //
                     fs.p_jump_u_stag(i, j);
-  });
+  }
 
   // = Calculate dmomVdt ===========================================================================
-  for_each_i<Exec::ParallelGPU>(FXV, [&](Index i, Index j) { FXV(i, j) = calc_FXV(i, j); });
-  for_each<0, NX, -1, NY + 1, Exec::ParallelGPU>(
-      [&](Index i, Index j) { FYV(i, j) = calc_FYV(i, j); });
-  for_each_i<Exec::ParallelGPU>(dmomVdt, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(FXV) { FXV(i, j) = calc_FXV(i, j); }
+  FS_PARALLEL_FOR(collapse(2))
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = -1; j < NY + 1; ++j) {
+      FYV(i, j) = calc_FYV(i, j);
+    }
+  }
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(dmomVdt) {
     dmomVdt(i, j) = (FXV(i + 1, j) - FXV(i, j)) / fs.dx +  //
                     (FYV(i, j) - FYV(i, j - 1)) / fs.dy +  //
                     fs.p_jump_v_stag(i, j);
-  });
+  }
 #endif
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
-                 Field2D<Float, NX + 1, NY, NGHOST>& drho_u_stagdt,
-                 Field2D<Float, NX, NY + 1, NGHOST>& drho_v_stagdt) {
+FS_PARALLEL_CONSTEXPR void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
+                                       Field2D<Float, NX + 1, NY, NGHOST>& drho_u_stagdt,
+                                       Field2D<Float, NX, NY + 1, NGHOST>& drho_v_stagdt) {
   static Field2D<Float, NX, NY, 1> FXU{};
   static Field2D<Float, NX + 1, NY + 1, 0> FYU{};
   fill(FXU, std::numeric_limits<Float>::quiet_NaN());  // fill(FXU, 0.0);
@@ -338,21 +344,24 @@ void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
 
   // = On center mesh ========================
   // FXU = -rho * U
-  for_each<-1, NX + 1, 0, NY, Exec::Parallel>([&](Index i, Index j) {
-    const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
-                                                 fs.old.rho_u_stag(i, j),
-                                                 fs.old.rho_u_stag(i + 1, j),
-                                                 0.0,
-                                                 0.0,
-                                                 fs.curr.U(i, j),
-                                                 fs.curr.U(i + 1, j));
-    const auto U_i               = (fs.curr.U(i, j) + fs.curr.U(i + 1, j)) / 2.0;
-    FXU(i, j)                    = -rho_i_hybrid * U_i;
-  });
+  FS_PARALLEL_FOR(collapse(2))
+  for (Index i = -1; i < NX + 1; ++i) {
+    for (Index j = 0; j < NY; ++j) {
+      const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
+                                                   fs.old.rho_u_stag(i, j),
+                                                   fs.old.rho_u_stag(i + 1, j),
+                                                   0.0,
+                                                   0.0,
+                                                   fs.curr.U(i, j),
+                                                   fs.curr.U(i + 1, j));
+      const auto U_i               = (fs.curr.U(i, j) + fs.curr.U(i + 1, j)) / 2.0;
+      FXU(i, j)                    = -rho_i_hybrid * U_i;
+    }
+  }
 
   // = On corner mesh ======================
   // FYU = -rho * V
-  for_each_i<Exec::Parallel>(FYU, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(FYU) {
     const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
                                                  fs.old.rho_u_stag(i, j - 1),
                                                  fs.old.rho_u_stag(i, j),
@@ -362,18 +371,18 @@ void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
                                                  fs.curr.V(i, j));
     const auto V_i               = (fs.curr.V(i - 1, j) + fs.curr.V(i, j)) / 2;
     FYU(i, j)                    = -rho_i_hybrid * V_i;
-  });
+  }
 
-  for_each_i<Exec::Parallel>(drho_u_stagdt, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(drho_u_stagdt) {
     drho_u_stagdt(i, j) = (FXU(i, j) - FXU(i - 1, j)) / fs.dx +  //
                           (FYU(i, j + 1) - FYU(i, j)) / fs.dy;
-  });
+  }
 
   // = Calculate drhodt for V-staggered density ====================================================
 
   // = On corner mesh ======================
   // FXV = -rho*U
-  for_each_i<Exec::Parallel>(FXV, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(FXV) {
     const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
                                                  fs.old.rho_v_stag(i - 1, j),
                                                  fs.old.rho_v_stag(i, j),
@@ -383,95 +392,100 @@ void calc_drhodt(const FS<Float, NX, NY, NGHOST>& fs,
                                                  fs.curr.U(i, j));
     const auto U_i               = (fs.curr.U(i, j - 1) + fs.curr.U(i, j)) / 2.0;
     FXV(i, j)                    = -rho_i_hybrid * U_i;
-  });
+  }
 
   // = On center mesh ========================
   // FYV = -rho*V
-  for_each<0, NX, -1, NY + 1, Exec::Parallel>([&](Index i, Index j) {
-    const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
-                                                 fs.old.rho_v_stag(i, j),
-                                                 fs.old.rho_v_stag(i, j + 1),
-                                                 0.0,
-                                                 0.0,
-                                                 fs.curr.V(i, j),
-                                                 fs.curr.V(i, j + 1));
-    const auto V_i               = (fs.curr.V(i, j) + fs.curr.V(i, j + 1)) / 2.0;
-    FYV(i, j)                    = -rho_i_hybrid * V_i;
-  });
+  FS_PARALLEL_FOR(collapse(2))
+  for (Index i = 0; i < NX; ++i) {
+    for (Index j = -1; j < NY + 1; ++j) {
+      const auto [rho_i_hybrid, _] = hybrid_interp(rho_eps,
+                                                   fs.old.rho_v_stag(i, j),
+                                                   fs.old.rho_v_stag(i, j + 1),
+                                                   0.0,
+                                                   0.0,
+                                                   fs.curr.V(i, j),
+                                                   fs.curr.V(i, j + 1));
+      const auto V_i               = (fs.curr.V(i, j) + fs.curr.V(i, j + 1)) / 2.0;
+      FYV(i, j)                    = -rho_i_hybrid * V_i;
+    }
+  }
 
-  for_each_i<Exec::Parallel>(drho_v_stagdt, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(drho_v_stagdt) {
     drho_v_stagdt(i, j) = (FXV(i + 1, j) - FXV(i, j)) / fs.dx +  //
                           (FYV(i, j) - FYV(i, j - 1)) / fs.dy;
-  });
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void update_density(const Field2D<Float, NX + 1, NY, NGHOST>& drho_u_stagdt,
-                    const Field2D<Float, NX, NY + 1, NGHOST>& drho_v_stagdt,
-                    Float dt,
-                    FS<Float, NX, NY, NGHOST>& fs) {
-  for_each_i<Exec::Parallel>(fs.curr.rho_u_stag, [&](Index i, Index j) {
+FS_PARALLEL_CONSTEXPR void update_density(const Field2D<Float, NX + 1, NY, NGHOST>& drho_u_stagdt,
+                                          const Field2D<Float, NX, NY + 1, NGHOST>& drho_v_stagdt,
+                                          Float dt,
+                                          FS<Float, NX, NY, NGHOST>& fs) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.curr.rho_u_stag) {
     fs.curr.rho_u_stag(i, j) = fs.old.rho_u_stag(i, j) + dt * drho_u_stagdt(i, j);
-  });
-  for_each_i<Exec::Parallel>(fs.curr.rho_v_stag, [&](Index i, Index j) {
+  }
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.curr.rho_v_stag) {
     fs.curr.rho_v_stag(i, j) = fs.old.rho_v_stag(i, j) + dt * drho_v_stagdt(i, j);
-  });
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void update_velocity(const Field2D<Float, NX + 1, NY, NGHOST>& drhoUdt,
-                     const Field2D<Float, NX, NY + 1, NGHOST>& drhoVdt,
-                     Float dt,
-                     FS<Float, NX, NY, NGHOST>& fs) {
-  for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
+FS_PARALLEL_CONSTEXPR void update_velocity(const Field2D<Float, NX + 1, NY, NGHOST>& drhoUdt,
+                                           const Field2D<Float, NX, NY + 1, NGHOST>& drhoVdt,
+                                           Float dt,
+                                           FS<Float, NX, NY, NGHOST>& fs) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.curr.U) {
     fs.curr.U(i, j) =
         (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) / fs.curr.rho_u_stag(i, j);
-  });
-  for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
+  }
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.curr.V) {
     fs.curr.V(i, j) =
         (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) / fs.curr.rho_v_stag(i, j);
-  });
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_pressure_jump(const Field2D<Float, NX, NY, NGHOST>& vf,
-                        const Field2D<Float, NX, NY, NGHOST>& curv,
-                        const Field2D<Float, NX, NY, NGHOST>& interface_length,
-                        FS<Float, NX, NY, NGHOST>& fs) noexcept {
+FS_PARALLEL_CONSTEXPR void
+calc_pressure_jump(const Field2D<Float, NX, NY, NGHOST>& vf,
+                   const Field2D<Float, NX, NY, NGHOST>& curv,
+                   const Field2D<Float, NX, NY, NGHOST>& interface_length,
+                   FS<Float, NX, NY, NGHOST>& fs) noexcept {
   fill(fs.p_jump_u_stag, 0.0);
   fill(fs.p_jump_v_stag, 0.0);
 
-  for_each_i<Exec::Parallel>(fs.p_jump_u_stag, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.p_jump_u_stag) {
     const auto minus_length = interface_length(i - 1, j);
     const auto plus_length  = interface_length(i, j);
     const auto curv_i       = (plus_length + minus_length) > 0.0
                                   ? (curv(i, j) * plus_length + curv(i - 1, j) * minus_length) /
-                                  (plus_length + minus_length)
+                                        (plus_length + minus_length)
                                   : 0.0;
     fs.p_jump_u_stag(i, j)  = fs.sigma * curv_i * (vf(i, j) - vf(i - 1, j)) / fs.dx;
-  });
+  }
 
-  for_each_i<Exec::Parallel>(fs.p_jump_v_stag, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.p_jump_v_stag) {
     const auto minus_length = interface_length(i, j - 1);
     const auto plus_length  = interface_length(i, j);
     const auto curv_i       = (plus_length + minus_length) > 0.0
                                   ? (curv(i, j) * plus_length + curv(i, j - 1) * minus_length) /
-                                  (plus_length + minus_length)
+                                        (plus_length + minus_length)
                                   : 0.0;
     fs.p_jump_v_stag(i, j)  = fs.sigma * curv_i * (vf(i, j) - vf(i, j - 1)) / fs.dy;
-  });
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_surface_tension_force(const InterfaceReconstruction<NX, NY, NGHOST>& ir,
-                                const Field2D<Float, NX, NY, NGHOST>& vf,
-                                Float sigma,
-                                Field2D<Float, NX + 1, NY, NGHOST>& f_sigma_u,
-                                Field2D<Float, NX, NY + 1, NGHOST>& f_sigma_v) noexcept {
+FS_PARALLEL_CONSTEXPR void
+calc_surface_tension_force(const InterfaceReconstruction<NX, NY, NGHOST>& ir,
+                           const Field2D<Float, NX, NY, NGHOST>& vf,
+                           Float sigma,
+                           Field2D<Float, NX + 1, NY, NGHOST>& f_sigma_u,
+                           Field2D<Float, NX, NY + 1, NGHOST>& f_sigma_v) noexcept {
   struct Vector2 {
     Float x, y;
   };
@@ -482,7 +496,7 @@ void calc_surface_tension_force(const InterfaceReconstruction<NX, NY, NGHOST>& i
 
   // = U-staggered mesh ============================================================================
   fill(f_sigma_u, 0.0);
-  for_each_i(f_sigma_u, [&](Index i, Index j) {
+  FS_FOR_EACH_I(f_sigma_u) {
     if (!(has_interface(vf, i - 1, j) && has_interface(vf, i, j))) { return; }
 
     const auto& left_interface = ir.interface(i - 1, j);
@@ -520,11 +534,11 @@ void calc_surface_tension_force(const InterfaceReconstruction<NX, NY, NGHOST>& i
     }
 
     f_sigma_u(i, j) = sigma * (right_tangent.x - left_tangent.x);
-  });
+  }
 
   // = V-staggered mesh ============================================================================
   fill(f_sigma_v, 0.0);
-  for_each_i(f_sigma_v, [&](Index i, Index j) {
+  FS_FOR_EACH_I(f_sigma_v) {
     if (!(has_interface(vf, i, j - 1) && has_interface(vf, i, j))) { return; }
 
     const auto& left_interface = ir.interface(i, j - 1);
@@ -562,7 +576,7 @@ void calc_surface_tension_force(const InterfaceReconstruction<NX, NY, NGHOST>& i
     }
 
     f_sigma_v(i, j) = sigma * (right_tangent.y - left_tangent.y);
-  });
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -592,37 +606,37 @@ constexpr void calc_visc(FS<Float, NX, NY, NGHOST>& fs) noexcept {
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void calc_rho(const Field2D<Float, NX, NY, NGHOST>& vf,
-                        FS<Float, NX, NY, NGHOST>& fs) noexcept {
+FS_PARALLEL_CONSTEXPR void calc_rho(const Field2D<Float, NX, NY, NGHOST>& vf,
+                                    FS<Float, NX, NY, NGHOST>& fs) noexcept {
   // = Density on U-staggered mesh =================================================================
-  for_each_i<Exec::Parallel>(fs.curr.rho_u_stag, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.curr.rho_u_stag) {
     const auto rho_minus     = vf(i - 1, j) * fs.rho_liquid + (1.0 - vf(i - 1, j)) * fs.rho_gas;
     const auto rho_plus      = vf(i, j) * fs.rho_liquid + (1.0 - vf(i, j)) * fs.rho_gas;
     fs.curr.rho_u_stag(i, j) = (rho_minus + rho_plus) / 2.0;
-  });
+  }
   apply_neumann_bconds(fs.curr.rho_u_stag);
 
   // = Density on V-staggered mesh =================================================================
-  for_each_i<Exec::Parallel>(fs.curr.rho_v_stag, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.curr.rho_v_stag) {
     const auto rho_minus     = vf(i, j - 1) * fs.rho_liquid + (1.0 - vf(i, j - 1)) * fs.rho_gas;
     const auto rho_plus      = vf(i, j) * fs.rho_liquid + (1.0 - vf(i, j)) * fs.rho_gas;
     fs.curr.rho_v_stag(i, j) = (rho_minus + rho_plus) / 2.0;
-  });
+  }
   apply_neumann_bconds(fs.curr.rho_v_stag);
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-constexpr void calc_visc(const Field2D<Float, NX, NY, NGHOST>& vf,
-                         FS<Float, NX, NY, NGHOST>& fs) noexcept {
+FS_PARALLEL_CONSTEXPR void calc_visc(const Field2D<Float, NX, NY, NGHOST>& vf,
+                                     FS<Float, NX, NY, NGHOST>& fs) noexcept {
 #ifdef FS_ARITHMETIC_VISC
   // = Arithmetic viscosity on centered mesh =======================================================
-  for_each_i<Exec::Parallel>(fs.visc, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.visc) {
     fs.visc(i, j) = vf(i, j) * fs.visc_liquid + (1.0 - vf(i, j)) * fs.visc_gas;
-  });
+  }
 #else
   // = Harmonic viscosity on centered mesh =========================================================
-  for_each_i<Exec::Parallel>(fs.visc, [&](Index i, Index j) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_I(fs.visc) {
     if (vf(i, j) < VF_LOW) {
       fs.visc(i, j) = fs.visc_gas;
     } else if (vf(i, j) > VF_HIGH) {
@@ -644,21 +658,22 @@ constexpr void calc_visc(const Field2D<Float, NX, NY, NGHOST>& vf,
     // } else {
     //   fs.visc(i, j) = 1.0 / (1.0 / l + 1.0 / g);
     // }
-  });
+  }
 #endif
   apply_neumann_bconds(fs.visc);
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_conserved_quantities(const FS<Float, NX, NY, NGHOST>& fs,
-                               Float& mass,
-                               Float& momentum_x,
-                               Float& momentum_y) noexcept {
+FS_PARALLEL_CONSTEXPR void calc_conserved_quantities(const FS<Float, NX, NY, NGHOST>& fs,
+                                                     Float& mass,
+                                                     Float& momentum_x,
+                                                     Float& momentum_y) noexcept {
   mass       = 0.0;
   momentum_x = 0.0;
   momentum_y = 0.0;
 
+  FS_PARALLEL_FOR(collapse(2) reduction(+ : mass, momentum_x, momentum_y))
   for (Index i = 0; i < NX; ++i) {
     for (Index j = 0; j < NY; ++j) {
       mass += (fs.curr.rho_u_stag(i, j) + fs.curr.rho_u_stag(i + 1, j) + fs.curr.rho_v_stag(i, j) +

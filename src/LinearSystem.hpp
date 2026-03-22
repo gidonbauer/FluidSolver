@@ -33,7 +33,7 @@ class LinearSystem {
                               PSDirichlet dirichlet_bc = PSDirichlet::NONE) noexcept {
     const Float vol = fs.dx * fs.dy;
 
-    for_each_a<Exec::Parallel>(op, [&](Index i, Index j) {
+    FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_A(op) {
       std::array<Float, STENCIL_SIZE>& s = op(i, j);
       std::fill(s.begin(), s.end(), 0.0);
 
@@ -74,48 +74,48 @@ class LinearSystem {
         s[S_BOTTOM] += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j));
         s[S_TOP]    += -vol * 1.0 / (Igor::sqr(fs.dy) * fs.curr.rho_v_stag(i, j + 1));
       }
-    });
+    }
 
     switch (dirichlet_bc) {
       case PSDirichlet::LEFT:
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+        FS_PARALLEL_FOR() FS_FOR_EACH_A_1D(fs.ym, j) {
           std::array<Float, STENCIL_SIZE>& s = op(-NGHOST, j);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
           s[S_BOTTOM]                        = 0.0;
           s[S_TOP]                           = 0.0;
-        });
+        }
         break;
       case PSDirichlet::RIGHT:
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) {
+        FS_PARALLEL_FOR() FS_FOR_EACH_A_1D(fs.ym, j) {
           std::array<Float, STENCIL_SIZE>& s = op(NX + NGHOST - 1, j);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
           s[S_BOTTOM]                        = 0.0;
           s[S_TOP]                           = 0.0;
-        });
+        }
         break;
       case PSDirichlet::BOTTOM:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+        FS_PARALLEL_FOR() FS_FOR_EACH_A_1D(fs.xm, i) {
           std::array<Float, STENCIL_SIZE>& s = op(i, -NGHOST);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
           s[S_BOTTOM]                        = 0.0;
           s[S_TOP]                           = 0.0;
-        });
+        }
         break;
       case PSDirichlet::TOP:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) {
+        FS_PARALLEL_FOR() FS_FOR_EACH_A_1D(fs.xm, i) {
           std::array<Float, STENCIL_SIZE>& s = op(i, NY + NGHOST - 1);
           s[S_CENTER]                        = 1.0;
           s[S_LEFT]                          = 0.0;
           s[S_RIGHT]                         = 0.0;
           s[S_BOTTOM]                        = 0.0;
           s[S_TOP]                           = 0.0;
-        });
+        }
         break;
       case PSDirichlet::NONE: break;
     }
@@ -129,26 +129,32 @@ class LinearSystem {
     const auto vol = fs.dx * fs.dy;
 
     // = Set right-hand side =======================================================================
-    for_each_a(rhs, [&](Index i, Index j) { rhs(i, j) = -vol * div(i, j) / dt; });
+    FS_PARALLEL_FOR(collapse(2))
+    FS_FOR_EACH_A(rhs) { rhs(i, j) = -vol * div(i, j) / dt; }
 
     switch (dirichlet_bc) {
       case PSDirichlet::LEFT:
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs(-NGHOST, j) = 0.0; });
+        FS_PARALLEL_FOR()
+        FS_FOR_EACH_A_1D(fs.ym, j) { rhs(-NGHOST, j) = 0.0; }
         break;
       case PSDirichlet::RIGHT:
-        for_each_a<Exec::Parallel>(fs.ym, [&](Index j) { rhs(NX + NGHOST - 1, j) = 0.0; });
+        FS_PARALLEL_FOR()
+        FS_FOR_EACH_A_1D(fs.ym, j) { rhs(NX + NGHOST - 1, j) = 0.0; }
         break;
       case PSDirichlet::BOTTOM:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs(i, -NGHOST) = 0.0; });
+        FS_PARALLEL_FOR()
+        FS_FOR_EACH_A_1D(fs.xm, i) { rhs(i, -NGHOST) = 0.0; }
         break;
       case PSDirichlet::TOP:
-        for_each_a<Exec::Parallel>(fs.xm, [&](Index i) { rhs(i, NY + NGHOST - 1) = 0.0; });
+        FS_PARALLEL_FOR()
+        FS_FOR_EACH_A_1D(fs.xm, i) { rhs(i, NY + NGHOST - 1) = 0.0; }
         break;
       case PSDirichlet::NONE:
         const Float mean_rhs =
             std::reduce(rhs.get_data(), rhs.get_data() + rhs.size(), Float{0}, std::plus<>{}) /
             static_cast<Float>(rhs.size());
-        for_each_a<Exec::Parallel>(rhs, [&](Index i, Index j) { rhs(i, j) -= mean_rhs; });
+        FS_PARALLEL_FOR(collapse(2))
+        FS_FOR_EACH_A(rhs) { rhs(i, j) -= mean_rhs; }
         break;
     }
     IGOR_ASSERT(!has_nan_or_inf(rhs), "NaN or inf in rhs_values");

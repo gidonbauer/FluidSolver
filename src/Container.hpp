@@ -73,7 +73,7 @@ class Field1D {
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index { return ARRAY_SIZE; }
 
-  [[nodiscard]] constexpr auto n_ghost() const noexcept -> Index { return NGHOST; }
+  [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return NGHOST; }
 
   [[nodiscard]] constexpr auto extent([[maybe_unused]] Index r) const noexcept -> Index {
     IGOR_ASSERT(r >= 0 && r < 1, "Dimension {} is out of bounds for Field1D", r);
@@ -153,7 +153,7 @@ class Field2D {
   }
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index { return ARRAY_SIZE; }
-  [[nodiscard]] constexpr auto n_ghost() const noexcept -> Index { return NGHOST; }
+  [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return NGHOST; }
 
   [[nodiscard]] constexpr auto extent(Index r) const noexcept -> Index {
     IGOR_ASSERT(r >= 0 && r < 2, "Dimension {} is out of bounds for Field1D", r);

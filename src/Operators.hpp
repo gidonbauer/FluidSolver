@@ -4,81 +4,90 @@
 #include <Igor/Logging.hpp>
 
 #include "Container.hpp"
-#include "ForEach.hpp"
+#include "Macros.hpp"
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void interpolate_U(const Field2D<Float, NX + 1, NY, NGHOST>& U, Field2D<Float, NX, NY, NGHOST>& Ui) {
-  for_each_a<Exec::Parallel>(Ui, [&](Index i, Index j) { Ui(i, j) = (U(i, j) + U(i + 1, j)) / 2; });
+FS_PARALLEL_CONSTEXPR void interpolate_U(const Field2D<Float, NX + 1, NY, NGHOST>& U,
+                                         Field2D<Float, NX, NY, NGHOST>& Ui) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_A(Ui) { Ui(i, j) = (U(i, j) + U(i + 1, j)) / 2; }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void interpolate_V(const Field2D<Float, NX, NY + 1, NGHOST>& V, Field2D<Float, NX, NY, NGHOST>& Vi) {
-  for_each_a<Exec::Parallel>(Vi, [&](Index i, Index j) { Vi(i, j) = (V(i, j) + V(i, j + 1)) / 2; });
+FS_PARALLEL_CONSTEXPR void interpolate_V(const Field2D<Float, NX, NY + 1, NGHOST>& V,
+                                         Field2D<Float, NX, NY, NGHOST>& Vi) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_A(Vi) { Vi(i, j) = (V(i, j) + V(i, j + 1)) / 2; }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void interpolate_UV_staggered_field(const Field2D<Float, NX + 1, NY, NGHOST>& u_stag,
-                                    const Field2D<Float, NX, NY + 1, NGHOST>& v_stag,
-                                    Field2D<Float, NX, NY, NGHOST>& interp) noexcept {
-  for_each_a<Exec::Parallel>(interp, [&](Index i, Index j) {
+FS_PARALLEL_CONSTEXPR void
+interpolate_UV_staggered_field(const Field2D<Float, NX + 1, NY, NGHOST>& u_stag,
+                               const Field2D<Float, NX, NY + 1, NGHOST>& v_stag,
+                               Field2D<Float, NX, NY, NGHOST>& interp) noexcept {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_A(interp) {
     interp(i, j) = (u_stag(i, j) + u_stag(i + 1, j) + v_stag(i, j) + v_stag(i, j + 1)) / 4.0;
-  });
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_divergence(const Field2D<Float, NX + 1, NY, NGHOST>& U,
-                     const Field2D<Float, NX, NY + 1, NGHOST>& V,
-                     Float dx,
-                     Float dy,
-                     Field2D<Float, NX, NY, NGHOST>& div) {
-  for_each_a<Exec::Parallel>(div, [&](Index i, Index j) {
+FS_PARALLEL_CONSTEXPR void calc_divergence(const Field2D<Float, NX + 1, NY, NGHOST>& U,
+                                           const Field2D<Float, NX, NY + 1, NGHOST>& V,
+                                           Float dx,
+                                           Float dy,
+                                           Field2D<Float, NX, NY, NGHOST>& div) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_A(div) {
     div(i, j) = (U(i + 1, j) - U(i, j)) / dx + (V(i, j + 1) - V(i, j)) / dy;
-  });
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_mid_time(Field2D<Float, NX, NY, NGHOST>& current,
-                   const Field2D<Float, NX, NY, NGHOST>& old) {
-  for_each_a<Exec::Parallel>(
-      current, [&](Index i, Index j) { current(i, j) = 0.5 * (current(i, j) + old(i, j)); });
+FS_PARALLEL_CONSTEXPR void calc_mid_time(Field2D<Float, NX, NY, NGHOST>& current,
+                                         const Field2D<Float, NX, NY, NGHOST>& old) {
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_A(current) {
+    current(i, j) = 0.5 * (current(i, j) + old(i, j));
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
 template <bool INCLUDE_GHOST = false, typename Float, Index NX, Index NY, Index NGHOST>
-constexpr auto integrate(Float dx, Float dy, const Field2D<Float, NX, NY, NGHOST>& field) noexcept
-    -> Float {
+FS_PARALLEL_CONSTEXPR auto
+integrate(Float dx, Float dy, const Field2D<Float, NX, NY, NGHOST>& field) noexcept -> Float {
   Float integral = 0.0;
   if (INCLUDE_GHOST) {
-    for_each_a(field, [&](Index i, Index j) { integral += field(i, j); });
+    FS_PARALLEL_FOR(collapse(2) reduction(+ : integral))
+    FS_FOR_EACH_A(field) { integral += field(i, j); }
   } else {
-    for_each_i(field, [&](Index i, Index j) { integral += field(i, j); });
+    FS_PARALLEL_FOR(collapse(2) reduction(+ : integral))
+    FS_FOR_EACH_I(field) { integral += field(i, j); }
   }
   return integral * dx * dy;
 }
 
 // -------------------------------------------------------------------------------------------------
 template <bool INCLUDE_GHOST = false, typename Float, Index NX, Index NY, Index NGHOST>
-constexpr auto L1_norm(Float dx, Float dy, const Field2D<Float, NX, NY, NGHOST>& field) noexcept
-    -> Float {
+FS_PARALLEL_CONSTEXPR auto
+L1_norm(Float dx, Float dy, const Field2D<Float, NX, NY, NGHOST>& field) noexcept -> Float {
   Float integral = 0.0;
   if (INCLUDE_GHOST) {
-    for_each_a(field, [&](Index i, Index j) { integral += std::abs(field(i, j)); });
+    FS_PARALLEL_FOR(collapse(2) reduction(+ : integral))
+    FS_FOR_EACH_A(field) { integral += std::abs(field(i, j)); }
   } else {
-    for_each_i(field, [&](Index i, Index j) { integral += std::abs(field(i, j)); });
+    FS_PARALLEL_FOR(collapse(2) reduction(+ : integral))
+    FS_FOR_EACH_I(field) { integral += std::abs(field(i, j)); }
   }
   return integral * dx * dy;
 }
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void shift_pressure_to_zero(Float dx, Float dy, Field2D<Float, NX, NY, NGHOST>& dp) {
+FS_PARALLEL_CONSTEXPR void
+shift_pressure_to_zero(Float dx, Float dy, Field2D<Float, NX, NY, NGHOST>& dp) {
   Float vol_avg_p = integrate<true>(dx, dy, dp);
-  for_each_a<Exec::Parallel>(dp, [&](Index i, Index j) { dp(i, j) -= vol_avg_p; });
+  FS_PARALLEL_FOR(collapse(2)) FS_FOR_EACH_A(dp) { dp(i, j) -= vol_avg_p; }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -162,18 +171,22 @@ template <typename Float, Index NX, Index NY, Index NGHOST>
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Index NX, Index NY, Index NGHOST>
-void calc_grad_of_centered_points(const Field2D<Float, NX, NY, NGHOST>& f,
-                                  Float dx,
-                                  Float dy,
-                                  Field2D<Float, NX, NY, NGHOST>& dfdx,
-                                  Field2D<Float, NX, NY, NGHOST>& dfdy) noexcept {
-  for_each<-NGHOST + 1, NX + NGHOST - 1, -NGHOST + 1, NY + NGHOST - 1, Exec::Parallel>(
-      [&](Index i, Index j) {
-        dfdx(i, j) = (f(i + 1, j) - f(i - 1, j)) / (2.0 * dx);
-        dfdy(i, j) = (f(i, j + 1) - f(i, j - 1)) / (2.0 * dy);
-      });
+FS_PARALLEL_CONSTEXPR void
+calc_grad_of_centered_points(const Field2D<Float, NX, NY, NGHOST>& f,
+                             Float dx,
+                             Float dy,
+                             Field2D<Float, NX, NY, NGHOST>& dfdx,
+                             Field2D<Float, NX, NY, NGHOST>& dfdy) noexcept {
+  FS_PARALLEL_FOR(collapse(2))
+  for (Index i = -NGHOST; i < NX + NGHOST; ++i) {
+    for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
+      dfdx(i, j) = (f(i + 1, j) - f(i - 1, j)) / (2.0 * dx);
+      dfdy(i, j) = (f(i, j + 1) - f(i, j - 1)) / (2.0 * dy);
+    }
+  }
 
-  for_each<-NGHOST, NX + NGHOST, Exec::Parallel>([&](Index i) {
+  FS_PARALLEL_FOR()
+  for (Index i = -NGHOST; i < NX + NGHOST; ++i) {
     if (i > -NGHOST && i < NX + NGHOST - 1) {
       dfdx(i, -NGHOST) = (f(i + 1, -NGHOST) - f(i - 1, -NGHOST)) / (2.0 * dx);
       dfdx(i, NY + NGHOST - 1) =
@@ -184,9 +197,10 @@ void calc_grad_of_centered_points(const Field2D<Float, NX, NY, NGHOST>& f,
     dfdy(i, NY + NGHOST - 1) =
         (3.0 * f(i, NY + NGHOST - 1) - 4.0 * f(i, NY + NGHOST - 2) + f(i, NY + NGHOST - 3)) /
         (2.0 * dy);
-  });
+  }
 
-  for_each<-NGHOST, NY + NGHOST, Exec::Parallel>([&](Index j) {
+  FS_PARALLEL_FOR()
+  for (Index j = -NGHOST; j < NY + NGHOST; ++j) {
     dfdx(-NGHOST, j) =
         (-3.0 * f(-NGHOST, j) + 4.0 * f(-NGHOST + 1, j) - f(-NGHOST + 2, j)) / (2.0 * dx);
     dfdx(NX + NGHOST - 1, j) =
@@ -197,7 +211,7 @@ void calc_grad_of_centered_points(const Field2D<Float, NX, NY, NGHOST>& f,
       dfdy(NX + NGHOST - 1, j) =
           (f(NX + NGHOST - 1, j + 1) - f(NX + NGHOST - 1, j - 1)) / (2.0 * dy);
     }
-  });
+  }
 }
 
 #endif  // FLUID_SOLVER_OPERATORS_HPP_

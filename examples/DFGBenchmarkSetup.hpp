@@ -31,7 +31,7 @@ constexpr Float Y_MAX = 0.4;
 constexpr Float Y_MAX = 0.41;
 #endif  // SYMMETRIC
 
-constexpr Index NY       = 256;
+constexpr Index NY       = 64;  // 256;
 constexpr Index NX       = static_cast<Index>(NY * (X_MAX - X_MIN) / (Y_MAX - Y_MIN));
 constexpr Index NGHOST   = 1;
 

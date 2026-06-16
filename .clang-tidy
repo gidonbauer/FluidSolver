@@ -17,13 +17,16 @@ Checks:
   -readability-function-cognitive-complexity,
   -readability-math-missing-parentheses,
   -readability-avoid-unconditional-preprocessor-if,
+  -readability-simplify-boolean-expr,
   -performance-enum-size,
   -bugprone-easily-swappable-parameters,
   -cert-dcl16-c,
   -modernize-use-ranges,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-bounds-constant-array-index,
-  -modernize-use-trailing-return-type
+  -modernize-use-trailing-return-type,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-avoid-do-while
 
 CheckOptions:
   {IgnoreMacros: true}

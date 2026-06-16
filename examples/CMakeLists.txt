@@ -7,6 +7,7 @@ set(executables
   CapillaryWave
   Wave
   ExpandingBubble
+  SlowChannel
 
   II
   IB-Luchini

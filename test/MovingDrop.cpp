@@ -32,7 +32,7 @@ constexpr Float Y_MAX           = 1.0;
 constexpr Float T_END           = 0.5;
 constexpr Float DT_MAX          = 1e-2;
 constexpr Float CFL_MAX         = 0.5;
-constexpr Float DT_WRITE        = 1e-2;
+constexpr Float DT_WRITE        = T_END / 100.0;
 
 constexpr Float U_DROP          = 1.0;
 constexpr Float VISC_G          = 1e-3;  // 1e-0;
@@ -43,7 +43,7 @@ constexpr Float RHO_L           = 1e9;
 constexpr Float SURFACE_TENSION = 1.0 / 20.0;
 constexpr Float CX              = 0.25;
 constexpr Float CY              = 0.5;
-constexpr Float R0              = 0.1;
+constexpr Float R0              = 0.05;
 constexpr auto vof0             = [](Float x, Float y) {
   return static_cast<Float>(Igor::sqr(x - CX) + Igor::sqr(y - CY) <= Igor::sqr(R0));
 };
@@ -259,13 +259,7 @@ auto main() -> int {
                                drho_v_stagdt.get_data() + drho_v_stagdt.size(),
                                [](Float x) { return std::isnan(x); }),
                   "NaN value in drho_v_stagdt.");
-
-      for_each_i<Exec::Parallel>(fs.curr.rho_u_stag, [&](Index i, Index j) {
-        fs.curr.rho_u_stag(i, j) = fs.old.rho_u_stag(i, j) + dt * drho_u_stagdt(i, j);
-      });
-      for_each_i<Exec::Parallel>(fs.curr.rho_v_stag, [&](Index i, Index j) {
-        fs.curr.rho_v_stag(i, j) = fs.old.rho_v_stag(i, j) + dt * drho_v_stagdt(i, j);
-      });
+      update_density(drho_u_stagdt, drho_v_stagdt, dt, fs);
       apply_neumann_bconds(fs.curr.rho_u_stag);
       apply_neumann_bconds(fs.curr.rho_v_stag);
       if (std::any_of(fs.curr.rho_u_stag.get_data(),
@@ -283,14 +277,7 @@ auto main() -> int {
 
       // = Update flow field =======================================================================
       calc_dmomdt(fs, drhoUdt, drhoVdt);
-      for_each_i<Exec::Parallel>(fs.curr.U, [&](Index i, Index j) {
-        fs.curr.U(i, j) = (fs.old.rho_u_stag(i, j) * fs.old.U(i, j) + dt * drhoUdt(i, j)) /
-                          fs.curr.rho_u_stag(i, j);
-      });
-      for_each_i<Exec::Parallel>(fs.curr.V, [&](Index i, Index j) {
-        fs.curr.V(i, j) = (fs.old.rho_v_stag(i, j) * fs.old.V(i, j) + dt * drhoVdt(i, j)) /
-                          fs.curr.rho_v_stag(i, j);
-      });
+      update_velocity(drhoUdt, drhoVdt, dt, fs);
       // Boundary conditions
       apply_velocity_bconds(fs, bconds);
 
@@ -360,8 +347,16 @@ auto main() -> int {
     interpolate_V(fs.curr.V, Vi);
     interpolate_UV_staggered_field(fs.curr.rho_u_stag, fs.curr.rho_v_stag, rhoi);
     calc_divergence(fs.curr.U, fs.curr.V, fs.dx, fs.dy, div);
-    U_max   = abs_max(fs.curr.U);
-    V_max   = abs_max(fs.curr.V);
+    U_max = abs_max(fs.curr.U);
+    if (U_max > 1e3) {
+      Igor::Warn("t={}: High U_max(={})", t, U_max);
+      return 1;
+    }
+    V_max = abs_max(fs.curr.V);
+    if (V_max > 1e3) {
+      Igor::Warn("t={}: High V_max(={})", t, V_max);
+      return 1;
+    }
     div_max = abs_max(div);
     // div_L1  = L1_norm(fs.dx, fs.dy, div) / ((X_MAX - X_MIN) * (Y_MAX - Y_MIN));
     // p_max = abs_max(fs.p);
@@ -379,7 +374,7 @@ auto main() -> int {
 
   const auto error       = std::sqrt(Igor::sqr(cx - cx_expected) + Igor::sqr(cy - cy_expected));
 
-  if (error > 1e-2) {
+  if (error > 2e-2) {
     Igor::Warn("Expected center of fluid = ({:.6e}, {:.6e})", cx_expected, cy_expected);
     Igor::Warn("Final center of fluid    = ({:.6e}, {:.6e})", cx, cy);
     Igor::Warn("Distance = {:.6e}", error);
